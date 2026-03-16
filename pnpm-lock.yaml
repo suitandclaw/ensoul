@@ -137,6 +137,9 @@ importers:
       '@ensoul/network-client':
         specifier: workspace:*
         version: link:../network-client
+      '@ensoul/state-tree':
+        specifier: workspace:*
+        version: link:../state-tree
 
   packages/security:
     dependencies:

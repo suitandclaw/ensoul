@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@ensoul/identity": "workspace:*",
 		"@ensoul/memory": "workspace:*",
-		"@ensoul/network-client": "workspace:*"
+		"@ensoul/network-client": "workspace:*",
+		"@ensoul/state-tree": "workspace:*"
 	}
 }
