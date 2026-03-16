@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@ensoul/identity": "workspace:*",
 		"@ensoul/network-client": "workspace:*",
-		"@ensoul/state-tree": "workspace:*"
+		"@ensoul/state-tree": "workspace:*",
+		"@noble/hashes": "^2.0.1"
 	}
 }

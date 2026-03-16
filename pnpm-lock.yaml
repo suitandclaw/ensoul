@@ -47,6 +47,9 @@ importers:
       '@ensoul/state-tree':
         specifier: workspace:*
         version: link:../state-tree
+      '@noble/hashes':
+        specifier: ^2.0.1
+        version: 2.0.1
 
   packages/network-client:
     dependencies:
