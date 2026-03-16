@@ -1,0 +1,24 @@
+{
+	"name": "@ensoul/memory",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"scripts": {
+		"build": "tsc",
+		"test": "vitest run",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write ."
+	},
+	"dependencies": {
+		"@ensoul/identity": "workspace:*",
+		"@ensoul/network-client": "workspace:*",
+		"@ensoul/state-tree": "workspace:*"
+	}
+}
