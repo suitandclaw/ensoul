@@ -1,3 +1,4 @@
+// Storage engine
 export {
 	StorageEngine,
 	computeShardHash,
@@ -12,3 +13,17 @@ export type {
 	StorageStats,
 	StorageEngineConfig,
 } from "./storage/index.js";
+
+// Consensus module
+export {
+	ConsensusModule,
+	encodeAttestationPayload,
+} from "./consensus/index.js";
+
+export type {
+	ValidatorInfo,
+	Attestation,
+	AttestationPayload,
+	ThresholdResult,
+	ConsensusConfig,
+} from "./consensus/index.js";

@@ -1,76 +1,103 @@
-# Security: @ensoul/node — Storage Engine
+# Security: @ensoul/node
 
 ## Threat Model
 
-The storage engine is the persistence layer on each node in the Ensoul network. It accepts encrypted shards from agents, stores them in LevelDB, and serves them back on request. Since nodes store data they cannot read (agent-owned encryption), the primary threats are data integrity attacks, storage exhaustion, and data withholding.
+The @ensoul/node package contains the storage engine and consensus module for Ensoul network nodes. Nodes store encrypted shards for agents and participate in attestation-based consensus to confirm storage. The primary threats are data integrity attacks, storage exhaustion, consensus manipulation, and attestation forgery.
 
-**Trust boundary:** The storage engine trusts the local filesystem and LevelDB. It does NOT trust the data content (shards are opaque encrypted blobs). It does NOT trust callers to provide correct hashes — hashes are computed and verified internally.
+**Trust boundary:** The node trusts the local filesystem, LevelDB, and the cryptographic libraries (@noble/ed25519, @noble/hashes). It does NOT trust shard content (encrypted blobs), network peers, or callers to provide correct hashes or valid attestations — all are verified.
 
 **Assets protected:**
 - Shard data integrity (Blake3 hash verification)
 - Storage capacity (max limit enforcement)
-- Per-agent storage accounting (accurate tracking)
+- Attestation authenticity (Ed25519 signature verification)
+- Consensus integrity (threshold enforcement, deduplication)
 
-## Attack Vectors & Mitigations
+---
 
-### Data Corruption
-**Vector:** Hardware failure, software bug, or malicious tampering corrupts stored shard data.
-**Mitigation:** Every shard is Blake3-hashed on store. On every retrieval, the hash is recomputed and verified against the stored metadata. Corrupted shards are detected immediately and an error is thrown rather than serving bad data.
+## Storage Engine
 
-### Storage Exhaustion
-**Vector:** Malicious agents flood the node with shards to consume all disk space, denying service to legitimate agents.
-**Mitigation:** The `maxStorageBytes` configuration enforces a hard cap on total storage. Store requests that would exceed the limit are rejected. Per-agent storage tracking enables future rate-limiting and quota enforcement.
+### Attack Vectors & Mitigations
 
-### Data Withholding
-**Vector:** A node accepts a shard and signs an attestation, then silently deletes the data.
-**Mitigation:** The proof-of-storage challenge module (separate submodule) periodically verifies that nodes still hold the shards they claim. The storage engine supports `has()` and `retrieve()` for challenge response. Failed challenges result in slashing.
+**Data Corruption:** Hardware failure or tampering corrupts stored shard data.
+*Mitigation:* Every shard is Blake3-hashed on store. On every retrieval, the hash is recomputed and verified. Corrupted shards throw immediately — never served.
 
-### Shard Key Collision
-**Vector:** An attacker crafts a store request that overwrites another agent's shard by using the same (agentDid, version, shardIndex) key.
-**Mitigation:** Store requests include the agentDid which must match the authenticated caller's identity (enforced at the network layer above the storage engine). The storage engine itself uses composite keys with proper separation.
+**Storage Exhaustion:** Malicious agents flood the node to consume all disk space.
+*Mitigation:* `maxStorageBytes` enforces a hard cap. Store requests exceeding the limit are rejected. Per-agent tracking enables future quota enforcement.
 
-### TTL Bypass
-**Vector:** Attacker stores a shard with no TTL to bypass working-memory expiration policies.
-**Mitigation:** TTL enforcement is the caller's responsibility at the protocol layer. The storage engine faithfully applies TTLs when provided and cleans expired shards via `cleanExpired()`. Nodes should enforce minimum TTLs for working-memory tier shards at the API layer.
+**Data Withholding:** Node accepts shard, signs attestation, then deletes data.
+*Mitigation:* Proof-of-storage challenges (challenge module) periodically verify holdings. Failed challenges result in slashing.
 
-### Metadata Tampering
-**Vector:** Attacker modifies stored metadata (hash, size) to make a corrupted shard appear valid.
-**Mitigation:** Metadata is stored alongside data in the same LevelDB instance. If an attacker has write access to LevelDB, they could tamper with both data and metadata — but this requires local filesystem access, which is outside our trust boundary. For network-level integrity, the challenge module verifies shards against agent-provided hashes.
+**Shard Key Collision:** Attacker overwrites another agent's shard using the same composite key.
+*Mitigation:* The (agentDid, version, shardIndex) key includes the agent's DID. Network layer must authenticate the caller's identity matches the agentDid.
 
-## Invariants
+**TTL Bypass:** Attacker stores without TTL to avoid working-memory expiration.
+*Mitigation:* TTL enforcement is applied faithfully when provided. Protocol layer should enforce minimum TTLs for working-memory tier.
 
-1. **Hash integrity:** A shard's Blake3 hash MUST be computed on store and verified on every retrieve. A mismatch MUST throw an error — never serve corrupted data.
-2. **Storage accounting accuracy:** `getStats().totalBytes` MUST equal the sum of all stored shard sizes at all times. Overwrites and deletes MUST correctly update the accounting.
-3. **Limit enforcement:** If `maxStorageBytes > 0`, a store that would cause `totalBytes > maxStorageBytes` MUST be rejected before writing any data.
-4. **TTL enforcement:** A shard with `expiresAt < Date.now()` MUST NOT be served by `retrieve()` or reported by `has()`.
-5. **Key isolation:** Shards for different (agentDid, version, shardIndex) tuples MUST be stored and retrieved independently. No cross-contamination.
-6. **Overwrite correctness:** Storing a shard at an existing key MUST replace the old data and metadata, and MUST update storage accounting to reflect the new size (not the old + new).
+**Metadata Tampering:** Attacker modifies stored metadata to mask corruption.
+*Mitigation:* Requires local filesystem access (outside trust boundary). Challenge module verifies against agent-provided hashes for network-level integrity.
+
+### Storage Invariants
+
+1. **Hash integrity:** Blake3 hash computed on store, verified on every retrieve. Mismatch throws.
+2. **Accounting accuracy:** `totalBytes` always equals sum of stored shard sizes. Overwrites and deletes correctly update accounting.
+3. **Limit enforcement:** If `maxStorageBytes > 0`, stores exceeding the limit are rejected before writing.
+4. **TTL enforcement:** Expired shards are never served or reported as existing.
+5. **Key isolation:** Different (agentDid, version, shardIndex) tuples are fully independent.
+6. **Overwrite correctness:** Overwrites replace data and update accounting to new size only.
+
+---
+
+## Consensus Module
+
+### Attack Vectors & Mitigations
+
+**Attestation Forgery:** Attacker creates a fake attestation claiming a validator signed it.
+*Mitigation:* Every attestation is Ed25519-signed. Verification checks the signature against the registered validator's public key. Without the private key, forging a valid signature is computationally infeasible.
+
+**Consensus Manipulation (Sybil):** Attacker registers many fake validators to dominate threshold.
+*Mitigation:* Validators must have staked tokens (enforced by `minStake`). Creating validators has real economic cost. The protocol requires K-of-N attestations from *registered* validators only.
+
+**Replay Attack:** Attacker replays valid attestations from a previous version/state.
+*Mitigation:* Attestations include agentDid, stateRoot, version, and timestamp. Threshold checking requires all attestations to match the expected agentDid, stateRoot, and version. Old attestations for different versions are rejected.
+
+**Double-Counting:** Same validator submits multiple attestations for the same request.
+*Mitigation:* Threshold checking deduplicates by validatorDid. Multiple attestations from the same validator count as one.
+
+**Validator Removal After Attestation:** Validator signs attestation then is removed before threshold check.
+*Mitigation:* Attestation verification checks current validator set. A removed validator's attestations are rejected. This is by design — the current validator set is authoritative.
+
+**Impersonation:** Attacker claims attestation is from validator B but signature is from validator A.
+*Mitigation:* The validatorDid is part of the signed payload. Verification reconstructs the payload with the claimed validatorDid and verifies against that validator's public key. A mismatched validatorDid produces a different message, so the signature fails.
+
+### Consensus Invariants
+
+1. **Signature authenticity:** An attestation's signature MUST verify against the claimed validator's registered public key. Any tampering to any field (agentDid, stateRoot, version, timestamp, validatorDid) MUST cause verification to fail.
+2. **Validator registration:** Only registered validators with sufficient stake can create attestations. Unregistered identities are rejected.
+3. **Threshold correctness:** `checkThreshold` returns `met: true` ONLY when at least K unique, valid, matching attestations are collected. Duplicates from the same validator count once.
+4. **Payload determinism:** The same attestation fields MUST always produce the same signed message bytes. Non-deterministic encoding would allow signature bypass.
+5. **Set consistency:** Validator set changes (add/remove) take immediate effect. Attestations from removed validators fail verification.
+
+---
 
 ## Fuzz Targets
 
-### store()
-- Data: 1 byte to 10MB, all-zero, all-0xFF, random
-- agentDid: empty string, very long strings, special characters, unicode
-- version/shardIndex: 0, negative, MAX_SAFE_INTEGER
-- ttlMs: 0, 1, negative, very large
-- Concurrent stores to the same key
+### Storage Engine
+- store(): data sizes 1B–10MB, special characters in agentDid, boundary version/shardIndex values
+- retrieve(): corrupted LevelDB data (bit flips, truncation), missing keys
+- cleanExpired(): mix of expired/non-expired, boundary timestamps
 
-### retrieve()
-- Corrupted data in LevelDB (bit flips, truncation, extension)
-- Missing data key with valid metadata
-- Missing metadata with valid data key
-- Expired shards at boundary (expiresAt == Date.now())
-
-### cleanExpired()
-- Mix of expired and non-expired shards
-- All expired, none expired
-- Concurrent cleanup with store/retrieve
+### Consensus Module
+- registerValidator(): invalid key lengths, zero/negative stakes, duplicate DIDs
+- verifyAttestation(): corrupted signatures (bit flips), swapped validatorDids, tampered fields
+- checkThreshold(): empty lists, all-invalid, mix of valid/invalid/duplicate/wrong-version
 
 ## Cryptographic Primitives
 
 | Operation | Library | Algorithm |
 |-----------|---------|-----------|
 | Shard hashing | @noble/hashes | Blake3 |
+| Attestation signing | @noble/ed25519 | Ed25519 (RFC 8032) |
+| Attestation verification | @noble/ed25519 | Ed25519 (RFC 8032) |
 | Storage | classic-level / memory-level | LevelDB |
 
-**No custom cryptography is implemented.** The only cryptographic operation is Blake3 hashing via @noble/hashes for integrity verification.
+**No custom cryptography is implemented.** All hashing uses Blake3. All signing/verification uses Ed25519. Both from audited @noble libraries.
