@@ -45,3 +45,8 @@ export type {
 	ChallengeSchedulerConfig,
 	ChallengableShard,
 } from "./challenge/index.js";
+
+// API server
+export { createApiServer } from "./api/index.js";
+
+export type { ApiServerConfig, CreditBalance } from "./api/index.js";

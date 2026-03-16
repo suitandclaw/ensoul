@@ -127,6 +127,38 @@ The @ensoul/node package contains the storage engine and consensus module for En
 
 ---
 
+## API Server
+
+### Attack Vectors & Mitigations
+
+**Request Flooding (DoS):** Attacker sends massive numbers of requests to overwhelm the node.
+*Mitigation:* Fastify @fastify/rate-limit enforces configurable per-IP rate limits (default 100 req/min). Fastify's native performance (high throughput, low overhead) provides additional resilience.
+
+**Unauthorized Shard Storage:** Attacker stores shards with forged agentDid to consume storage.
+*Mitigation:* The storage engine enforces `maxStorageBytes` limits. The API validates required fields. In production, request signatures should be verified against the claimed agentDid (not yet enforced at API level — planned for network integration).
+
+**Invalid Attestation Injection:** Attacker submits fake attestations to manipulate consensus.
+*Mitigation:* The API verifies the validatorDid is registered in the consensus module. Unknown validators are rejected with 403. Full signature verification happens during threshold checking.
+
+**Challenge Response Manipulation:** Attacker submits wrong hashes to pass challenges.
+*Mitigation:* The API retrieves the actual shard from storage and independently computes the expected Blake3 hash. Wrong hashes are detected and the response is marked as failed.
+
+### API Invariants
+
+1. **Input validation:** All endpoints MUST validate required fields and return 400 for missing/invalid input.
+2. **Rate limiting:** All endpoints MUST be rate-limited to prevent DoS.
+3. **Validator gating:** POST /attestations MUST reject attestations from unregistered validators (403).
+4. **Integrity on retrieval:** GET /shards MUST verify shard integrity (via storage engine Blake3 check) before serving.
+5. **Credit atomicity:** Credits awarded for passing challenges MUST be recorded atomically with the challenge result.
+
+### API Fuzz Targets
+- All POST endpoints with missing fields, wrong types, oversized payloads
+- Path params with special characters, URL encoding, negative numbers
+- Rate limit boundary testing (exactly at limit, one over)
+- Concurrent requests to same endpoint
+
+---
+
 ## Cryptographic Primitives
 
 | Operation | Library | Algorithm |
@@ -137,5 +169,6 @@ The @ensoul/node package contains the storage engine and consensus module for En
 | Attestation signing | @noble/ed25519 | Ed25519 (RFC 8032) |
 | Attestation verification | @noble/ed25519 | Ed25519 (RFC 8032) |
 | Storage | classic-level / memory-level | LevelDB |
+| HTTP server | Fastify | Rate-limited REST |
 
 **No custom cryptography is implemented.** All hashing uses Blake3. All signing/verification uses Ed25519. Random values use the OS CSPRNG via @noble/hashes. All from audited @noble libraries.
