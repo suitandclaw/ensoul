@@ -22,6 +22,8 @@
 		"@ensoul/network-client": "workspace:*",
 		"@ensoul/node": "workspace:*",
 		"@ensoul/plugin-elizaos": "workspace:*",
-		"@ensoul/state-tree": "workspace:*"
+		"@ensoul/state-tree": "workspace:*",
+		"@noble/hashes": "^2.0.1",
+		"memory-level": "^3.1.0"
 	}
 }
