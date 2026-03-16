@@ -1,0 +1,291 @@
+import { blake3 } from "@noble/hashes/blake3.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import type {
+	Block,
+	Transaction,
+	GenesisConfig,
+} from "./types.js";
+import {
+	validateTransaction,
+	applyTransaction,
+	computeTxHash,
+	REWARDS_POOL,
+} from "./transactions.js";
+import { AccountState } from "./accounts.js";
+import { Mempool } from "./mempool.js";
+
+const ENC = new TextEncoder();
+
+/**
+ * Compute the hash of a block (header only, excludes attestations).
+ */
+export function computeBlockHash(block: Block): string {
+	const data = ENC.encode(
+		JSON.stringify({
+			height: block.height,
+			previousHash: block.previousHash,
+			stateRoot: block.stateRoot,
+			transactionsRoot: block.transactionsRoot,
+			timestamp: block.timestamp,
+			proposer: block.proposer,
+		}),
+	);
+	return bytesToHex(blake3(data));
+}
+
+/**
+ * Compute the Merkle root of a list of transactions.
+ */
+export function computeTransactionsRoot(txs: Transaction[]): string {
+	if (txs.length === 0) {
+		return bytesToHex(blake3(new Uint8Array(0)));
+	}
+	const hashes = txs.map((tx) => computeTxHash(tx));
+	const combined = ENC.encode(hashes.join(":"));
+	return bytesToHex(blake3(combined));
+}
+
+/**
+ * Compute the block reward based on the emission schedule.
+ * Declining curve: halves roughly every halvingInterval blocks.
+ */
+export function computeBlockReward(
+	height: number,
+	year1PerBlock: bigint,
+	halvingIntervalBlocks: number,
+	totalReserved: bigint,
+	totalEmitted: bigint,
+): bigint {
+	if (totalEmitted >= totalReserved) return 0n;
+
+	const halvings = Math.floor(height / halvingIntervalBlocks);
+	// Each halving reduces reward by ~20% (not exactly half, to match the 10-year schedule)
+	let reward = year1PerBlock;
+	for (let i = 0; i < halvings; i++) {
+		reward = (reward * 80n) / 100n;
+	}
+
+	// Don't exceed remaining reserves
+	const remaining = totalReserved - totalEmitted;
+	return reward > remaining ? remaining : reward;
+}
+
+/**
+ * Block producer: creates new blocks from the mempool.
+ */
+export class BlockProducer {
+	private state: AccountState;
+	private mempool: Mempool;
+	private chain: Block[] = [];
+	private config: GenesisConfig;
+	private totalEmitted = 0n;
+
+	constructor(
+		state: AccountState,
+		mempool: Mempool,
+		config: GenesisConfig,
+	) {
+		this.state = state;
+		this.mempool = mempool;
+		this.config = config;
+	}
+
+	/**
+	 * Initialize the chain with the genesis block.
+	 * Distributes initial token allocations.
+	 */
+	initGenesis(): Block {
+		// Distribute genesis allocations
+		for (const alloc of this.config.allocations) {
+			this.state.credit(alloc.recipient, alloc.tokens);
+		}
+
+		const genesisBlock: Block = {
+			height: 0,
+			previousHash: "0".repeat(64),
+			stateRoot: this.state.computeStateRoot(),
+			transactionsRoot: computeTransactionsRoot([]),
+			timestamp: this.config.timestamp,
+			proposer: "genesis",
+			transactions: [],
+			attestations: [],
+		};
+
+		this.chain.push(genesisBlock);
+		return genesisBlock;
+	}
+
+	/**
+	 * Produce a new block.
+	 * Collects transactions from mempool, validates, applies, computes state root.
+	 */
+	produceBlock(
+		proposer: string,
+		maxTxPerBlock = 100,
+	): Block {
+		const previousBlock = this.chain[this.chain.length - 1];
+		if (!previousBlock) {
+			throw new Error("Chain not initialized. Call initGenesis() first.");
+		}
+
+		const previousHash = computeBlockHash(previousBlock);
+		const height = previousBlock.height + 1;
+
+		// Collect and validate transactions
+		const candidates = this.mempool.drain(maxTxPerBlock);
+		const validTxs: Transaction[] = [];
+
+		for (const tx of candidates) {
+			const result = validateTransaction(tx, this.state);
+			if (result.valid) {
+				applyTransaction(
+					tx,
+					this.state,
+					this.config.protocolFees.storageFeeProtocolShare,
+				);
+				validTxs.push(tx);
+			}
+		}
+
+		// Apply block reward (emission)
+		const reward = computeBlockReward(
+			height,
+			this.config.emissionPerBlock,
+			5_256_000, // ~3 years at 6s blocks
+			this.config.networkRewardsPool,
+			this.totalEmitted,
+		);
+
+		if (reward > 0n) {
+			// Debit from rewards pool, credit to proposer
+			const poolBalance = this.state.getBalance(REWARDS_POOL);
+			if (poolBalance >= reward) {
+				this.state.debit(REWARDS_POOL, reward);
+				this.state.credit(proposer, reward);
+				this.totalEmitted += reward;
+			}
+		}
+
+		const block: Block = {
+			height,
+			previousHash,
+			stateRoot: this.state.computeStateRoot(),
+			transactionsRoot: computeTransactionsRoot(validTxs),
+			timestamp: Date.now(),
+			proposer,
+			transactions: validTxs,
+			attestations: [],
+		};
+
+		this.chain.push(block);
+		return block;
+	}
+
+	/**
+	 * Validate an incoming block (from another proposer).
+	 * Replays transactions against a copy of the state and verifies the state root.
+	 */
+	validateBlock(block: Block): { valid: boolean; error?: string } {
+		const previousBlock = this.chain[this.chain.length - 1];
+		if (!previousBlock) {
+			return { valid: false, error: "Chain not initialized" };
+		}
+
+		// Check height
+		if (block.height !== previousBlock.height + 1) {
+			return {
+				valid: false,
+				error: `Invalid height: expected ${previousBlock.height + 1}, got ${block.height}`,
+			};
+		}
+
+		// Check previous hash
+		const expectedPrevHash = computeBlockHash(previousBlock);
+		if (block.previousHash !== expectedPrevHash) {
+			return { valid: false, error: "Invalid previous hash" };
+		}
+
+		// Verify transactions root
+		const expectedTxRoot = computeTransactionsRoot(block.transactions);
+		if (block.transactionsRoot !== expectedTxRoot) {
+			return { valid: false, error: "Invalid transactions root" };
+		}
+
+		// Replay transactions against state copy
+		const stateCopy = this.state.clone();
+		for (const tx of block.transactions) {
+			const result = validateTransaction(tx, stateCopy);
+			if (!result.valid) {
+				return {
+					valid: false,
+					error: `Invalid transaction: ${result.error}`,
+				};
+			}
+			applyTransaction(
+				tx,
+				stateCopy,
+				this.config.protocolFees.storageFeeProtocolShare,
+			);
+		}
+
+		// Apply emission reward to copy
+		const reward = computeBlockReward(
+			block.height,
+			this.config.emissionPerBlock,
+			5_256_000,
+			this.config.networkRewardsPool,
+			this.totalEmitted,
+		);
+		if (reward > 0n) {
+			const poolBalance = stateCopy.getBalance(REWARDS_POOL);
+			if (poolBalance >= reward) {
+				stateCopy.debit(REWARDS_POOL, reward);
+				stateCopy.credit(block.proposer, reward);
+			}
+		}
+
+		// Check state root
+		const expectedStateRoot = stateCopy.computeStateRoot();
+		if (block.stateRoot !== expectedStateRoot) {
+			return { valid: false, error: "Invalid state root" };
+		}
+
+		return { valid: true };
+	}
+
+	/**
+	 * Get a block by height.
+	 */
+	getBlock(height: number): Block | null {
+		return this.chain[height] ?? null;
+	}
+
+	/**
+	 * Get the latest block.
+	 */
+	getLatestBlock(): Block | null {
+		return this.chain[this.chain.length - 1] ?? null;
+	}
+
+	/**
+	 * Get the current chain height.
+	 */
+	getHeight(): number {
+		const latest = this.getLatestBlock();
+		return latest ? latest.height : -1;
+	}
+
+	/**
+	 * Get the account state.
+	 */
+	getState(): AccountState {
+		return this.state;
+	}
+
+	/**
+	 * Get total emitted rewards.
+	 */
+	getTotalEmitted(): bigint {
+		return this.totalEmitted;
+	}
+}
