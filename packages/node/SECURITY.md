@@ -91,13 +91,51 @@ The @ensoul/node package contains the storage engine and consensus module for En
 - verifyAttestation(): corrupted signatures (bit flips), swapped validatorDids, tampered fields
 - checkThreshold(): empty lists, all-invalid, mix of valid/invalid/duplicate/wrong-version
 
+---
+
+## Challenge Module (Proof-of-Storage)
+
+### Attack Vectors & Mitigations
+
+**Precomputed Responses:** Node precomputes hashes for all possible byte ranges to fake proof-of-storage without actually holding the data.
+*Mitigation:* Challenges use cryptographically random offsets and lengths from a large range. With shards of even moderate size (1KB+), the number of possible (offset, length) pairs is enormous — precomputation is infeasible. Challenges have deadlines to prevent slow computation.
+
+**Response Replay:** Node replays a response from a previous challenge.
+*Mitigation:* Each challenge has a unique random ID. The response must reference the correct challenge ID. Challenge IDs are 128-bit random values — collision is infeasible.
+
+**Deadline Manipulation:** Node responds correctly but claims an earlier timestamp to bypass deadline.
+*Mitigation:* The `respondedAt` timestamp is checked against the challenge `deadline`. In production, the network layer should use its own clock for received-at timestamps rather than trusting the responder's claimed timestamp.
+
+**Reputation Gaming:** Node selectively drops challenges for low-value shards while passing high-value ones.
+*Mitigation:* The reputation tracker treats all challenges equally. Score uses an exponential penalty (each failure multiplied by 0.85 factor) that makes selective dropping costly. Persistent low scores lead to slashing.
+
+**Shard Substitution:** Node holds a different shard but passes challenges by having a copy of the expected data.
+*Mitigation:* Challenges are generated from metadata (agentDid, version, shardIndex, shardSize). The verifier holds the actual shard data and independently computes the expected hash. If the node substituted data, the hash would not match.
+
+### Challenge Invariants
+
+1. **Range validity:** Generated challenges MUST have `offset + length <= shardSize`. The challenged byte range is always within bounds.
+2. **Hash correctness:** `respondToChallenge` MUST return `blake3(shard[offset..offset+length])`. No other hash function or byte range.
+3. **Verification soundness:** `verifyResponse` returns `valid: true` ONLY when the response hash matches blake3 of the actual byte range in the verifier's copy. Any discrepancy (wrong hash, wrong challenge ID, past deadline) returns `valid: false`.
+4. **Reputation monotonic decay:** Each failed challenge MUST reduce the node's reputation score. Score can never increase above 1.0 or decrease below 0.0.
+5. **Unique challenge IDs:** Each challenge MUST have a 128-bit random ID. Duplicate IDs across challenges must be astronomically unlikely.
+
+### Challenge Fuzz Targets
+- generateChallenge(): shard sizes 1B–10MB, boundary offsets, maxChallengeLength variations
+- respondToChallenge(): corrupted shard data, truncated shards, offset at exact end
+- verifyResponse(): wrong hashes, expired deadlines, mismatched IDs, manipulated timestamps
+
+---
+
 ## Cryptographic Primitives
 
 | Operation | Library | Algorithm |
 |-----------|---------|-----------|
 | Shard hashing | @noble/hashes | Blake3 |
+| Challenge hashing | @noble/hashes | Blake3 |
+| Challenge ID generation | @noble/hashes | CSPRNG (randomBytes) |
 | Attestation signing | @noble/ed25519 | Ed25519 (RFC 8032) |
 | Attestation verification | @noble/ed25519 | Ed25519 (RFC 8032) |
 | Storage | classic-level / memory-level | LevelDB |
 
-**No custom cryptography is implemented.** All hashing uses Blake3. All signing/verification uses Ed25519. Both from audited @noble libraries.
+**No custom cryptography is implemented.** All hashing uses Blake3. All signing/verification uses Ed25519. Random values use the OS CSPRNG via @noble/hashes. All from audited @noble libraries.

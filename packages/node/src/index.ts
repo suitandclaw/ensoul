@@ -27,3 +27,21 @@ export type {
 	ThresholdResult,
 	ConsensusConfig,
 } from "./consensus/index.js";
+
+// Challenge module
+export {
+	generateChallenge,
+	respondToChallenge,
+	verifyResponse,
+	ReputationTracker,
+	ChallengeScheduler,
+} from "./challenge/index.js";
+
+export type {
+	Challenge,
+	ChallengeResponse,
+	VerificationResult,
+	NodeReputation,
+	ChallengeSchedulerConfig,
+	ChallengableShard,
+} from "./challenge/index.js";
