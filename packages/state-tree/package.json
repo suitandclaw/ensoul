@@ -17,6 +17,10 @@
 		"lint:fix": "biome check --write ."
 	},
 	"dependencies": {
-		"@ensoul/identity": "workspace:*"
+		"@ensoul/identity": "workspace:*",
+		"@noble/hashes": "^2.0.1",
+		"abstract-level": "^3.1.1",
+		"classic-level": "^3.0.0",
+		"memory-level": "^3.1.0"
 	}
 }
