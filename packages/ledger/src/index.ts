@@ -33,3 +33,17 @@ export {
 } from "./blocks.js";
 
 export { createDefaultGenesis, validateGenesis } from "./genesis.js";
+
+// L1 protections (lessons learned from Solana, Ethereum, Sui, Polygon)
+export {
+	enforcePerIdentityLimit,
+	ConsensusWatchdog,
+	AdaptiveBlockTime,
+	validateBlockLimits,
+	estimateBlockSize,
+	DEFAULT_BLOCK_LIMITS,
+	ValidatorLifecycle,
+	EnhancedMempool,
+} from "./protections.js";
+
+export type { BlockLimits } from "./protections.js";
