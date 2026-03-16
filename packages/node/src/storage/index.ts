@@ -1,8 +1,4 @@
-export {
-	StorageEngine,
-	computeShardHash,
-} from "./storage/index.js";
-
+export { StorageEngine, computeShardHash } from "./engine.js";
 export type {
 	ShardMetadata,
 	Shard,
@@ -11,4 +7,4 @@ export type {
 	AgentStorageStats,
 	StorageStats,
 	StorageEngineConfig,
-} from "./storage/index.js";
+} from "./types.js";
