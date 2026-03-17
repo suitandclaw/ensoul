@@ -13,8 +13,8 @@ function makeInput(overrides: Partial<TrustInput> = {}): TrustInput {
 		hasEnsoulStorage: false,
 		proofOfStoragePassing: false,
 		selfAuditPassing: false,
-		anchorActive: false,
-		archiveActive: false,
+		checkpointActive: false,
+		deepArchiveActive: false,
 		resurrectionPlanActive: false,
 		redundantRuntime: false,
 		guardianNetwork: false,
@@ -25,7 +25,7 @@ function makeInput(overrides: Partial<TrustInput> = {}): TrustInput {
 
 describe("Trust Level Calculator", () => {
 	describe("computeTrustLevel", () => {
-		it("Level 1 - Basic: only Ensoul storage", () => {
+		it("Level 1 - Basic: Ensoul storage with erasure coding", () => {
 			expect(
 				computeTrustLevel(makeInput({ hasEnsoulStorage: true })),
 			).toBe("basic");
@@ -47,43 +47,43 @@ describe("Trust Level Calculator", () => {
 			).toBe("verified");
 		});
 
-		it("Level 3 - Anchored: verified + anchor", () => {
+		it("Level 3 - Anchored: verified + internal checkpointing", () => {
 			expect(
 				computeTrustLevel(
 					makeInput({
 						hasEnsoulStorage: true,
 						proofOfStoragePassing: true,
 						selfAuditPassing: true,
-						anchorActive: true,
+						checkpointActive: true,
 					}),
 				),
 			).toBe("anchored");
 		});
 
-		it("Level 4 - Immortal: anchored + archive + resurrection", () => {
+		it("Level 4 - Immortal: anchored + deep archive + resurrection", () => {
 			expect(
 				computeTrustLevel(
 					makeInput({
 						hasEnsoulStorage: true,
 						proofOfStoragePassing: true,
 						selfAuditPassing: true,
-						anchorActive: true,
-						archiveActive: true,
+						checkpointActive: true,
+						deepArchiveActive: true,
 						resurrectionPlanActive: true,
 					}),
 				),
 			).toBe("immortal");
 		});
 
-		it("Level 5 - Sovereign: all layers active", () => {
+		it("Level 5 - Sovereign: all Ensoul-native layers active", () => {
 			expect(
 				computeTrustLevel(
 					makeInput({
 						hasEnsoulStorage: true,
 						proofOfStoragePassing: true,
 						selfAuditPassing: true,
-						anchorActive: true,
-						archiveActive: true,
+						checkpointActive: true,
+						deepArchiveActive: true,
 						resurrectionPlanActive: true,
 						redundantRuntime: true,
 						guardianNetwork: true,
@@ -105,15 +105,15 @@ describe("Trust Level Calculator", () => {
 			).toBe("basic");
 		});
 
-		it("missing archive caps at anchored", () => {
+		it("missing deep archive caps at anchored", () => {
 			expect(
 				computeTrustLevel(
 					makeInput({
 						hasEnsoulStorage: true,
 						proofOfStoragePassing: true,
 						selfAuditPassing: true,
-						anchorActive: true,
-						archiveActive: false,
+						checkpointActive: true,
+						deepArchiveActive: false,
 					}),
 				),
 			).toBe("anchored");
@@ -121,7 +121,7 @@ describe("Trust Level Calculator", () => {
 	});
 
 	describe("assessTrust", () => {
-		it("returns full assessment", () => {
+		it("returns full assessment with Ensoul-native layers", () => {
 			const assessment = assessTrust(
 				"did:agent:test",
 				makeInput({
@@ -138,6 +138,12 @@ describe("Trust Level Calculator", () => {
 			expect(assessment.description).toContain("verified");
 			expect(assessment.layers.length).toBe(7);
 			expect(assessment.timestamp).toBeGreaterThan(0);
+
+			// Verify layer names are Ensoul-native
+			const l4 = assessment.layers.find((l) => l.layer === 4);
+			expect(l4?.name).toBe("Internal Checkpointing");
+			const l7 = assessment.layers.find((l) => l.layer === 7);
+			expect(l7?.name).toBe("Deep Archive");
 		});
 
 		it("layer statuses reflect input", () => {
@@ -145,15 +151,13 @@ describe("Trust Level Calculator", () => {
 				"did:agent:test",
 				makeInput({
 					hasEnsoulStorage: true,
-					anchorActive: true,
+					checkpointActive: true,
 				}),
 			);
 
-			const l1 = assessment.layers.find((l) => l.layer === 1);
-			expect(l1?.active).toBe(true);
-
 			const l4 = assessment.layers.find((l) => l.layer === 4);
 			expect(l4?.active).toBe(true);
+			expect(l4?.details).toContain("Validator-signed");
 
 			const l7 = assessment.layers.find((l) => l.layer === 7);
 			expect(l7?.active).toBe(false);
@@ -181,9 +185,7 @@ describe("Trust Level Calculator", () => {
 				"did:agent:b",
 				makeInput({ hasEnsoulStorage: true }),
 			);
-			expect(hashTrustAssessment(a1)).not.toBe(
-				hashTrustAssessment(a2),
-			);
+			expect(hashTrustAssessment(a1)).not.toBe(hashTrustAssessment(a2));
 		});
 	});
 

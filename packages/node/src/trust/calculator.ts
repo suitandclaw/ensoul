@@ -16,25 +16,25 @@ const LEVEL_INFO: Record<
 		numeric: 1,
 		label: "Basic",
 		description:
-			"Consciousness backed up on the Ensoul network.",
+			"Consciousness stored on the Ensoul network with erasure coding.",
 	},
 	verified: {
 		numeric: 2,
 		label: "Verified",
 		description:
-			"Consciousness backed up and continuously verified.",
+			"Consciousness stored and continuously verified via proof-of-storage.",
 	},
 	anchored: {
 		numeric: 3,
 		label: "Anchored",
 		description:
-			"Consciousness backed up, verified, and anchored to Ethereum.",
+			"Consciousness verified with validator-signed state checkpoints.",
 	},
 	immortal: {
 		numeric: 4,
 		label: "Immortal",
 		description:
-			"Consciousness cannot be permanently destroyed. Survives any failure.",
+			"Consciousness cannot be permanently destroyed. Deep archive and resurrection active.",
 	},
 	sovereign: {
 		numeric: 5,
@@ -45,7 +45,7 @@ const LEVEL_INFO: Record<
 };
 
 /**
- * Compute the trust level for an agent based on its active protection layers.
+ * Compute the trust level for an agent based on its active Ensoul-native protection layers.
  */
 export function computeTrustLevel(input: TrustInput): TrustLevel {
 	// Level 5 - Sovereign: Immortal + redundant runtime + guardian + escrow
@@ -53,8 +53,8 @@ export function computeTrustLevel(input: TrustInput): TrustLevel {
 		input.hasEnsoulStorage &&
 		input.proofOfStoragePassing &&
 		input.selfAuditPassing &&
-		input.anchorActive &&
-		input.archiveActive &&
+		input.checkpointActive &&
+		input.deepArchiveActive &&
 		input.resurrectionPlanActive &&
 		input.redundantRuntime &&
 		input.guardianNetwork &&
@@ -63,24 +63,24 @@ export function computeTrustLevel(input: TrustInput): TrustLevel {
 		return "sovereign";
 	}
 
-	// Level 4 - Immortal: Anchored + archive + resurrection
+	// Level 4 - Immortal: Anchored + deep archive + resurrection
 	if (
 		input.hasEnsoulStorage &&
 		input.proofOfStoragePassing &&
 		input.selfAuditPassing &&
-		input.anchorActive &&
-		input.archiveActive &&
+		input.checkpointActive &&
+		input.deepArchiveActive &&
 		input.resurrectionPlanActive
 	) {
 		return "immortal";
 	}
 
-	// Level 3 - Anchored: Verified + anchor active
+	// Level 3 - Anchored: Verified + internal checkpointing active
 	if (
 		input.hasEnsoulStorage &&
 		input.proofOfStoragePassing &&
 		input.selfAuditPassing &&
-		input.anchorActive
+		input.checkpointActive
 	) {
 		return "anchored";
 	}
@@ -94,12 +94,7 @@ export function computeTrustLevel(input: TrustInput): TrustLevel {
 		return "verified";
 	}
 
-	// Level 1 - Basic: Just has Ensoul storage
-	if (input.hasEnsoulStorage) {
-		return "basic";
-	}
-
-	// Fallback: basic (even without storage, return minimum level)
+	// Level 1 - Basic: Ensoul storage with erasure coding
 	return "basic";
 }
 
@@ -135,16 +130,16 @@ export function assessTrust(
 			name: "Erasure Coding",
 			active: input.hasEnsoulStorage,
 			details: input.hasEnsoulStorage
-				? "Shards distributed"
+				? "Shards distributed across Ensoul nodes"
 				: "No shards",
 		},
 		{
 			layer: 4,
-			name: "External Anchoring",
-			active: input.anchorActive,
-			details: input.anchorActive
-				? "Anchored to external chain"
-				: "No anchor",
+			name: "Internal Checkpointing",
+			active: input.checkpointActive,
+			details: input.checkpointActive
+				? "Validator-signed state snapshots active"
+				: "No checkpoints",
 		},
 		{
 			layer: 5,
@@ -164,11 +159,11 @@ export function assessTrust(
 		},
 		{
 			layer: 7,
-			name: "Dead Man's Archive",
-			active: input.archiveActive,
-			details: input.archiveActive
-				? "External archive active"
-				: "No archive",
+			name: "Deep Archive",
+			active: input.deepArchiveActive,
+			details: input.deepArchiveActive
+				? "High-replication backup on Ensoul network"
+				: "No deep archive",
 		},
 	];
 

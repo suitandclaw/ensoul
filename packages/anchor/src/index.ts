@@ -1,8 +1,7 @@
-export { AnchorService, computeCheckpointHash, encodeCheckpointPayload } from "./checkpoint.js";
+export { CheckpointService, computeCheckpointHash, encodeCheckpointPayload } from "./checkpoint.js";
 export type {
 	StateCheckpoint,
 	ValidatorSignature,
-	AnchorVerification,
-	AnchorReceipt,
-	AnchorConfig,
+	CheckpointVerification,
+	CheckpointConfig,
 } from "./types.js";

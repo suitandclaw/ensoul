@@ -1,9 +1,7 @@
-export { DeadMansArchive, MemoryArchiveBackend } from "./archive.js";
+export { DeepArchive, MemoryStorageBackend } from "./archive.js";
 export type {
-	ArchiveTarget,
 	ArchiveConfig,
-	ArchiveTargetConfig,
 	ArchiveReceipt,
 	ArchiveVerification,
-	ArchiveBackend,
+	ArchiveStorageBackend,
 } from "./types.js";

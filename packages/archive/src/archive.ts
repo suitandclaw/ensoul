@@ -5,18 +5,23 @@ import type {
 	ArchiveConfig,
 	ArchiveReceipt,
 	ArchiveVerification,
-	ArchiveBackend,
-	ArchiveTarget,
+	ArchiveStorageBackend,
 } from "./types.js";
 
+const ENC = new TextEncoder();
+
 /**
- * Dead Man's Archive: stores consciousness snapshots on external
- * permanent storage as a nuclear backup independent of the Ensoul network.
+ * Deep Archive: stores consciousness snapshots across a wider set of
+ * Ensoul nodes than normal, with higher replication for nuclear backup.
+ *
+ * This is an Ensoul-native mechanism — no external chains or storage.
+ * The deep backup lives on the Ensoul network itself with double the
+ * normal erasure coding spread.
  */
-export class DeadMansArchive {
+export class DeepArchive {
 	private identity: AgentIdentity;
 	private config: ArchiveConfig;
-	private backends: Map<ArchiveTarget, ArchiveBackend> = new Map();
+	private backend: ArchiveStorageBackend | null = null;
 	private receipts: ArchiveReceipt[] = [];
 
 	constructor(identity: AgentIdentity, config: ArchiveConfig) {
@@ -25,72 +30,63 @@ export class DeadMansArchive {
 	}
 
 	/**
-	 * Register a backend for a target type.
+	 * Set the storage backend (Ensoul node cluster in production, memory in tests).
 	 */
-	registerBackend(backend: ArchiveBackend): void {
-		this.backends.set(backend.type, backend);
+	setBackend(backend: ArchiveStorageBackend): void {
+		this.backend = backend;
 	}
 
 	/**
-	 * Archive a consciousness snapshot to all configured targets.
-	 * Returns receipts for each successful upload.
+	 * Archive a consciousness snapshot to the deep backup tier.
 	 */
 	async archive(
 		data: Uint8Array,
 		consciousnessVersion: number,
-	): Promise<ArchiveReceipt[]> {
-		const contentHash = bytesToHex(blake3(data));
-		const results: ArchiveReceipt[] = [];
-
-		for (const targetConfig of this.config.targets) {
-			const backend = this.backends.get(targetConfig.type);
-			if (!backend) continue;
-
-			try {
-				const { externalId, size } = await backend.upload(data);
-				const id = bytesToHex(
-					blake3(
-						new TextEncoder().encode(
-							`${externalId}:${contentHash}:${Date.now()}`,
-						),
-					),
-				).slice(0, 24);
-
-				const signature = await this.identity.sign(
-					new TextEncoder().encode(
-						JSON.stringify({
-							id,
-							target: targetConfig.type,
-							contentHash,
-							externalId,
-							consciousnessVersion,
-						}),
-					),
-				);
-
-				const receipt: ArchiveReceipt = {
-					id,
-					target: targetConfig.type,
-					contentHash,
-					externalId,
-					consciousnessVersion,
-					timestamp: Date.now(),
-					size,
-					signature,
-				};
-
-				this.receipts.push(receipt);
-				results.push(receipt);
-			} catch {
-				// Target failed — continue with others
-			}
+	): Promise<ArchiveReceipt> {
+		if (!this.backend) {
+			throw new Error("No storage backend configured");
 		}
 
-		return results;
+		const contentHash = bytesToHex(blake3(data));
+		const id = bytesToHex(
+			blake3(
+				ENC.encode(
+					`${this.identity.did}:${contentHash}:${Date.now()}`,
+				),
+			),
+		).slice(0, 24);
+
+		const size = await this.backend.store(id, data);
+
+		const signature = await this.identity.sign(
+			ENC.encode(
+				JSON.stringify({
+					id,
+					contentHash,
+					consciousnessVersion,
+					clusterCount: this.config.clusterCount,
+					replicationFactor: this.config.replicationFactor,
+				}),
+			),
+		);
+
+		const receipt: ArchiveReceipt = {
+			id,
+			contentHash,
+			consciousnessVersion,
+			timestamp: Date.now(),
+			size,
+			clusterCount: this.config.clusterCount,
+			replicationFactor: this.config.replicationFactor,
+			signature,
+		};
+
+		this.receipts.push(receipt);
+		return receipt;
 	}
 
 	/**
-	 * Verify an archive is intact at the external target.
+	 * Verify an archive is intact.
 	 */
 	async verify(receiptId: string): Promise<ArchiveVerification> {
 		const receipt = this.receipts.find((r) => r.id === receiptId);
@@ -98,44 +94,35 @@ export class DeadMansArchive {
 			return {
 				receiptId,
 				isValid: false,
-				target: "arweave",
 				contentHash: "",
-				externalId: "",
 				error: "Receipt not found",
 			};
 		}
 
-		const backend = this.backends.get(receipt.target);
-		if (!backend) {
+		if (!this.backend) {
 			return {
 				receiptId,
 				isValid: false,
-				target: receipt.target,
 				contentHash: receipt.contentHash,
-				externalId: receipt.externalId,
-				error: `No backend for ${receipt.target}`,
+				error: "No storage backend",
 			};
 		}
 
 		try {
-			const isValid = await backend.verify(
-				receipt.externalId,
+			const isValid = await this.backend.verify(
+				receipt.id,
 				receipt.contentHash,
 			);
 			return {
 				receiptId,
 				isValid,
-				target: receipt.target,
 				contentHash: receipt.contentHash,
-				externalId: receipt.externalId,
 			};
 		} catch (err) {
 			return {
 				receiptId,
 				isValid: false,
-				target: receipt.target,
 				contentHash: receipt.contentHash,
-				externalId: receipt.externalId,
 				error:
 					err instanceof Error
 						? err.message
@@ -145,22 +132,20 @@ export class DeadMansArchive {
 	}
 
 	/**
-	 * Restore consciousness data from an archive.
+	 * Restore consciousness from the deep archive.
 	 */
-	async restoreFromArchive(receiptId: string): Promise<Uint8Array> {
+	async restore(receiptId: string): Promise<Uint8Array> {
 		const receipt = this.receipts.find((r) => r.id === receiptId);
 		if (!receipt) {
 			throw new Error(`Receipt not found: ${receiptId}`);
 		}
 
-		const backend = this.backends.get(receipt.target);
-		if (!backend) {
-			throw new Error(`No backend for ${receipt.target}`);
+		if (!this.backend) {
+			throw new Error("No storage backend");
 		}
 
-		const data = await backend.download(receipt.externalId);
+		const data = await this.backend.retrieve(receipt.id);
 
-		// Verify integrity
 		const hash = bytesToHex(blake3(data));
 		if (hash !== receipt.contentHash) {
 			throw new Error(
@@ -179,15 +164,10 @@ export class DeadMansArchive {
 	}
 
 	/**
-	 * Get the latest receipt for a specific target.
+	 * Get the latest archive receipt.
 	 */
-	getLatestReceipt(target: ArchiveTarget): ArchiveReceipt | null {
-		for (let i = this.receipts.length - 1; i >= 0; i--) {
-			if (this.receipts[i]!.target === target) {
-				return this.receipts[i]!;
-			}
-		}
-		return null;
+	getLatestReceipt(): ArchiveReceipt | null {
+		return this.receipts[this.receipts.length - 1] ?? null;
 	}
 
 	/**
@@ -203,40 +183,44 @@ export class DeadMansArchive {
 	shouldArchiveOnDeath(): boolean {
 		return this.config.archiveOnDeath;
 	}
+
+	/**
+	 * Should an archive snapshot be taken at this block height?
+	 */
+	shouldArchive(blockHeight: number): boolean {
+		return (
+			blockHeight > 0 &&
+			this.config.autoArchive &&
+			blockHeight % this.config.frequencyBlocks === 0
+		);
+	}
 }
 
 /**
- * In-memory archive backend for testing.
+ * In-memory storage backend for testing.
+ * In production, this is replaced by an Ensoul node cluster backend.
  */
-export class MemoryArchiveBackend implements ArchiveBackend {
-	readonly type: ArchiveTarget;
+export class MemoryStorageBackend implements ArchiveStorageBackend {
 	private storage: Map<string, Uint8Array> = new Map();
-	private counter = 0;
 
-	constructor(type: ArchiveTarget = "arweave") {
-		this.type = type;
-	}
-
-	async upload(
-		data: Uint8Array,
-	): Promise<{ externalId: string; size: number }> {
-		const id = `${this.type}_${++this.counter}`;
+	async store(id: string, data: Uint8Array): Promise<number> {
 		this.storage.set(id, new Uint8Array(data));
-		return { externalId: id, size: data.length };
+		return data.length;
 	}
 
-	async download(externalId: string): Promise<Uint8Array> {
-		const data = this.storage.get(externalId);
-		if (!data) throw new Error(`Not found: ${externalId}`);
+	async retrieve(id: string): Promise<Uint8Array> {
+		const data = this.storage.get(id);
+		if (!data) throw new Error(`Not found: ${id}`);
 		return data;
 	}
 
-	async verify(
-		externalId: string,
-		expectedHash: string,
-	): Promise<boolean> {
-		const data = this.storage.get(externalId);
+	async verify(id: string, expectedHash: string): Promise<boolean> {
+		const data = this.storage.get(id);
 		if (!data) return false;
 		return bytesToHex(blake3(data)) === expectedHash;
+	}
+
+	async has(id: string): Promise<boolean> {
+		return this.storage.has(id);
 	}
 }

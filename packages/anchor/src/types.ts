@@ -1,5 +1,6 @@
 /**
- * A state checkpoint for external chain anchoring.
+ * A validator-signed state checkpoint stored on the Ensoul chain.
+ * Produced every N blocks as internal protocol state.
  */
 export interface StateCheckpoint {
 	ensoulBlockHeight: number;
@@ -21,36 +22,21 @@ export interface ValidatorSignature {
 }
 
 /**
- * Result of verifying the current state against an anchor.
+ * Result of verifying the current state against the last checkpoint.
  */
-export interface AnchorVerification {
+export interface CheckpointVerification {
 	isValid: boolean;
-	lastAnchorHeight: number;
-	lastAnchorHash: string;
-	externalChain: "ethereum" | "bitcoin" | "none";
-	externalTxHash: string;
+	lastCheckpointHeight: number;
+	lastCheckpointHash: string;
 	discrepancy?: string;
 }
 
 /**
- * Receipt from an external chain submission.
+ * Configuration for the checkpoint service.
  */
-export interface AnchorReceipt {
-	chain: "ethereum" | "bitcoin";
-	txHash: string;
-	checkpointHash: string;
-	blockHeight: number;
-	timestamp: number;
-}
-
-/**
- * Configuration for the anchor service.
- */
-export interface AnchorConfig {
-	/** Blocks between Ethereum anchors. */
-	ethereumInterval: number;
-	/** Blocks between Bitcoin anchors. */
-	bitcoinInterval: number;
+export interface CheckpointConfig {
+	/** Blocks between checkpoints. */
+	interval: number;
 	/** Minimum validator signatures required (>2/3). */
 	minSignatures: number;
 }

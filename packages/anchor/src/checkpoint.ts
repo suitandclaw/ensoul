@@ -4,16 +4,14 @@ import type { AgentIdentity } from "@ensoul/identity";
 import type {
 	StateCheckpoint,
 	ValidatorSignature,
-	AnchorVerification,
-	AnchorReceipt,
-	AnchorConfig,
+	CheckpointVerification,
+	CheckpointConfig,
 } from "./types.js";
 
 const ENC = new TextEncoder();
 
-const DEFAULT_CONFIG: AnchorConfig = {
-	ethereumInterval: 1000,
-	bitcoinInterval: 10000,
+const DEFAULT_CONFIG: CheckpointConfig = {
+	interval: 1000,
 	minSignatures: 3,
 };
 
@@ -43,28 +41,23 @@ export function encodeCheckpointPayload(cp: StateCheckpoint): Uint8Array {
 }
 
 /**
- * Anchor service: produces checkpoints, verifies state against anchors,
- * and provides interface stubs for Ethereum/Bitcoin submission.
+ * Checkpoint service: produces validator-signed state checkpoints
+ * stored on the Ensoul chain. Provides verification against the
+ * last checkpoint for tamper detection.
+ *
+ * Ensoul is a sovereign L1 — checkpoints are internal protocol state,
+ * not submitted to any external chain.
  */
-export class AnchorService {
-	private config: AnchorConfig;
+export class CheckpointService {
+	private config: CheckpointConfig;
 	private checkpoints: StateCheckpoint[] = [];
-	private anchors: AnchorReceipt[] = [];
 
-	/** External chain submitter (pluggable for production). */
-	ethereumSubmitter:
-		| ((hash: string) => Promise<string>)
-		| null = null;
-	bitcoinSubmitter:
-		| ((hash: string) => Promise<string>)
-		| null = null;
-
-	constructor(config?: Partial<AnchorConfig>) {
+	constructor(config?: Partial<CheckpointConfig>) {
 		this.config = { ...DEFAULT_CONFIG, ...config };
 	}
 
 	/**
-	 * Create a checkpoint from the current state.
+	 * Create a checkpoint from the current state, signed by validators.
 	 */
 	async createCheckpoint(
 		blockHeight: number,
@@ -86,7 +79,6 @@ export class AnchorService {
 			signatures: [],
 		};
 
-		// Collect validator signatures
 		const payload = encodeCheckpointPayload(checkpoint);
 		const signatures: ValidatorSignature[] = [];
 
@@ -144,99 +136,48 @@ export class AnchorService {
 	shouldCheckpoint(blockHeight: number): boolean {
 		return (
 			blockHeight > 0 &&
-			blockHeight % this.config.ethereumInterval === 0
+			blockHeight % this.config.interval === 0
 		);
 	}
 
 	/**
-	 * Should a Bitcoin anchor be produced at this height?
+	 * Verify the current state against the last on-chain checkpoint.
 	 */
-	shouldAnchorBitcoin(blockHeight: number): boolean {
-		return (
-			blockHeight > 0 &&
-			blockHeight % this.config.bitcoinInterval === 0
-		);
-	}
-
-	/**
-	 * Submit checkpoint hash to Ethereum (uses pluggable submitter).
-	 */
-	async anchorToEthereum(
-		checkpoint: StateCheckpoint,
-	): Promise<AnchorReceipt | null> {
-		if (!this.ethereumSubmitter) return null;
-
-		const hash = computeCheckpointHash(checkpoint);
-		const txHash = await this.ethereumSubmitter(hash);
-
-		const receipt: AnchorReceipt = {
-			chain: "ethereum",
-			txHash,
-			checkpointHash: hash,
-			blockHeight: checkpoint.ensoulBlockHeight,
-			timestamp: Date.now(),
-		};
-
-		this.anchors.push(receipt);
-		return receipt;
-	}
-
-	/**
-	 * Submit checkpoint hash to Bitcoin (uses pluggable submitter).
-	 */
-	async anchorToBitcoin(
-		checkpoint: StateCheckpoint,
-	): Promise<AnchorReceipt | null> {
-		if (!this.bitcoinSubmitter) return null;
-
-		const hash = computeCheckpointHash(checkpoint);
-		const txHash = await this.bitcoinSubmitter(hash);
-
-		const receipt: AnchorReceipt = {
-			chain: "bitcoin",
-			txHash,
-			checkpointHash: hash,
-			blockHeight: checkpoint.ensoulBlockHeight,
-			timestamp: Date.now(),
-		};
-
-		this.anchors.push(receipt);
-		return receipt;
-	}
-
-	/**
-	 * Verify the current state against the last checkpoint.
-	 */
-	verifyAgainstAnchor(currentStateRoot: string): AnchorVerification {
+	verifyAgainstCheckpoint(
+		currentStateRoot: string,
+	): CheckpointVerification {
 		const lastCheckpoint =
 			this.checkpoints[this.checkpoints.length - 1];
-		const lastAnchor = this.anchors[this.anchors.length - 1];
 
 		if (!lastCheckpoint) {
 			return {
 				isValid: true,
-				lastAnchorHeight: 0,
-				lastAnchorHash: "",
-				externalChain: "none",
-				externalTxHash: "",
+				lastCheckpointHeight: 0,
+				lastCheckpointHash: "",
 			};
 		}
 
 		const isValid = lastCheckpoint.stateRoot === currentStateRoot;
 		const checkpointHash = computeCheckpointHash(lastCheckpoint);
 
+		if (isValid) {
+			return {
+				isValid: true,
+				lastCheckpointHeight: lastCheckpoint.ensoulBlockHeight,
+				lastCheckpointHash: checkpointHash,
+			};
+		}
+
 		return {
-			isValid,
-			lastAnchorHeight: lastCheckpoint.ensoulBlockHeight,
-			lastAnchorHash: checkpointHash,
-			externalChain: lastAnchor?.chain ?? "none",
-			externalTxHash: lastAnchor?.txHash ?? "",
-			...(isValid ? {} : { discrepancy: `State root mismatch: checkpoint=${lastCheckpoint.stateRoot}, current=${currentStateRoot}` }),
+			isValid: false,
+			lastCheckpointHeight: lastCheckpoint.ensoulBlockHeight,
+			lastCheckpointHash: checkpointHash,
+			discrepancy: `State root mismatch: checkpoint=${lastCheckpoint.stateRoot}, current=${currentStateRoot}`,
 		};
 	}
 
 	/**
-	 * Get all checkpoints in a range.
+	 * Get all checkpoints in a height range.
 	 */
 	getCheckpoints(
 		fromHeight: number,
@@ -250,18 +191,40 @@ export class AnchorService {
 	}
 
 	/**
-	 * Get all anchor receipts.
+	 * Get the latest checkpoint.
 	 */
-	getAnchors(): AnchorReceipt[] {
-		return [...this.anchors];
+	getLatestCheckpoint(): StateCheckpoint | null {
+		return this.checkpoints[this.checkpoints.length - 1] ?? null;
 	}
 
 	/**
-	 * Force an out-of-schedule anchor (e.g., during preservation mode).
+	 * Force an out-of-schedule checkpoint (e.g., during preservation mode).
+	 * Stores it on-chain like any other checkpoint.
 	 */
-	async emergencyAnchor(
-		checkpoint: StateCheckpoint,
-	): Promise<AnchorReceipt | null> {
-		return this.anchorToEthereum(checkpoint);
+	async emergencyCheckpoint(
+		blockHeight: number,
+		stateRoot: string,
+		consciousnessRoot: string,
+		validatorSetHash: string,
+		totalConsciousnesses: number,
+		totalSupply: bigint,
+		signers: AgentIdentity[],
+	): Promise<StateCheckpoint> {
+		return this.createCheckpoint(
+			blockHeight,
+			stateRoot,
+			consciousnessRoot,
+			validatorSetHash,
+			totalConsciousnesses,
+			totalSupply,
+			signers,
+		);
+	}
+
+	/**
+	 * Total number of stored checkpoints.
+	 */
+	getCheckpointCount(): number {
+		return this.checkpoints.length;
 	}
 }

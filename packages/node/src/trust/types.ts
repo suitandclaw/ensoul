@@ -1,6 +1,6 @@
 /**
  * Trust levels for consciousness protection.
- * Based on which protection layers an agent has active.
+ * Based on which Ensoul-native protection layers an agent has active.
  */
 export type TrustLevel =
 	| "basic"
@@ -39,18 +39,19 @@ export interface LayerStatus {
 
 /**
  * Input data for computing a trust level.
+ * All layers are Ensoul-native — no external chain dependencies.
  */
 export interface TrustInput {
-	/** Agent has consciousness stored on Ensoul. */
+	/** Agent has consciousness stored on Ensoul with erasure coding. */
 	hasEnsoulStorage: boolean;
 	/** Proof-of-storage challenges are passing. */
 	proofOfStoragePassing: boolean;
 	/** Agent self-audit is passing. */
 	selfAuditPassing: boolean;
-	/** External chain anchor exists and matches. */
-	anchorActive: boolean;
-	/** Dead man's archive configured and recent. */
-	archiveActive: boolean;
+	/** Internal checkpointing active (validator-signed state snapshots). */
+	checkpointActive: boolean;
+	/** Deep archive (higher replication snapshot) configured and recent. */
+	deepArchiveActive: boolean;
 	/** Resurrection plan is configured. */
 	resurrectionPlanActive: boolean;
 	/** Redundant runtime available. */
