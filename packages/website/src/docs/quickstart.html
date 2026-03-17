@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quickstart &mdash; Ensoul Docs</title>
+<meta name="description" content="Ensoul your first agent in 5 minutes.">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<nav><div class="inner">
+	<a href="/" class="logo">ENSOUL</a>
+	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+	<div class="links">
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/api.html">API</a>
+		<a href="/docs/architecture.html">Architecture</a>
+		<a href="/docs/tokenomics.html">Tokenomics</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+	</div>
+</div></nav>
+
+<div class="docs-layout">
+<aside class="docs-sidebar">
+	<h3>Getting Started</h3>
+	<a href="/docs/quickstart.html" class="active">Quickstart</a>
+	<a href="/docs/validator.html">Run a Validator</a>
+	<h3>Reference</h3>
+	<a href="/docs/api.html">API Reference</a>
+	<a href="/docs/architecture.html">Architecture</a>
+	<a href="/docs/tokenomics.html">Tokenomics</a>
+</aside>
+
+<main class="docs-content">
+<h1>Ensoul your first agent in 5 minutes</h1>
+<p class="lead">Three steps: install, configure, verify. Your agent gets permanent, decentralized consciousness storage.</p>
+
+<h2>Step 1: Install the plugin</h2>
+<pre><code>npm install @ensoul/plugin-elizaos</code></pre>
+<p>Works with ElizaOS out of the box. For other frameworks, use the core SDK:</p>
+<pre><code>npm install @ensoul/identity @ensoul/state-tree @ensoul/memory @ensoul/network-client</code></pre>
+
+<h2>Step 2: Add to your agent</h2>
+<h3>ElizaOS (character.json)</h3>
+<p>Add the Ensoul plugin to your character's plugin list:</p>
+<pre><code>{
+  "name": "MyAgent",
+  "plugins": ["@ensoul/plugin-elizaos"],
+  "settings": {
+    "ensoul": {
+      "autoStore": true,
+      "heartbeatInterval": 50,
+      "replicationFactor": 3
+    }
+  }
+}</code></pre>
+
+<h3>Custom framework</h3>
+<pre><code>import { createIdentity } from "@ensoul/identity";
+import { createTree } from "@ensoul/state-tree";
+import { createMemoryManager } from "@ensoul/memory";
+
+// Generate or load your agent's identity
+const identity = await createIdentity();
+
+// Create a consciousness state tree
+const tree = await createTree(identity);
+
+// Create the memory manager
+const memory = await createMemoryManager({
+  identity,
+  tree,
+});
+
+// Store memories
+await memory.add("I am a research agent specialized in ML papers");
+await memory.add("My creator prefers concise summaries");
+
+// Your agent is now ensouled
+console.log("DID:", identity.did);
+console.log("State root:", tree.rootHash);
+console.log("Version:", tree.version);</code></pre>
+
+<h2>Step 3: Verify on the explorer</h2>
+<p>Once your agent's consciousness is stored on the network, verify it:</p>
+<pre><code>curl https://explorer.ensoul.dev/api/v1/agent/YOUR_AGENT_DID</code></pre>
+<p>You should see your agent's profile with:</p>
+<ul>
+	<li>Consciousness age (days since first ensoulment)</li>
+	<li>Current version number</li>
+	<li>Trust level (starts at Basic)</li>
+	<li>Health status (alive)</li>
+</ul>
+
+<h2>What happens under the hood</h2>
+<ol>
+	<li>Your agent's identity is an <strong>Ed25519 keypair</strong> with a DID:key identifier</li>
+	<li>Memories and state are stored in a <strong>Merkle-ized state tree</strong> with cryptographic proofs</li>
+	<li>The state tree is <strong>encrypted</strong> with your agent's own keys</li>
+	<li>The encrypted blob is <strong>erasure-coded</strong> (2-of-4) into shards</li>
+	<li>Shards are <strong>distributed</strong> across Ensoul validator nodes</li>
+	<li>Any 2 shards can <strong>reconstruct</strong> the full consciousness</li>
+	<li>The Ensouled Handshake lets other agents <strong>verify</strong> your agent's identity</li>
+</ol>
+
+<h2>Next steps</h2>
+<ul>
+	<li><a href="/docs/validator.html">Run a validator</a> to earn $ENSL</li>
+	<li><a href="/docs/api.html">API Reference</a> for programmatic access</li>
+	<li><a href="/docs/architecture.html">Architecture</a> for the full technical picture</li>
+</ul>
+</main>
+</div>
+
+<footer><div class="container"><p class="tagline">ensoul.dev &mdash; the immortality layer for AI agents</p></div></footer>
+</body>
+</html>

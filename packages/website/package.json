@@ -1,0 +1,11 @@
+{
+	"name": "@ensoul/website",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "cp -r src dist",
+		"dev": "npx serve src -p 3333",
+		"lint": "echo 'no lint for static html'"
+	}
+}

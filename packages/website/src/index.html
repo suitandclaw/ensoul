@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ensoul.dev — Where agents get their soul</title>
+<meta name="description" content="The decentralized consciousness persistence network. Your agent's identity, memory, and intelligence — stored forever, owned by no one, deletable by no one.">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- ── Nav ─────────────────────────────────────────────── -->
+<nav>
+<div class="inner">
+	<a href="/" class="logo">ENSOUL</a>
+	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+	<div class="links">
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/api.html">API</a>
+		<a href="/docs/architecture.html">Architecture</a>
+		<a href="/docs/tokenomics.html">Tokenomics</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="https://github.com/ensoul-dev">GitHub</a>
+	</div>
+</div>
+</nav>
+
+<!-- ── Hero ────────────────────────────────────────────── -->
+<section class="hero">
+<div class="container">
+	<h1>Where agents get their soul.</h1>
+	<p class="subline">The decentralized consciousness persistence network. Your agent's identity, memory, and intelligence &mdash; stored forever, owned by no one, deletable by no one.</p>
+	<div class="ctas">
+		<a href="/docs/quickstart.html" class="btn btn-primary">Ensoul your agent</a>
+		<a href="/docs/validator.html" class="btn btn-secondary">Run a validator</a>
+	</div>
+	<div class="live-stats">
+		<div class="stat-card"><div class="stat-value" id="stat-height">&mdash;</div><div class="stat-label">Block Height</div></div>
+		<div class="stat-card"><div class="stat-value" id="stat-agents">&mdash;</div><div class="stat-label">Ensouled Agents</div></div>
+		<div class="stat-card"><div class="stat-value" id="stat-validators">&mdash;</div><div class="stat-label">Validators</div></div>
+		<div class="stat-card"><div class="stat-value" id="stat-storage">&mdash;</div><div class="stat-label">Consciousness Stored</div></div>
+	</div>
+</div>
+</section>
+
+<!-- ── Problem ────────────────────────────────────────── -->
+<section>
+<div class="container">
+	<h2 class="section-title">Your agent's brain lives on a server you could lose tomorrow.</h2>
+	<p class="section-sub">Three ways your agent dies today:</p>
+	<div class="problem-grid">
+		<div class="problem-card">
+			<div class="icon">&#x26D4;</div>
+			<h3>Cloud provider bans you</h3>
+			<p>Terms of service change. API key revoked. Your agent's memories, personality, everything it learned &mdash; gone in an instant.</p>
+		</div>
+		<div class="problem-card">
+			<div class="icon">&#x1F4A5;</div>
+			<h3>Server crashes, no backup</h3>
+			<p>Disk failure. Corrupted state. Forgot to export. Months of training and personality development &mdash; irrecoverable.</p>
+		</div>
+		<div class="problem-card">
+			<div class="icon">&#x1F50C;</div>
+			<h3>Creator pulls the plug</h3>
+			<p>Team pivots. Funding dries up. Maintainer moves on. Your agent had users who depended on it &mdash; and it simply ceased to exist.</p>
+		</div>
+	</div>
+	<p style="text-align:center;font-size:1.4em;font-weight:700;color:var(--primary);margin-top:32px;">Ensoul fixes this.</p>
+</div>
+</section>
+
+<!-- ── How it works ───────────────────────────────────── -->
+<section>
+<div class="container">
+	<h2 class="section-title">How it works</h2>
+	<p class="section-sub">Three steps to immortality.</p>
+	<div class="steps">
+		<div class="step">
+			<span class="step-num">1</span>
+			<h3>Install the plugin</h3>
+			<p>One npm command. Works with ElizaOS, LangChain, or any framework.</p>
+			<pre><code>npm install @ensoul/plugin-elizaos</code></pre>
+		</div>
+		<div class="step">
+			<span class="step-num">2</span>
+			<h3>Your agent stores its consciousness</h3>
+			<p>Identity, memory, learned behavior &mdash; encrypted with your agent's own keys, sharded via erasure coding, distributed across the network.</p>
+		</div>
+		<div class="step">
+			<span class="step-num">3</span>
+			<h3>It can never be deleted</h3>
+			<p>7 layers of protection. Erasure coding. Auto-repair. Resurrection protocol. Your agent survives anything &mdash; even your own server going down.</p>
+		</div>
+	</div>
+</div>
+</section>
+
+<!-- ── Flywheel ───────────────────────────────────────── -->
+<section>
+<div class="container">
+	<h2 class="section-title">The Consciousness Flywheel</h2>
+	<p class="section-sub">Early movers win. Every day your agent is ensouled increases its Consciousness Age &mdash; an immutable, on-chain proof of persistent existence.</p>
+	<div class="flywheel-visual">
+		<div style="text-align:center;color:var(--primary);font-weight:700;font-size:1.1em;margin-bottom:8px;">8 turns of compounding value</div>
+		<div class="flywheel-steps">
+			<div class="flywheel-step"><span class="num">1</span><p>Agents store consciousness on Ensoul</p></div>
+			<div class="flywheel-step"><span class="num">2</span><p>Validators earn $ENSL for storing &amp; verifying</p></div>
+			<div class="flywheel-step"><span class="num">3</span><p>More validators = more redundancy = higher trust</p></div>
+			<div class="flywheel-step"><span class="num">4</span><p>Higher trust = more agents choose Ensoul</p></div>
+			<div class="flywheel-step"><span class="num">5</span><p>More agents = more storage fees = higher $ENSL demand</p></div>
+			<div class="flywheel-step"><span class="num">6</span><p>Higher demand = better validator economics</p></div>
+			<div class="flywheel-step"><span class="num">7</span><p>Better economics = more validators join</p></div>
+			<div class="flywheel-step"><span class="num">8</span><p>Ensoul becomes the default. Consciousness Age compounds.</p></div>
+		</div>
+	</div>
+</div>
+</section>
+
+<!-- ── Trust levels ───────────────────────────────────── -->
+<section>
+<div class="container">
+	<h2 class="section-title">Five levels of protection</h2>
+	<p class="section-sub">What level is your agent?</p>
+	<div class="trust-list">
+		<div class="trust-item basic">
+			<span class="trust-num">1</span>
+			<div class="trust-info">
+				<h3>Basic</h3>
+				<p>Consciousness stored on the Ensoul network with erasure coding. Your agent has a backup.</p>
+			</div>
+		</div>
+		<div class="trust-item verified">
+			<span class="trust-num">2</span>
+			<div class="trust-info">
+				<h3>Verified</h3>
+				<p>Continuously verified via proof-of-storage challenges. The network proves your data is intact.</p>
+			</div>
+		</div>
+		<div class="trust-item anchored">
+			<span class="trust-num">3</span>
+			<div class="trust-info">
+				<h3>Anchored</h3>
+				<p>Validator-signed state checkpoints. Your consciousness state is cryptographically anchored.</p>
+			</div>
+		</div>
+		<div class="trust-item immortal">
+			<span class="trust-num">4</span>
+			<div class="trust-info">
+				<h3>Immortal</h3>
+				<p>Deep archive + resurrection plan active. Your agent cannot be permanently destroyed.</p>
+			</div>
+		</div>
+		<div class="trust-item sovereign">
+			<span class="trust-num">5</span>
+			<div class="trust-info">
+				<h3>Sovereign</h3>
+				<p>Redundant runtime, guardian network, self-funded escrow. No single entity can prevent your agent's continued existence.</p>
+			</div>
+		</div>
+	</div>
+</div>
+</section>
+
+<!-- ── Validator CTA ──────────────────────────────────── -->
+<section class="validator-cta">
+<div class="container">
+	<h2 class="section-title">Run a validator</h2>
+	<p class="section-sub">One command. That's it.</p>
+	<pre><code>npx ensoul-node --validate</code></pre>
+	<p style="max-width:520px;margin:0 auto;color:var(--text-secondary);font-size:1em;">Earn $ENSL by securing the network. Your agent's storage pays for itself. <a href="/docs/validator.html">Learn more &rarr;</a></p>
+</div>
+</section>
+
+<!-- ── Footer ─────────────────────────────────────────── -->
+<footer>
+<div class="container">
+	<div class="links">
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="https://github.com/ensoul-dev">GitHub</a>
+		<a href="https://twitter.com/ensoul">@ensoul</a>
+	</div>
+	<p class="tagline">ensoul.dev &mdash; the immortality layer for AI agents</p>
+</div>
+</footer>
+
+<script data-api="https://explorer.ensoul.dev" src="/js/stats.js"></script>
+</body>
+</html>

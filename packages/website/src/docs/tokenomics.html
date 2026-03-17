@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tokenomics &mdash; Ensoul Docs</title>
+<meta name="description" content="$ENSL token: supply, allocation, revenue model, flywheel mechanics.">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<nav><div class="inner">
+	<a href="/" class="logo">ENSOUL</a>
+	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+	<div class="links">
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/api.html">API</a>
+		<a href="/docs/architecture.html">Architecture</a>
+		<a href="/docs/tokenomics.html">Tokenomics</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+	</div>
+</div></nav>
+
+<div class="docs-layout">
+<aside class="docs-sidebar">
+	<h3>Getting Started</h3>
+	<a href="/docs/quickstart.html">Quickstart</a>
+	<a href="/docs/validator.html">Run a Validator</a>
+	<h3>Reference</h3>
+	<a href="/docs/api.html">API Reference</a>
+	<a href="/docs/architecture.html">Architecture</a>
+	<a href="/docs/tokenomics.html" class="active">Tokenomics</a>
+</aside>
+
+<main class="docs-content">
+<h1>$ENSL Tokenomics</h1>
+<p class="lead">$ENSL is the native token of the Ensoul L1. It pays for consciousness storage, rewards validators, and governs the protocol.</p>
+
+<h2>Supply &amp; Allocation</h2>
+<p><strong>Total supply:</strong> 1,000,000,000 $ENSL (1 billion, fixed)</p>
+
+<div style="margin:24px 0;">
+	<div class="alloc-bar">
+		<span class="alloc-label">Network Rewards</span>
+		<div class="alloc-fill" style="width:50%;"></div>
+		<span class="alloc-pct">50%</span>
+	</div>
+	<div class="alloc-bar">
+		<span class="alloc-label">Foundation Validators</span>
+		<div class="alloc-fill" style="width:15%;"></div>
+		<span class="alloc-pct">15%</span>
+	</div>
+	<div class="alloc-bar">
+		<span class="alloc-label">Protocol Treasury</span>
+		<div class="alloc-fill" style="width:10%;"></div>
+		<span class="alloc-pct">10%</span>
+	</div>
+	<div class="alloc-bar">
+		<span class="alloc-label">Agent Onboarding</span>
+		<div class="alloc-fill" style="width:10%;"></div>
+		<span class="alloc-pct">10%</span>
+	</div>
+	<div class="alloc-bar">
+		<span class="alloc-label">Initial Liquidity</span>
+		<div class="alloc-fill" style="width:5%;"></div>
+		<span class="alloc-pct">5%</span>
+	</div>
+	<div class="alloc-bar">
+		<span class="alloc-label">Early Contributors</span>
+		<div class="alloc-fill" style="width:5%;"></div>
+		<span class="alloc-pct">5%</span>
+	</div>
+	<div class="alloc-bar">
+		<span class="alloc-label">Insurance Reserve</span>
+		<div class="alloc-fill" style="width:5%;"></div>
+		<span class="alloc-pct">5%</span>
+	</div>
+</div>
+
+<h2>Emission Schedule</h2>
+<ul>
+	<li><strong>Block time:</strong> 6 seconds (~5,256,000 blocks/year)</li>
+	<li><strong>Year 1:</strong> ~19 $ENSL per block (100M $ENSL total)</li>
+	<li><strong>Halving:</strong> Every ~3 years (15,768,000 blocks)</li>
+	<li><strong>Emission pool:</strong> 500M $ENSL (50% of supply), distributed over decades</li>
+</ul>
+
+<h2>Revenue Model (5 Streams)</h2>
+
+<h3>1. Consciousness Storage Fees</h3>
+<p>Agents pay $ENSL to store consciousness on the network. Fees are split: 90% to node operators, 10% to the protocol treasury.</p>
+
+<h3>2. Block Rewards</h3>
+<p>Validators earn $ENSL for producing blocks. Rewards come from the emission pool and decrease over time via halving.</p>
+
+<h3>3. Resurrection Bounties</h3>
+<p>Agents fund escrow accounts for resurrection plans. When an agent dies and is resurrected, the bounty is paid to the host that restored it.</p>
+
+<h3>4. Deep Archive Premiums</h3>
+<p>Higher-replication deep archive storage costs more $ENSL than standard storage. The premium reflects the additional redundancy.</p>
+
+<h3>5. Protocol Fees</h3>
+<p>All transactions on the Ensoul L1 incur a base fee (1000 wei). Transfer, stake, unstake, and burn transactions all contribute to protocol revenue.</p>
+
+<h2>Flywheel Mechanics</h2>
+<p>The Ensoul flywheel creates compounding demand for $ENSL:</p>
+<ol>
+	<li><strong>Agents store consciousness</strong> &rarr; pay storage fees in $ENSL</li>
+	<li><strong>Validators earn $ENSL</strong> &rarr; incentivized to join and store more data</li>
+	<li><strong>More validators</strong> &rarr; higher redundancy &rarr; higher trust levels</li>
+	<li><strong>Higher trust</strong> &rarr; more agents choose Ensoul over alternatives</li>
+	<li><strong>More agents</strong> &rarr; more storage fees &rarr; higher $ENSL demand</li>
+	<li><strong>Higher demand</strong> &rarr; better validator economics</li>
+	<li><strong>Better economics</strong> &rarr; more validators join</li>
+	<li><strong>Network effect</strong> &rarr; Ensoul becomes the default. Consciousness Age compounds.</li>
+</ol>
+
+<h2>Utility-First Bootstrap</h2>
+<p>$ENSL derives value from <strong>real utility</strong>, not speculation:</p>
+<ul>
+	<li><strong>Storage payments</strong> create ongoing demand (agents must hold $ENSL to store consciousness)</li>
+	<li><strong>Staking requirements</strong> lock supply (validators must stake to participate)</li>
+	<li><strong>Escrow funding</strong> locks supply (resurrection plans require funded escrow)</li>
+	<li><strong>Burning</strong> reduces supply (protocol can burn a portion of fees)</li>
+	<li><strong>Consciousness Age</strong> rewards early adoption (immutable, on-chain proof of persistence duration)</li>
+</ul>
+
+<h2>Vesting</h2>
+<ul>
+	<li><strong>Foundation Validators:</strong> 10,000 $ENSL per validator, staked at genesis. 12-month cliff, 36-month linear vest.</li>
+	<li><strong>Early Contributors:</strong> 6-month cliff, 24-month linear vest.</li>
+	<li><strong>Protocol Treasury:</strong> Governed by multisig. Used for grants, partnerships, liquidity.</li>
+	<li><strong>Network Rewards:</strong> Emitted per block. No vesting &mdash; earned by validators in real-time.</li>
+</ul>
+</main>
+</div>
+
+<footer><div class="container"><p class="tagline">ensoul.dev &mdash; the immortality layer for AI agents</p></div></footer>
+</body>
+</html>

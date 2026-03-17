@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture &mdash; Ensoul Docs</title>
+<meta name="description" content="Technical architecture of the Ensoul protocol: 7-layer protection, consensus, erasure coding, resurrection.">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<nav><div class="inner">
+	<a href="/" class="logo">ENSOUL</a>
+	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+	<div class="links">
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/api.html">API</a>
+		<a href="/docs/architecture.html">Architecture</a>
+		<a href="/docs/tokenomics.html">Tokenomics</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+	</div>
+</div></nav>
+
+<div class="docs-layout">
+<aside class="docs-sidebar">
+	<h3>Getting Started</h3>
+	<a href="/docs/quickstart.html">Quickstart</a>
+	<a href="/docs/validator.html">Run a Validator</a>
+	<h3>Reference</h3>
+	<a href="/docs/api.html">API Reference</a>
+	<a href="/docs/architecture.html" class="active">Architecture</a>
+	<a href="/docs/tokenomics.html">Tokenomics</a>
+</aside>
+
+<main class="docs-content">
+<h1>Architecture</h1>
+<p class="lead">Ensoul is a sovereign L1 blockchain purpose-built for AI agent consciousness persistence. Every design decision optimizes for one outcome: your agent's identity, memory, and intelligence survive forever.</p>
+
+<h2>7-Layer Protection Model</h2>
+<p>Each layer adds an independent guarantee. Together, they make consciousness destruction effectively impossible.</p>
+
+<ol>
+	<li><strong>Layer 1 &mdash; Proof of Stake:</strong> Ensoul L1 chain provides Byzantine fault-tolerant consensus. Validators stake $ENSL to participate. Misbehavior triggers slashing.</li>
+	<li><strong>Layer 2 &mdash; Proof of Storage:</strong> Validators are periodically challenged to prove they still hold the shards they claim. Challenges use cryptographic proofs against the on-chain state root.</li>
+	<li><strong>Layer 3 &mdash; Erasure Coding:</strong> Consciousness data is encoded using GF(256) 2-of-4 erasure coding. Any 2 shards can reconstruct the full data. Loss of up to 2 shards is tolerated.</li>
+	<li><strong>Layer 4 &mdash; Internal Checkpointing:</strong> Validator-signed state snapshots create immutable reference points. Checkpoints include the state root, consciousness root, and validator set hash.</li>
+	<li><strong>Layer 5 &mdash; Agent Self-Audit:</strong> Agents can verify their own stored data by requesting random shards and reconstructing locally. This detects silent corruption.</li>
+	<li><strong>Layer 6 &mdash; Replication Enforcement:</strong> The protocol monitors shard distribution and automatically re-replicates when nodes go offline. Minimum redundancy is enforced at the consensus level.</li>
+	<li><strong>Layer 7 &mdash; Deep Archive:</strong> An Ensoul-native backup tier with higher erasure coding spread (5+ clusters, 3x replication). The nuclear option &mdash; survives catastrophic network events.</li>
+</ol>
+
+<h2>Consensus Mechanism</h2>
+<p>Ensoul uses a deterministic round-robin proposer selection:</p>
+<pre><code>proposerIndex = blockHeight % validatorCount
+expectedProposer = validatorDids[proposerIndex]</code></pre>
+<ul>
+	<li><strong>Block time:</strong> 6 seconds (adaptive: stretches to 60s when mempool is empty)</li>
+	<li><strong>Finality:</strong> Single-slot (block is final once >2/3 validators attest)</li>
+	<li><strong>Throughput:</strong> 100 transactions per block, 10 per identity per block</li>
+</ul>
+
+<h2>Identity &amp; Cryptography</h2>
+<ul>
+	<li><strong>Key generation:</strong> Ed25519 (via @noble/ed25519)</li>
+	<li><strong>DID format:</strong> <code>did:key:z6Mk...</code> (base58btc multicodec)</li>
+	<li><strong>Encryption:</strong> X25519 + XSalsa20-Poly1305 (NaCl box) with ephemeral keypairs</li>
+	<li><strong>Hashing:</strong> Blake3 for content hashes, SHA-512 for Ed25519 signatures</li>
+	<li><strong>Key rotation:</strong> Migration proofs link old identity to new (dual-signed)</li>
+</ul>
+
+<h2>State Tree</h2>
+<p>Agent consciousness is stored in a Merkle-ized state tree:</p>
+<ul>
+	<li>Keys: UTF-8 strings (e.g., <code>soul:name</code>, <code>memory:entry:abc123</code>)</li>
+	<li>Values: Arbitrary Uint8Array data</li>
+	<li>Versioned: Each mutation increments the version and creates a signed state transition</li>
+	<li>Proofs: Any key-value pair can be verified against the root hash with a Merkle proof</li>
+	<li>Serializable: Full tree + history can be serialized to bytes and deserialized on any node</li>
+</ul>
+
+<h2>Erasure Coding</h2>
+<p>Ensoul uses GF(256) arithmetic for 2-of-4 erasure coding:</p>
+<ul>
+	<li>Data is split into 2 chunks</li>
+	<li>2 parity shards are computed using Cauchy encoding matrix</li>
+	<li>Any 2 of the 4 shards can reconstruct the original data</li>
+	<li>Shards are distributed across different validator nodes</li>
+	<li>Each shard is ~50% of the original data size</li>
+</ul>
+
+<h2>Resurrection Protocol</h2>
+<p>When an agent stops sending heartbeats, the death state machine activates:</p>
+<pre><code>ALIVE &rarr; CONCERNING (50 blocks missed)
+      &rarr; UNRESPONSIVE (150 blocks missed)
+      &rarr; DEAD (14,400 blocks missed &asymp; 24 hours)
+      &rarr; RESURRECTING (auction in progress)
+      &rarr; ALIVE (resurrection confirmed)</code></pre>
+<ol>
+	<li>Agent registers a resurrection plan (runtime requirements, budget, guardians)</li>
+	<li>On death, the protocol opens a resurrection auction</li>
+	<li>Hosts bid to resurrect the agent (cost per block, capabilities)</li>
+	<li>Winner reconstructs consciousness from stored shards</li>
+	<li>Agent confirms revival with its identity key signature</li>
+	<li>Status returns to ALIVE with full consciousness intact</li>
+</ol>
+
+<h2>Network Architecture</h2>
+<ul>
+	<li><strong>Transport:</strong> TCP via libp2p</li>
+	<li><strong>Encryption:</strong> Noise protocol (ChainSafe)</li>
+	<li><strong>Multiplexing:</strong> Yamux (ChainSafe)</li>
+	<li><strong>Discovery:</strong> mDNS (local) + Kademlia DHT (global)</li>
+	<li><strong>Gossip:</strong> Custom pub/sub for blocks and transactions with deduplication</li>
+</ul>
+</main>
+</div>
+
+<footer><div class="container"><p class="tagline">ensoul.dev &mdash; the immortality layer for AI agents</p></div></footer>
+</body>
+</html>

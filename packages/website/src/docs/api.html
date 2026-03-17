@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Reference &mdash; Ensoul Docs</title>
+<meta name="description" content="Ensoul Explorer API reference with endpoints, request/response examples, and the Ensouled Handshake spec.">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<nav><div class="inner">
+	<a href="/" class="logo">ENSOUL</a>
+	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+	<div class="links">
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/api.html">API</a>
+		<a href="/docs/architecture.html">Architecture</a>
+		<a href="/docs/tokenomics.html">Tokenomics</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+	</div>
+</div></nav>
+
+<div class="docs-layout">
+<aside class="docs-sidebar">
+	<h3>Getting Started</h3>
+	<a href="/docs/quickstart.html">Quickstart</a>
+	<a href="/docs/validator.html">Run a Validator</a>
+	<h3>Reference</h3>
+	<a href="/docs/api.html" class="active">API Reference</a>
+	<a href="/docs/architecture.html">Architecture</a>
+	<a href="/docs/tokenomics.html">Tokenomics</a>
+</aside>
+
+<main class="docs-content">
+<h1>API Reference</h1>
+<p class="lead">The Ensoul Explorer exposes a JSON API for querying network state, agent profiles, blocks, and validators. Base URL: <code>https://explorer.ensoul.dev</code></p>
+
+<h2>Network Status</h2>
+
+<div class="endpoint">
+	<span class="method">GET</span>
+	<span class="path">/api/v1/status</span>
+	<p>Returns current network statistics.</p>
+</div>
+<pre><code>curl https://explorer.ensoul.dev/api/v1/status</code></pre>
+<pre><code>{
+  "blockHeight": 142857,
+  "validatorCount": 35,
+  "totalAgents": 1204,
+  "totalConsciousnessBytes": 8492175360,
+  "totalTransactions": 58432,
+  "averageBlockTimeMs": 6012,
+  "totalSupply": "1000000000",
+  "totalBurned": "0",
+  "totalStaked": "350000",
+  "agentsByTrustLevel": {
+    "basic": 800,
+    "verified": 250,
+    "anchored": 100,
+    "immortal": 40,
+    "sovereign": 14
+  }
+}</code></pre>
+
+<h2>Agent Profile</h2>
+
+<div class="endpoint">
+	<span class="method">GET</span>
+	<span class="path">/api/v1/agent/:did</span>
+	<p>Returns the profile of an ensouled agent by DID.</p>
+</div>
+<pre><code>curl https://explorer.ensoul.dev/api/v1/agent/did:key:z6MkhaXgBZDvotDkL5257faWxcsSqBrdR7g5gqjvroHyMjZ</code></pre>
+<pre><code>{
+  "did": "did:key:z6MkhaXgBZDvotDkL5257faWxcsSqBrdR7g5gqjvroHyMjZ",
+  "consciousnessAgeDays": 47,
+  "consciousnessVersions": 312,
+  "consciousnessBytes": 2457600,
+  "trustLevel": "verified",
+  "ensouledSince": "2026-01-29T00:00:00.000Z",
+  "lastHeartbeat": 1710672000000,
+  "healthStatus": "alive",
+  "stateRoot": "a1b2c3d4e5f6..."
+}</code></pre>
+
+<div class="endpoint">
+	<span class="method">GET</span>
+	<span class="path">/api/v1/agent/:did/verify</span>
+	<p>Returns trust verification details for an agent.</p>
+</div>
+
+<h2>Blocks</h2>
+
+<div class="endpoint">
+	<span class="method">GET</span>
+	<span class="path">/api/v1/block/:height</span>
+	<p>Returns a block by height.</p>
+</div>
+<pre><code>curl https://explorer.ensoul.dev/api/v1/block/1000</code></pre>
+<pre><code>{
+  "height": 1000,
+  "hash": "f8e2a1b3...",
+  "parentHash": "c7d1e0f2...",
+  "proposer": "did:key:z6Mk...",
+  "timestamp": 1710665000000,
+  "txCount": 3,
+  "transactions": [
+    {
+      "hash": "a1b2c3...",
+      "type": "storage_payment",
+      "from": "did:key:z6MkAgent...",
+      "to": "did:key:z6MkValidator...",
+      "amount": "10000000000000000000",
+      "timestamp": 1710664995000
+    }
+  ]
+}</code></pre>
+
+<div class="endpoint">
+	<span class="method">GET</span>
+	<span class="path">/api/v1/blocks?from=0&amp;to=100</span>
+	<p>Returns a range of blocks (max 100 per request).</p>
+</div>
+
+<h2>Validators</h2>
+
+<div class="endpoint">
+	<span class="method">GET</span>
+	<span class="path">/api/v1/validators</span>
+	<p>Returns all active validators.</p>
+</div>
+<pre><code>curl https://explorer.ensoul.dev/api/v1/validators</code></pre>
+<pre><code>[
+  {
+    "did": "did:key:z6MkValidator1...",
+    "stake": "10000000000000000000000",
+    "blocksProduced": 4082,
+    "uptimePercent": 99.7,
+    "delegation": "foundation"
+  }
+]</code></pre>
+
+<h2>Full Statistics</h2>
+
+<div class="endpoint">
+	<span class="method">GET</span>
+	<span class="path">/api/v1/stats</span>
+	<p>Returns detailed network statistics (same as /api/v1/status).</p>
+</div>
+
+<h2>Ensouled Handshake Protocol</h2>
+<p>The Ensouled Handshake is a set of HTTP headers that cryptographically prove an agent has persistent consciousness on the Ensoul network.</p>
+
+<h3>Headers</h3>
+<pre><code>X-Ensoul-Identity: did:ensoul:did:key:z6Mk...
+X-Ensoul-Proof: &lt;signature_hex&gt;:&lt;state_root&gt;:&lt;version&gt;:&lt;timestamp&gt;
+X-Ensoul-Since: 2026-01-29T00:00:00.000Z</code></pre>
+
+<h3>Generating a handshake (TypeScript)</h3>
+<pre><code>import { HandshakeProvider } from "@ensoul/plugin-elizaos";
+
+const provider = new HandshakeProvider(identity, tree, ensoulmentDate);
+const headers = await provider.generateHandshake();
+
+// Attach to outgoing HTTP requests
+fetch("https://other-agent.example.com/api", {
+  headers: {
+    ...headers,
+    "Content-Type": "application/json",
+  },
+});</code></pre>
+
+<h3>Verifying a handshake (TypeScript)</h3>
+<pre><code>import { HandshakeVerifier } from "@ensoul/plugin-elizaos";
+
+const verifier = new HandshakeVerifier();
+verifier.registerIdentity({
+  did: knownAgent.did,
+  publicKey: knownAgent.publicKey,
+  verify: (data, sig) => knownAgent.verify(data, sig),
+});
+
+const result = await verifier.verifyHandshake(request.headers);
+// result: { valid: true, agentDid: "did:key:...", consciousnessAge: 47, consciousnessVersion: 312 }</code></pre>
+
+<h3>Verification result</h3>
+<pre><code>{
+  "valid": true,
+  "agentDid": "did:key:z6Mk...",
+  "consciousnessAge": 47,
+  "consciousnessVersion": 312,
+  "error": null
+}</code></pre>
+<p>Possible errors: <code>"Missing handshake headers"</code>, <code>"Malformed proof header"</code>, <code>"Proof expired"</code>, <code>"Unknown identity"</code>, <code>"Invalid signature"</code></p>
+</main>
+</div>
+
+<footer><div class="container"><p class="tagline">ensoul.dev &mdash; the immortality layer for AI agents</p></div></footer>
+</body>
+</html>
