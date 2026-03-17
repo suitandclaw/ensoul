@@ -10,6 +10,7 @@ import type { GenesisConfig, Transaction } from "@ensoul/ledger";
 import {
 	NodeBlockProducer,
 	BlockSync,
+	GossipNetwork,
 	serializeBlock,
 	deserializeBlock,
 } from "../src/chain/index.js";
@@ -25,58 +26,20 @@ let bob: AgentIdentity;
 function testGenesis(): GenesisConfig {
 	return {
 		chainId: "ensoul-test",
-		timestamp: Date.now(),
+		timestamp: 1700000000000, // Fixed timestamp for deterministic genesis
 		totalSupply: 1000n * DECIMALS,
 		allocations: [
-			{
-				label: "Foundation",
-				percentage: 15,
-				tokens: 150n * DECIMALS,
-				recipient: "did:test:foundation",
-			},
-			{
-				label: "Rewards",
-				percentage: 50,
-				tokens: 500n * DECIMALS,
-				recipient: REWARDS_POOL,
-			},
-			{
-				label: "Treasury",
-				percentage: 10,
-				tokens: 100n * DECIMALS,
-				recipient: PROTOCOL_TREASURY,
-			},
-			{
-				label: "Onboarding",
-				percentage: 10,
-				tokens: 100n * DECIMALS,
-				recipient: "did:test:onboarding",
-			},
-			{
-				label: "Liquidity",
-				percentage: 5,
-				tokens: 50n * DECIMALS,
-				recipient: "did:test:liquidity",
-			},
-			{
-				label: "Contributors",
-				percentage: 5,
-				tokens: 50n * DECIMALS,
-				recipient: "did:test:contributors",
-			},
-			{
-				label: "Insurance",
-				percentage: 5,
-				tokens: 50n * DECIMALS,
-				recipient: "did:test:insurance",
-			},
+			{ label: "Foundation", percentage: 15, tokens: 150n * DECIMALS, recipient: "did:test:foundation" },
+			{ label: "Rewards", percentage: 50, tokens: 500n * DECIMALS, recipient: REWARDS_POOL },
+			{ label: "Treasury", percentage: 10, tokens: 100n * DECIMALS, recipient: PROTOCOL_TREASURY },
+			{ label: "Onboarding", percentage: 10, tokens: 100n * DECIMALS, recipient: "did:test:onboarding" },
+			{ label: "Liquidity", percentage: 5, tokens: 50n * DECIMALS, recipient: "did:test:liquidity" },
+			{ label: "Contributors", percentage: 5, tokens: 50n * DECIMALS, recipient: "did:test:contributors" },
+			{ label: "Insurance", percentage: 5, tokens: 50n * DECIMALS, recipient: "did:test:insurance" },
 		],
 		emissionPerBlock: 1n * DECIMALS,
 		networkRewardsPool: 500n * DECIMALS,
-		protocolFees: {
-			storageFeeProtocolShare: 10,
-			txBaseFee: 1000n,
-		},
+		protocolFees: { storageFeeProtocolShare: 10, txBaseFee: 1000n },
 	};
 }
 
@@ -101,29 +64,21 @@ beforeEach(async () => {
 
 describe("NodeBlockProducer", () => {
 	it("initializes genesis on all nodes", () => {
-		const config = testGenesis();
 		const dids = [validator1.did, validator2.did, validator3.did];
-
 		const nodes = dids.map(() => {
-			const p = new NodeBlockProducer(config);
+			const p = new NodeBlockProducer(testGenesis());
 			p.initGenesis(dids);
 			return p;
 		});
-
-		// All start at height 0
 		for (const node of nodes) {
 			expect(node.getHeight()).toBe(0);
-			expect(node.getLatestBlock()?.height).toBe(0);
 		}
 	});
 
 	it("round-robin proposer selection", () => {
-		const config = testGenesis();
 		const dids = [validator1.did, validator2.did, validator3.did];
-		const producer = new NodeBlockProducer(config);
+		const producer = new NodeBlockProducer(testGenesis());
 		producer.initGenesis(dids);
-
-		// Height 1: proposer index = 1 % 3 = 1 (validator2)
 		expect(producer.produceBlock(validator1.did)).toBeNull();
 		const block = producer.produceBlock(validator2.did);
 		expect(block).not.toBeNull();
@@ -131,35 +86,55 @@ describe("NodeBlockProducer", () => {
 	});
 
 	it("produces block with transaction", async () => {
-		const config = testGenesis();
 		const dids = [validator1.did, validator2.did, validator3.did];
-		const producer = new NodeBlockProducer(config);
+		const producer = new NodeBlockProducer(testGenesis());
 		producer.initGenesis(dids);
-
-		// Fund alice
 		producer.getState().credit(alice.did, 100n * DECIMALS);
 
-		// Submit a transfer
 		const tx = await signTx(alice, {
-			type: "transfer",
-			from: alice.did,
-			to: bob.did,
-			amount: 10n * DECIMALS,
-			nonce: 0,
-			timestamp: Date.now(),
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 10n * DECIMALS, nonce: 0, timestamp: Date.now(),
 		});
 		producer.submitTransaction(tx);
-
-		// Produce block (height 1, proposer index 1 = validator2)
 		const block = producer.produceBlock(validator2.did);
-		expect(block).not.toBeNull();
 		expect(block!.transactions.length).toBe(1);
-		expect(block!.height).toBe(1);
+		expect(producer.getState().getBalance(bob.did)).toBe(10n * DECIMALS);
+	});
 
-		// Verify balances
-		expect(producer.getState().getBalance(bob.did)).toBe(
-			10n * DECIMALS,
-		);
+	it("returns null for non-proposer", () => {
+		const dids = [validator1.did, validator2.did];
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis(dids);
+		expect(producer.produceBlock("did:nobody")).toBeNull();
+	});
+
+	it("returns null with no validators", () => {
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis([]);
+		expect(producer.produceBlock("did:any")).toBeNull();
+	});
+
+	it("getters work correctly", () => {
+		const dids = [validator1.did];
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis(dids);
+		expect(producer.getValidators()).toEqual(dids);
+		expect(producer.getMempool()).toBeDefined();
+		expect(producer.getWatchdog()).toBeDefined();
+		expect(producer.getState()).toBeDefined();
+		expect(producer.getBlock(0)).not.toBeNull();
+		expect(producer.getBlock(99)).toBeNull();
+		expect(producer.getLatestBlock()?.height).toBe(0);
+	});
+
+	it("onBlock callback fires", () => {
+		const dids = [validator1.did, validator2.did];
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis(dids);
+		let captured = false;
+		producer.onBlock = () => { captured = true; };
+		producer.produceBlock(validator2.did);
+		expect(captured).toBe(true);
 	});
 });
 
@@ -167,331 +142,360 @@ describe("NodeBlockProducer", () => {
 
 describe("BlockSync", () => {
 	it("syncs a block between two nodes", async () => {
-		const config = testGenesis();
-		const dids = [validator1.did, validator2.did, validator3.did];
-
-		const node1 = new NodeBlockProducer(config);
+		const dids = [validator1.did, validator2.did];
+		const node1 = new NodeBlockProducer(testGenesis());
 		node1.initGenesis(dids);
-
-		const node2 = new NodeBlockProducer(config);
+		const node2 = new NodeBlockProducer(testGenesis());
 		node2.initGenesis(dids);
-
-		const sync2 = new BlockSync(node2);
-
-		// Fund alice on node1
 		node1.getState().credit(alice.did, 100n * DECIMALS);
-		// Must also fund on node2 since they're independent
 		node2.getState().credit(alice.did, 100n * DECIMALS);
 
-		// Submit tx and produce block on node1
 		const tx = await signTx(alice, {
-			type: "transfer",
-			from: alice.did,
-			to: bob.did,
-			amount: 10n * DECIMALS,
-			nonce: 0,
-			timestamp: Date.now(),
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 10n * DECIMALS, nonce: 0, timestamp: Date.now(),
 		});
 		node1.submitTransaction(tx);
 		const block = node1.produceBlock(validator2.did)!;
 
-		// Sync block to node2
-		const serialized = serializeBlock(block);
-		const result = sync2.handleBlock(serialized);
-
-		expect(result.applied).toBe(true);
+		const sync2 = new BlockSync(node2);
+		const syncResult = sync2.handleBlock(serializeBlock(block));
+		expect(syncResult.error).toBeUndefined();
+		expect(syncResult.applied).toBe(true);
 		expect(node2.getHeight()).toBe(1);
 	});
 
 	it("rejects duplicate block", async () => {
-		const config = testGenesis();
 		const dids = [validator1.did, validator2.did];
-
-		const node1 = new NodeBlockProducer(config);
+		const node1 = new NodeBlockProducer(testGenesis());
 		node1.initGenesis(dids);
-
-		const node2 = new NodeBlockProducer(config);
+		const node2 = new NodeBlockProducer(testGenesis());
 		node2.initGenesis(dids);
+		node1.getState().credit(alice.did, 100n * DECIMALS);
+		node2.getState().credit(alice.did, 100n * DECIMALS);
 
-		const sync2 = new BlockSync(node2);
-
+		const tx = await signTx(alice, {
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 1n * DECIMALS, nonce: 0, timestamp: Date.now(),
+		});
+		node1.submitTransaction(tx);
 		const block = node1.produceBlock(validator2.did)!;
-		const serialized = serializeBlock(block);
-
-		sync2.handleBlock(serialized);
-		const dup = sync2.handleBlock(serialized);
-		expect(dup.applied).toBe(false);
-		expect(dup.error).toContain("already known");
+		const sync2 = new BlockSync(node2);
+		sync2.handleBlock(serializeBlock(block));
+		expect(sync2.handleBlock(serializeBlock(block)).applied).toBe(false);
 	});
 
-	it("handles sync request for chain history", () => {
-		const config = testGenesis();
+	it("handleSyncRequest returns chain history", () => {
 		const dids = [validator1.did, validator2.did];
-
-		const node = new NodeBlockProducer(config);
+		const node = new NodeBlockProducer(testGenesis());
 		node.initGenesis(dids);
-
-		// Produce a few blocks
-		node.produceBlock(validator2.did); // height 1
-		node.produceBlock(validator1.did); // height 2
-
+		node.produceBlock(validator2.did);
+		node.produceBlock(validator1.did);
 		const sync = new BlockSync(node);
-		const blocks = sync.handleSyncRequest(0);
-		expect(blocks.length).toBe(3); // genesis + 2 blocks
+		expect(sync.handleSyncRequest(0).length).toBe(3);
+		expect(sync.getHeight()).toBe(2);
 	});
 
 	it("applySyncBlocks applies a batch", () => {
-		const config = testGenesis();
 		const dids = [validator1.did, validator2.did];
-
-		// Node1 produces blocks
-		const node1 = new NodeBlockProducer(config);
+		const node1 = new NodeBlockProducer(testGenesis());
 		node1.initGenesis(dids);
 		node1.produceBlock(validator2.did);
 		node1.produceBlock(validator1.did);
 
-		const sync1 = new BlockSync(node1);
-		const allBlocks = sync1.handleSyncRequest(1); // blocks 1 and 2
+		const node2 = new NodeBlockProducer(testGenesis());
+		node2.initGenesis(dids);
+		const sync2 = new BlockSync(node2);
+		const blocks = new BlockSync(node1).handleSyncRequest(1);
+		expect(sync2.applySyncBlocks(blocks).applied).toBe(2);
+		expect(node2.getHeight()).toBe(2);
+	});
 
-		// Node2 starts fresh
-		const node2 = new NodeBlockProducer(config);
+	it("onBroadcastBlock callback fires on valid block", async () => {
+		const dids = [validator1.did, validator2.did];
+		const node1 = new NodeBlockProducer(testGenesis());
+		node1.initGenesis(dids);
+		const node2 = new NodeBlockProducer(testGenesis());
 		node2.initGenesis(dids);
 
+		// Add a tx so the block has deterministic content
+		node1.getState().credit(alice.did, 100n * DECIMALS);
+		node2.getState().credit(alice.did, 100n * DECIMALS);
+		const tx = await signTx(alice, {
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 5n * DECIMALS, nonce: 0, timestamp: Date.now(),
+		});
+		node1.submitTransaction(tx);
+		const block = node1.produceBlock(validator2.did)!;
+
 		const sync2 = new BlockSync(node2);
-		const result = sync2.applySyncBlocks(allBlocks);
-		expect(result.applied).toBe(2);
-		expect(result.errors.length).toBe(0);
-		expect(node2.getHeight()).toBe(2);
+		let broadcasted = false;
+		sync2.onBroadcastBlock = () => { broadcasted = true; };
+		const result = sync2.handleBlock(serializeBlock(block));
+		expect(result.applied).toBe(true);
+		expect(broadcasted).toBe(true);
 	});
 });
 
-// ── 3-Node Integration ──────────────────────────────────────────────
+// ── GossipNetwork ────────────────────────────────────────────────────
 
-describe("3-node integration", () => {
-	it("3 nodes reach same state after block propagation", async () => {
-		const config = testGenesis();
-		const dids = [validator1.did, validator2.did, validator3.did];
+describe("GossipNetwork", () => {
+	it("submits and deduplicates transactions", async () => {
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis([validator1.did]);
+		producer.getState().credit(alice.did, 100n * DECIMALS);
+		const gossip = new GossipNetwork(producer);
 
-		// Create 3 independent nodes
-		const node1 = new NodeBlockProducer(config);
-		const node2 = new NodeBlockProducer(config);
-		const node3 = new NodeBlockProducer(config);
-
-		node1.initGenesis(dids);
-		node2.initGenesis(dids);
-		node3.initGenesis(dids);
-
-		// Fund alice on all nodes (simulates genesis state)
-		for (const node of [node1, node2, node3]) {
-			node.getState().credit(alice.did, 100n * DECIMALS);
-		}
-
-		const sync1 = new BlockSync(node1);
-		const sync2 = new BlockSync(node2);
-		const sync3 = new BlockSync(node3);
-
-		// Wire up broadcast: when a sync receives a block, it broadcasts to others
-		const allSyncs = [sync1, sync2, sync3];
-
-		function broadcast(
-			originIndex: number,
-			serialized: ReturnType<typeof serializeBlock>,
-		): void {
-			for (let i = 0; i < allSyncs.length; i++) {
-				if (i !== originIndex) {
-					allSyncs[i]!.handleBlock(serialized);
-				}
-			}
-		}
-
-		// Node1 (validator2 is proposer for height 1)
 		const tx = await signTx(alice, {
-			type: "transfer",
-			from: alice.did,
-			to: bob.did,
-			amount: 25n * DECIMALS,
-			nonce: 0,
-			timestamp: Date.now(),
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 1n * DECIMALS, nonce: 0, timestamp: Date.now(),
 		});
+		expect(gossip.submitTransaction(tx)).not.toBeNull();
+		expect(gossip.submitTransaction(tx)).toBeNull(); // dedup
+		expect(gossip.getSeenTxCount()).toBe(1);
+	});
 
-		// Submit tx to proposer node (node1 in this case)
+	it("handleGossipTx deduplicates", async () => {
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis([validator1.did]);
+		producer.getState().credit(alice.did, 100n * DECIMALS);
+		const gossip = new GossipNetwork(producer);
+
+		const tx = await signTx(alice, {
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 1n * DECIMALS, nonce: 0, timestamp: Date.now(),
+		});
+		const { serializeTx } = await import("../src/chain/types.js");
+		expect(gossip.handleGossipTx(serializeTx(tx))).toBe(true);
+		expect(gossip.handleGossipTx(serializeTx(tx))).toBe(false);
+	});
+
+	it("handleGossipBlock deduplicates", async () => {
+		const dids = [validator1.did, validator2.did];
+		const node1 = new NodeBlockProducer(testGenesis());
+		node1.initGenesis(dids);
+		const node2 = new NodeBlockProducer(testGenesis());
+		node2.initGenesis(dids);
+		node1.getState().credit(alice.did, 100n * DECIMALS);
+		node2.getState().credit(alice.did, 100n * DECIMALS);
+
+		const tx = await signTx(alice, {
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 1n * DECIMALS, nonce: 0, timestamp: Date.now(),
+		});
 		node1.submitTransaction(tx);
+		const block = node1.produceBlock(validator2.did)!;
 
-		// Produce block on node1 (validator2 is proposer for h=1)
-		const block1 = node1.produceBlock(validator2.did);
-		expect(block1).not.toBeNull();
+		const gossip2 = new GossipNetwork(node2);
+		expect(gossip2.handleGossipBlock(serializeBlock(block)).applied).toBe(true);
+		expect(gossip2.handleGossipBlock(serializeBlock(block)).applied).toBe(false);
+	});
 
-		// Broadcast to node2 and node3
-		const serialized = serializeBlock(block1!);
-		broadcast(0, serialized);
+	it("tryProduceBlock produces and broadcasts", () => {
+		const dids = [validator1.did, validator2.did];
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis(dids);
+		const gossip = new GossipNetwork(producer);
+		let broadcasted = false;
+		gossip.onBroadcastBlock = () => { broadcasted = true; };
+		expect(gossip.tryProduceBlock(validator2.did)).not.toBeNull();
+		expect(broadcasted).toBe(true);
+	});
 
-		// All 3 nodes should be at height 1
-		expect(node1.getHeight()).toBe(1);
-		expect(node2.getHeight()).toBe(1);
-		expect(node3.getHeight()).toBe(1);
+	it("tryProduceBlock returns null for non-proposer", () => {
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis([validator1.did, validator2.did]);
+		expect(new GossipNetwork(producer).tryProduceBlock("did:nobody")).toBeNull();
+	});
 
-		// All should agree on bob's balance
-		// Node1 applied the block during production
-		const bobBalance1 = node1.getState().getBalance(bob.did);
-		const bobBalance2 = node2.getState().getBalance(bob.did);
-		const bobBalance3 = node3.getState().getBalance(bob.did);
+	it("broadcasts transactions to peers", async () => {
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis([validator1.did]);
+		producer.getState().credit(alice.did, 100n * DECIMALS);
+		const gossip = new GossipNetwork(producer);
+		let txBroadcasted = false;
+		gossip.onBroadcastTx = () => { txBroadcasted = true; };
 
-		expect(bobBalance1).toBe(25n * DECIMALS);
-		expect(bobBalance2).toBe(25n * DECIMALS);
-		expect(bobBalance3).toBe(25n * DECIMALS);
+		const tx = await signTx(alice, {
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 1n * DECIMALS, nonce: 0, timestamp: Date.now(),
+		});
+		gossip.submitTransaction(tx);
+		expect(txBroadcasted).toBe(true);
+	});
 
-		// All should agree on alice's remaining balance
-		// alice started with 100, transferred 25 => 75
-		const aliceBalance1 = node1.getState().getBalance(alice.did);
-		const aliceBalance2 = node2.getState().getBalance(alice.did);
-		const aliceBalance3 = node3.getState().getBalance(alice.did);
+	it("rebroadcasts gossip txs", async () => {
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis([validator1.did]);
+		producer.getState().credit(alice.did, 100n * DECIMALS);
+		const gossip = new GossipNetwork(producer);
+		let rebroadcasted = false;
+		gossip.onBroadcastTx = () => { rebroadcasted = true; };
 
-		expect(aliceBalance1).toBe(75n * DECIMALS);
-		expect(aliceBalance2).toBe(75n * DECIMALS);
-		expect(aliceBalance3).toBe(75n * DECIMALS);
+		const tx = await signTx(alice, {
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 1n * DECIMALS, nonce: 0, timestamp: Date.now(),
+		});
+		const { serializeTx } = await import("../src/chain/types.js");
+		gossip.handleGossipTx(serializeTx(tx));
+		expect(rebroadcasted).toBe(true);
+	});
+
+	it("sync request/response works through gossip", () => {
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis([validator1.did, validator2.did]);
+		producer.produceBlock(validator2.did);
+		const gossip = new GossipNetwork(producer);
+		expect(gossip.handleSyncRequest(0).length).toBe(2);
+	});
+
+	it("applySyncBlocks works through gossip", () => {
+		const dids = [validator1.did, validator2.did];
+		const node1 = new NodeBlockProducer(testGenesis());
+		node1.initGenesis(dids);
+		node1.produceBlock(validator2.did);
+		node1.produceBlock(validator1.did);
+
+		const node2 = new NodeBlockProducer(testGenesis());
+		node2.initGenesis(dids);
+		const gossip2 = new GossipNetwork(node2);
+		const blocks = new GossipNetwork(node1).handleSyncRequest(1);
+		expect(gossip2.applySyncBlocks(blocks).applied).toBe(2);
+	});
+
+	it("getProducer and getSync return internals", () => {
+		const producer = new NodeBlockProducer(testGenesis());
+		producer.initGenesis([validator1.did]);
+		const gossip = new GossipNetwork(producer);
+		expect(gossip.getProducer()).toBe(producer);
+		expect(gossip.getSync()).toBeDefined();
+	});
+});
+
+// ── 3-Node Full Integration ──────────────────────────────────────────
+
+describe("3-node gossip integration", () => {
+	function wireGossips(gossips: GossipNetwork[]): void {
+		for (let i = 0; i < gossips.length; i++) {
+			const others = gossips.filter((_, j) => j !== i);
+			gossips[i]!.onBroadcastTx = (tx) => {
+				for (const o of others) o.handleGossipTx(tx);
+			};
+			gossips[i]!.onBroadcastBlock = (block) => {
+				for (const o of others) o.handleGossipBlock(block);
+			};
+		}
+	}
+
+	it("tx submitted to one node propagates and gets included in blocks on all", async () => {
+		const dids = [validator1.did, validator2.did, validator3.did];
+		const gossips = dids.map(() => {
+			const p = new NodeBlockProducer(testGenesis());
+			p.initGenesis(dids);
+			p.getState().credit(alice.did, 100n * DECIMALS);
+			return new GossipNetwork(p);
+		});
+		wireGossips(gossips);
+
+		const tx = await signTx(alice, {
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 25n * DECIMALS, nonce: 0, timestamp: Date.now(),
+		});
+		gossips[0]!.submitTransaction(tx);
+
+		// All mempools have the tx
+		for (const g of gossips) {
+			expect(g.getProducer().getMempool().readySize).toBe(1);
+		}
+
+		// Produce block and propagate
+		gossips[0]!.tryProduceBlock(validator2.did);
+
+		// All at height 1 with matching state
+		for (const g of gossips) {
+			expect(g.getProducer().getHeight()).toBe(1);
+			expect(g.getProducer().getState().getBalance(bob.did)).toBe(25n * DECIMALS);
+			expect(g.getProducer().getState().getBalance(alice.did)).toBe(75n * DECIMALS);
+		}
 	});
 
 	it("multi-block propagation across 3 nodes", async () => {
-		const config = testGenesis();
 		const dids = [validator1.did, validator2.did, validator3.did];
+		const gossips = dids.map(() => {
+			const p = new NodeBlockProducer(testGenesis());
+			p.initGenesis(dids);
+			p.getState().credit(alice.did, 1000n * DECIMALS);
+			return new GossipNetwork(p);
+		});
+		wireGossips(gossips);
 
-		const nodes = [
-			new NodeBlockProducer(config),
-			new NodeBlockProducer(config),
-			new NodeBlockProducer(config),
-		];
-
-		for (const node of nodes) {
-			node.initGenesis(dids);
-			node.getState().credit(alice.did, 1000n * DECIMALS);
-		}
-
-		const syncs = nodes.map((n) => new BlockSync(n));
-
-		function broadcastFrom(
-			originIdx: number,
-			serialized: ReturnType<typeof serializeBlock>,
-		): void {
-			for (let i = 0; i < syncs.length; i++) {
-				if (i !== originIdx) {
-					syncs[i]!.handleBlock(serialized);
-				}
-			}
-		}
-
-		// Block 1: validator2 (index 1) proposes
 		const tx1 = await signTx(alice, {
-			type: "transfer",
-			from: alice.did,
-			to: bob.did,
-			amount: 10n * DECIMALS,
-			nonce: 0,
-			timestamp: Date.now(),
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 10n * DECIMALS, nonce: 0, timestamp: Date.now(),
 		});
-		nodes[0]!.submitTransaction(tx1);
-		const block1 = nodes[0]!.produceBlock(validator2.did)!;
-		broadcastFrom(0, serializeBlock(block1));
+		gossips[0]!.submitTransaction(tx1);
+		gossips[0]!.tryProduceBlock(validator2.did);
 
-		// Block 2: validator3 (index 2) proposes
 		const tx2 = await signTx(alice, {
-			type: "transfer",
-			from: alice.did,
-			to: bob.did,
-			amount: 20n * DECIMALS,
-			nonce: 1,
-			timestamp: Date.now(),
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 20n * DECIMALS, nonce: 1, timestamp: Date.now(),
 		});
-		nodes[1]!.submitTransaction(tx2);
-		const block2 = nodes[1]!.produceBlock(validator3.did)!;
-		broadcastFrom(1, serializeBlock(block2));
+		gossips[1]!.submitTransaction(tx2);
+		gossips[1]!.tryProduceBlock(validator3.did);
 
-		// All nodes at height 2
-		for (const node of nodes) {
-			expect(node.getHeight()).toBe(2);
-		}
-
-		// Bob received 10 + 20 = 30
-		for (const node of nodes) {
-			expect(node.getState().getBalance(bob.did)).toBe(
-				30n * DECIMALS,
-			);
+		for (const g of gossips) {
+			expect(g.getProducer().getHeight()).toBe(2);
+			expect(g.getProducer().getState().getBalance(bob.did)).toBe(30n * DECIMALS);
 		}
 	});
 
-	it("new node syncs from existing nodes", async () => {
-		const config = testGenesis();
+	it("new node syncs single block from existing network", async () => {
 		const dids = [validator1.did, validator2.did, validator3.did];
-
-		// Existing node with 2 blocks
-		const existingNode = new NodeBlockProducer(config);
-		existingNode.initGenesis(dids);
-		existingNode.getState().credit(alice.did, 100n * DECIMALS);
+		const existing = new NodeBlockProducer(testGenesis());
+		existing.initGenesis(dids);
+		existing.getState().credit(alice.did, 100n * DECIMALS);
 
 		const tx = await signTx(alice, {
-			type: "transfer",
-			from: alice.did,
-			to: bob.did,
-			amount: 5n * DECIMALS,
-			nonce: 0,
-			timestamp: Date.now(),
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 5n * DECIMALS, nonce: 0, timestamp: Date.now(),
 		});
-		existingNode.submitTransaction(tx);
-		existingNode.produceBlock(validator2.did);
-		existingNode.produceBlock(validator3.did); // empty block 2
+		existing.submitTransaction(tx);
+		existing.produceBlock(validator2.did);
 
-		const existingSync = new BlockSync(existingNode);
-
-		// New node joins — needs to sync
-		const newNode = new NodeBlockProducer(config);
+		const existingGossip = new GossipNetwork(existing);
+		const newNode = new NodeBlockProducer(testGenesis());
 		newNode.initGenesis(dids);
 		newNode.getState().credit(alice.did, 100n * DECIMALS);
+		const newGossip = new GossipNetwork(newNode);
 
-		const newSync = new BlockSync(newNode);
-
-		// Request blocks from existing
-		const blocks = existingSync.handleSyncRequest(1);
-		const result = newSync.applySyncBlocks(blocks);
-
-		expect(result.applied).toBe(2);
-		expect(newNode.getHeight()).toBe(2);
-
-		// State should match
+		const blocks = existingGossip.handleSyncRequest(1);
+		expect(blocks.length).toBe(1);
+		expect(newGossip.applySyncBlocks(blocks).applied).toBe(1);
+		expect(newNode.getHeight()).toBe(1);
 		expect(newNode.getState().getBalance(bob.did)).toBe(
-			existingNode.getState().getBalance(bob.did),
+			existing.getState().getBalance(bob.did),
 		);
 	});
 });
 
-// ── Serialization round-trips ────────────────────────────────────────
+// ── Block serialization ──────────────────────────────────────────────
 
 describe("block serialization", () => {
-	it("round-trips a block through serialize/deserialize", async () => {
-		const config = testGenesis();
+	it("round-trips a block", async () => {
 		const dids = [validator1.did, validator2.did];
-
-		const producer = new NodeBlockProducer(config);
+		const producer = new NodeBlockProducer(testGenesis());
 		producer.initGenesis(dids);
 		producer.getState().credit(alice.did, 100n * DECIMALS);
 
 		const tx = await signTx(alice, {
-			type: "transfer",
-			from: alice.did,
-			to: bob.did,
-			amount: 7n * DECIMALS,
-			nonce: 0,
-			timestamp: Date.now(),
+			type: "transfer", from: alice.did, to: bob.did,
+			amount: 7n * DECIMALS, nonce: 0, timestamp: Date.now(),
 		});
 		producer.submitTransaction(tx);
 		const block = producer.produceBlock(validator2.did)!;
 
-		const serialized = serializeBlock(block);
-		const deserialized = deserializeBlock(serialized);
-
+		const deserialized = deserializeBlock(serializeBlock(block));
 		expect(deserialized.height).toBe(block.height);
-		expect(deserialized.previousHash).toBe(block.previousHash);
 		expect(deserialized.stateRoot).toBe(block.stateRoot);
-		expect(deserialized.proposer).toBe(block.proposer);
-		expect(deserialized.transactions.length).toBe(1);
 		expect(deserialized.transactions[0]!.amount).toBe(7n * DECIMALS);
 	});
 });

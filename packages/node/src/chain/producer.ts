@@ -160,7 +160,7 @@ export class NodeBlockProducer {
 			}
 		}
 
-		// Apply emission reward (same logic as ledger)
+		// Apply emission reward and update totalEmitted counter
 		const totalEmitted = this.ledger.getTotalEmitted();
 		const reward = computeBlockReward(
 			block.height,
@@ -174,6 +174,9 @@ export class NodeBlockProducer {
 			if (pool >= reward) {
 				this.state.debit(REWARDS_POOL, reward);
 				this.state.credit(block.proposer, reward);
+				// Update the ledger's totalEmitted to stay in sync
+				const ledgerAny = this.ledger as unknown as Record<string, unknown>;
+				ledgerAny["totalEmitted"] = totalEmitted + reward;
 			}
 		}
 

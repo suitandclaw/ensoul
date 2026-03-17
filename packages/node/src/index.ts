@@ -52,7 +52,7 @@ export { createApiServer } from "./api/index.js";
 export type { ApiServerConfig, CreditBalance } from "./api/index.js";
 
 // Chain integration (block production + sync)
-export { NodeBlockProducer, BlockSync } from "./chain/index.js";
+export { NodeBlockProducer, BlockSync, GossipNetwork } from "./chain/index.js";
 export {
 	serializeBlock,
 	deserializeBlock,

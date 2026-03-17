@@ -1,5 +1,6 @@
 export { NodeBlockProducer } from "./producer.js";
 export { BlockSync } from "./sync.js";
+export { GossipNetwork } from "./gossip.js";
 export {
 	serializeBlock,
 	deserializeBlock,
