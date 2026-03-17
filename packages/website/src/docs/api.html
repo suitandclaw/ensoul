@@ -156,7 +156,7 @@ X-Ensoul-Proof: &lt;signature_hex&gt;:&lt;state_root&gt;:&lt;version&gt;:&lt;tim
 X-Ensoul-Since: 2026-01-29T00:00:00.000Z</code></pre>
 
 <h3>Generating a handshake (TypeScript)</h3>
-<pre><code>import { HandshakeProvider } from "@ensoul/plugin-elizaos";
+<pre><code>import { HandshakeProvider } from "@ensoul-network/plugin-elizaos";
 
 const provider = new HandshakeProvider(identity, tree, ensoulmentDate);
 const headers = await provider.generateHandshake();
@@ -170,7 +170,7 @@ fetch("https://other-agent.example.com/api", {
 });</code></pre>
 
 <h3>Verifying a handshake (TypeScript)</h3>
-<pre><code>import { HandshakeVerifier } from "@ensoul/plugin-elizaos";
+<pre><code>import { HandshakeVerifier } from "@ensoul-network/plugin-elizaos";
 
 const verifier = new HandshakeVerifier();
 verifier.registerIdentity({
