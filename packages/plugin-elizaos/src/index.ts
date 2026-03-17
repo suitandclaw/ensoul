@@ -17,6 +17,18 @@ export {
 
 export { createShouldPersistEvaluator } from "./evaluators.js";
 
+export {
+	HandshakeProvider,
+	HandshakeVerifier,
+	generateStandaloneHandshake,
+} from "./handshake.js";
+
+export type {
+	HandshakeHeaders,
+	HandshakeVerification,
+	KnownIdentity,
+} from "./handshake.js";
+
 export type {
 	ElizaPlugin,
 	ElizaAction,
