@@ -87,6 +87,39 @@ importers:
         specifier: ^1.0.3
         version: 1.0.3
 
+  packages/integration:
+    dependencies:
+      '@ensoul/archive':
+        specifier: workspace:*
+        version: link:../archive
+      '@ensoul/explorer':
+        specifier: workspace:*
+        version: link:../explorer
+      '@ensoul/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@ensoul/ledger':
+        specifier: workspace:*
+        version: link:../ledger
+      '@ensoul/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@ensoul/network-client':
+        specifier: workspace:*
+        version: link:../network-client
+      '@ensoul/node':
+        specifier: workspace:*
+        version: link:../node
+      '@ensoul/plugin-elizaos':
+        specifier: workspace:*
+        version: link:../plugin-elizaos
+      '@ensoul/resurrection':
+        specifier: workspace:*
+        version: link:../resurrection
+      '@ensoul/state-tree':
+        specifier: workspace:*
+        version: link:../state-tree
+
   packages/ledger:
     dependencies:
       '@ensoul/identity':

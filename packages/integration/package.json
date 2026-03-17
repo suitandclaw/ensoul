@@ -1,0 +1,24 @@
+{
+	"name": "@ensoul/integration",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "tsc",
+		"test": "vitest run",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write ."
+	},
+	"dependencies": {
+		"@ensoul/archive": "workspace:*",
+		"@ensoul/explorer": "workspace:*",
+		"@ensoul/identity": "workspace:*",
+		"@ensoul/ledger": "workspace:*",
+		"@ensoul/memory": "workspace:*",
+		"@ensoul/network-client": "workspace:*",
+		"@ensoul/node": "workspace:*",
+		"@ensoul/plugin-elizaos": "workspace:*",
+		"@ensoul/resurrection": "workspace:*",
+		"@ensoul/state-tree": "workspace:*"
+	}
+}
