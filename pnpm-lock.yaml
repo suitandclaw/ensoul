@@ -113,6 +113,9 @@ importers:
       '@ensoul/identity':
         specifier: workspace:*
         version: link:../identity
+      '@ensoul/ledger':
+        specifier: workspace:*
+        version: link:../ledger
       '@fastify/rate-limit':
         specifier: ^10.3.0
         version: 10.3.0

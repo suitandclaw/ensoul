@@ -50,3 +50,33 @@ export type {
 export { createApiServer } from "./api/index.js";
 
 export type { ApiServerConfig, CreditBalance } from "./api/index.js";
+
+// Chain integration (block production + sync)
+export { NodeBlockProducer, BlockSync } from "./chain/index.js";
+export {
+	serializeBlock,
+	deserializeBlock,
+	serializeTx,
+	deserializeTx,
+} from "./chain/index.js";
+// Replication enforcement (Layer 6)
+export { ReplicationEnforcer } from "./replication/index.js";
+export type { ReplicationAction } from "./replication/index.js";
+export type {
+	ReplicationHealth,
+	ReplicationStatus,
+	ReplicationConfig,
+	ReplicationSummary,
+	ConsciousnessRegistration,
+} from "./replication/index.js";
+
+export type {
+	ChainNodeConfig,
+	BlockMessage,
+	TxMessage,
+	SyncRequestMessage,
+	SyncResponseMessage,
+	ChainMessage,
+	SerializedBlock,
+	SerializedTx,
+} from "./chain/index.js";
