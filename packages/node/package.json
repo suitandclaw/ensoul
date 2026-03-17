@@ -10,6 +10,9 @@
 			"types": "./dist/index.d.ts"
 		}
 	},
+	"bin": {
+		"ensoul-node": "dist/cli/main.js"
+	},
 	"scripts": {
 		"build": "tsc",
 		"test": "vitest run",

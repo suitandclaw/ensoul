@@ -1,0 +1,113 @@
+/**
+ * Parsed CLI arguments.
+ */
+export interface CliArgs {
+	mode: "validate" | "fullnode" | "status";
+	dataDir: string;
+	storageGB: number;
+	bootstrapPeers: string[];
+	storeConsciousness: string | null;
+	port: number;
+	apiPort: number;
+	help: boolean;
+}
+
+const DEFAULT_DATA_DIR = "~/.ensoul";
+const DEFAULT_STORAGE_GB = 10;
+const DEFAULT_PORT = 9000;
+const DEFAULT_API_PORT = 3000;
+
+/**
+ * Default bootstrap peers for the Ensoul mainnet.
+ * These are Foundation-operated nodes for initial discovery.
+ */
+export const DEFAULT_BOOTSTRAP_PEERS: string[] = [
+	"/ip4/bootstrap1.ensoul.dev/tcp/9000",
+	"/ip4/bootstrap2.ensoul.dev/tcp/9000",
+	"/ip4/bootstrap3.ensoul.dev/tcp/9000",
+];
+
+/**
+ * Parse command-line arguments.
+ */
+export function parseArgs(argv: string[]): CliArgs {
+	const args: CliArgs = {
+		mode: "fullnode",
+		dataDir: DEFAULT_DATA_DIR,
+		storageGB: DEFAULT_STORAGE_GB,
+		bootstrapPeers: [],
+		storeConsciousness: null,
+		port: DEFAULT_PORT,
+		apiPort: DEFAULT_API_PORT,
+		help: false,
+	};
+
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i]!;
+
+		if (arg === "--validate" || arg === "-v") {
+			args.mode = "validate";
+		} else if (arg === "status") {
+			args.mode = "status";
+		} else if (arg === "--help" || arg === "-h") {
+			args.help = true;
+		} else if (arg === "--data-dir" && argv[i + 1]) {
+			args.dataDir = argv[++i]!;
+		} else if (arg === "--storage" && argv[i + 1]) {
+			args.storageGB = Number(argv[++i]);
+		} else if (arg === "--bootstrap" && argv[i + 1]) {
+			args.bootstrapPeers.push(argv[++i]!);
+		} else if (arg === "--store-consciousness" && argv[i + 1]) {
+			args.storeConsciousness = argv[++i]!;
+		} else if (arg === "--port" && argv[i + 1]) {
+			args.port = Number(argv[++i]);
+		} else if (arg === "--api-port" && argv[i + 1]) {
+			args.apiPort = Number(argv[++i]);
+		}
+	}
+
+	if (args.bootstrapPeers.length === 0) {
+		args.bootstrapPeers = DEFAULT_BOOTSTRAP_PEERS;
+	}
+
+	return args;
+}
+
+/**
+ * Expand ~ in a path to the home directory.
+ */
+export function expandHome(path: string): string {
+	if (path.startsWith("~/")) {
+		const home = process.env["HOME"] ?? process.env["USERPROFILE"] ?? "/tmp";
+		return home + path.slice(1);
+	}
+	return path;
+}
+
+/**
+ * Print help text.
+ */
+export function printHelp(): string {
+	return `ensoul-node - Ensoul L1 validator and full node
+
+USAGE:
+  npx ensoul-node [OPTIONS]         Run as full node
+  npx ensoul-node --validate        Run as validator (produce blocks)
+  npx ensoul-node status            Print node status
+
+OPTIONS:
+  --validate, -v            Run as validator (participate in consensus)
+  --data-dir <path>         Data directory (default: ~/.ensoul)
+  --storage <GB>            Storage allocation in GB (default: 10)
+  --bootstrap <multiaddr>   Bootstrap peer (can specify multiple)
+  --store-consciousness <path>  Store local consciousness while validating
+  --port <port>             P2P port (default: 9000)
+  --api-port <port>         API port (default: 3000)
+  --help, -h                Show this help
+
+EXAMPLES:
+  npx ensoul-node --validate
+  npx ensoul-node --validate --storage 50 --data-dir /data/ensoul
+  npx ensoul-node --validate --bootstrap /ip4/192.168.1.100/tcp/9000
+  npx ensoul-node status`;
+}
