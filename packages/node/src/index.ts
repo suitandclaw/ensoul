@@ -57,6 +57,17 @@ export { NodeBlockProducer, BlockSync, GossipNetwork } from "./chain/index.js";
 // CLI
 export { parseArgs, expandHome, printHelp, EnsoulNodeRunner, formatStatus } from "./cli/index.js";
 export type { CliArgs, NodeStatus } from "./cli/index.js";
+
+// Wallet
+export {
+	WalletManager,
+	parseWalletArgs,
+	isWalletCommand,
+	validateDid,
+	shortenDid as shortenWalletDid,
+	formatEnsl,
+} from "./cli/index.js";
+export type { WalletCommand, HistoryEntry, WalletTxResult } from "./cli/index.js";
 export {
 	serializeBlock,
 	deserializeBlock,

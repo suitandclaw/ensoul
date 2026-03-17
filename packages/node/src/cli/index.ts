@@ -2,3 +2,12 @@ export { parseArgs, expandHome, printHelp, DEFAULT_BOOTSTRAP_PEERS } from "./arg
 export type { CliArgs } from "./args.js";
 export { EnsoulNodeRunner, formatStatus } from "./node-runner.js";
 export type { NodeStatus } from "./node-runner.js";
+export {
+	WalletManager,
+	parseWalletArgs,
+	isWalletCommand,
+	validateDid,
+	shortenDid,
+	formatEnsl,
+} from "./wallet.js";
+export type { WalletCommand, HistoryEntry, WalletTxResult } from "./wallet.js";
