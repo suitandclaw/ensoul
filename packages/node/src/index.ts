@@ -70,6 +70,22 @@ export type {
 	ConsciousnessRegistration,
 } from "./replication/index.js";
 
+// Trust level calculation
+export {
+	computeTrustLevel,
+	assessTrust,
+	hashTrustAssessment,
+	trustLevelToNumber,
+	numberToTrustLevel,
+} from "./trust/index.js";
+export type {
+	TrustLevel,
+	TrustLevelNumber,
+	TrustAssessment,
+	LayerStatus,
+	TrustInput,
+} from "./trust/index.js";
+
 export type {
 	ChainNodeConfig,
 	BlockMessage,
