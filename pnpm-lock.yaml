@@ -24,6 +24,15 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@25.5.0)
 
+  packages/anchor:
+    dependencies:
+      '@ensoul/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@noble/hashes':
+        specifier: ^2.0.1
+        version: 2.0.1
+
   packages/identity:
     dependencies:
       '@noble/ed25519':
