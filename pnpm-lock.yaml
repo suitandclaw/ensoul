@@ -42,6 +42,27 @@ importers:
         specifier: ^2.0.1
         version: 2.0.1
 
+  packages/explorer:
+    dependencies:
+      '@ensoul/anchor':
+        specifier: workspace:*
+        version: link:../anchor
+      '@ensoul/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@ensoul/ledger':
+        specifier: workspace:*
+        version: link:../ledger
+      '@ensoul/node':
+        specifier: workspace:*
+        version: link:../node
+      '@ensoul/resurrection':
+        specifier: workspace:*
+        version: link:../resurrection
+      fastify:
+        specifier: ^5.8.2
+        version: 5.8.2
+
   packages/identity:
     dependencies:
       '@noble/ed25519':
