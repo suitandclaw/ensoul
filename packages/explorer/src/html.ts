@@ -1,12 +1,31 @@
 import type { BlockData, AgentProfile, ValidatorData, NetworkStats } from "./types.js";
 
 const CSS = `
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #0a0a0f; color: #e0e0e0; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e0e0e0; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+a { color: #7c3aed; text-decoration: none; transition: color 0.2s; }
+a:hover { color: #a78bfa; }
+
+/* -- Site nav (matches ensoul.dev) -- */
+.site-nav { position: sticky; top: 0; z-index: 100; background: rgba(10,10,15,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid #2d2d3f; padding: 14px 0; }
+.site-nav .inner { max-width: 1120px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 32px; }
+.site-nav .logo { font-size: 1.15em; font-weight: 800; letter-spacing: 1px; color: #7c3aed; text-transform: uppercase; }
+.site-nav .links { display: flex; gap: 24px; margin-left: auto; }
+.site-nav .links a { color: #888; font-size: 0.9em; font-weight: 500; }
+.site-nav .links a:hover { color: #e0e0e0; }
+.site-nav .links a.active { color: #7c3aed; }
+
+/* -- Explorer sub-nav -- */
+.explorer-nav { max-width: 900px; margin: 0 auto; padding: 12px 20px 0; display: flex; gap: 16px; border-bottom: 1px solid #1e1e2a; }
+.explorer-nav a { color: #888; font-size: 0.9em; padding: 6px 2px 10px; border-bottom: 2px solid transparent; transition: all 0.2s; }
+.explorer-nav a:hover { color: #e0e0e0; }
+.explorer-nav a.active { color: #7c3aed; border-bottom-color: #7c3aed; }
+
+/* -- Content -- */
+.content { max-width: 900px; margin: 0 auto; padding: 20px; }
 h1 { color: #7c3aed; margin-bottom: 5px; }
-h2 { color: #a78bfa; border-bottom: 1px solid #2d2d3f; padding-bottom: 8px; }
+h2 { color: #a78bfa; border-bottom: 1px solid #2d2d3f; padding-bottom: 8px; margin-top: 24px; }
 .subtitle { color: #666; margin-top: 0; }
-a { color: #7c3aed; text-decoration: none; }
-a:hover { text-decoration: underline; }
 .card { background: #12121a; border: 1px solid #2d2d3f; border-radius: 8px; padding: 16px; margin: 12px 0; }
 .stat { display: inline-block; margin: 0 20px 10px 0; }
 .stat-value { font-size: 1.4em; font-weight: bold; color: #7c3aed; }
@@ -27,13 +46,29 @@ table { width: 100%; border-collapse: collapse; margin: 10px 0; }
 th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #1e1e2a; }
 th { color: #888; font-weight: 500; font-size: 0.85em; text-transform: uppercase; }
 .search { width: 100%; padding: 10px; background: #1a1a24; border: 1px solid #2d2d3f; border-radius: 6px; color: #e0e0e0; font-size: 1em; margin: 10px 0; }
+code { background: #1a1a24; border: 1px solid #2d2d3f; border-radius: 4px; padding: 2px 6px; font-family: 'SF Mono','Fira Code','JetBrains Mono',monospace; font-size: 0.9em; }
+.footer { max-width: 900px; margin: 40px auto 0; padding: 20px; text-align: center; color: #666; font-size: 0.85em; border-top: 1px solid #1e1e2a; }
+@media (max-width: 680px) { .site-nav .links { gap: 16px; } .stat { display: block; margin-bottom: 12px; } }
 `;
 
-function layout(title: string, content: string): string {
-	return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - Ensoul Explorer</title><style>${CSS}</style></head><body>
-<h1>ENSOUL</h1><p class="subtitle">Sovereign L1 for Agent Consciousness</p>
-<nav><a href="/">Dashboard</a> | <a href="/agents">Agents</a> | <a href="/blocks">Blocks</a> | <a href="/validators">Validators</a></nav>
-<hr style="border-color:#2d2d3f">${content}</body></html>`;
+function siteNav(activePage: string): string {
+	const link = (href: string, label: string, id: string): string => {
+		const cls = id === activePage ? ' class="active"' : "";
+		return `<a href="${href}"${cls}>${label}</a>`;
+	};
+	return `<nav class="site-nav"><div class="inner"><a href="https://ensoul.dev" class="logo">ENSOUL</a><div class="links">${link("https://ensoul.dev", "Home", "home")}${link("https://ensoul.dev/docs/quickstart.html", "Docs", "docs")}${link("/", "Explorer", "explorer")}${link("https://github.com/suitandclaw/ensoul", "GitHub", "github")}</div></div></nav>`;
+}
+
+function explorerNav(activeTab: string): string {
+	const tab = (href: string, label: string, id: string): string => {
+		const cls = id === activeTab ? ' class="active"' : "";
+		return `<a href="${href}"${cls}>${label}</a>`;
+	};
+	return `<div class="explorer-nav">${tab("/", "Dashboard", "dashboard")}${tab("/agents", "Agents", "agents")}${tab("/blocks", "Blocks", "blocks")}${tab("/validators", "Validators", "validators")}</div>`;
+}
+
+function layout(title: string, tab: string, content: string): string {
+	return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - Ensoul Explorer</title><style>${CSS}</style></head><body>${siteNav("explorer")}${explorerNav(tab)}<div class="content">${content}</div><div class="footer">ensoul.dev &mdash; the immortality layer for AI agents</div></body></html>`;
 }
 
 /**
@@ -52,6 +87,7 @@ export function renderDashboard(
 
 	return layout(
 		"Dashboard",
+		"dashboard",
 		`<h2>Network</h2>
 <div class="card">
 <div class="stat"><div class="stat-value">${stats.blockHeight}</div><div class="stat-label">Block Height</div></div>
@@ -73,6 +109,7 @@ export function renderAgentProfile(agent: AgentProfile): string {
 
 	return layout(
 		`Agent ${agent.did.slice(0, 20)}`,
+		"agents",
 		`<div class="age-hero">Ensouled for ${agent.consciousnessAgeDays} days</div>
 <div class="age-sub">Since ${agent.ensouledSince}</div>
 <div class="card" style="text-align:center;margin-top:20px">
@@ -87,7 +124,7 @@ export function renderAgentProfile(agent: AgentProfile): string {
 <p><strong>Consciousness Size:</strong> ${formatBytes(agent.consciousnessBytes)}</p>
 <p><strong>Last Heartbeat:</strong> Block ${agent.lastHeartbeat}</p>
 </div>
-<p><a href="/api/v1/agent/${encodeURIComponent(agent.did)}/verify">Verify Consciousness →</a></p>`,
+<p><a href="/api/v1/agent/${encodeURIComponent(agent.did)}/verify">Verify Consciousness</a></p>`,
 	);
 }
 
@@ -97,6 +134,7 @@ export function renderAgentProfile(agent: AgentProfile): string {
 export function renderAgentSearch(): string {
 	return layout(
 		"Agent Lookup",
+		"agents",
 		`<h2>Look Up Agent</h2>
 <form action="/agent" method="get">
 <input class="search" name="did" placeholder="Enter agent DID (did:key:z6Mk...)" autofocus>
@@ -117,6 +155,7 @@ export function renderBlock(block: BlockData): string {
 
 	return layout(
 		`Block ${block.height}`,
+		"blocks",
 		`<h2>Block ${block.height}</h2>
 <div class="card">
 <p><strong>Hash:</strong> <code>${block.hash}</code></p>
@@ -126,7 +165,7 @@ export function renderBlock(block: BlockData): string {
 <p><strong>Transactions:</strong> ${block.txCount}</p>
 </div>
 ${block.txCount > 0 ? `<h3>Transactions</h3><table><tr><th>Type</th><th>From</th><th>To</th><th>Amount</th></tr>${txRows}</table>` : "<p>Empty block (heartbeat)</p>"}
-<p><a href="/block/${block.height - 1}">← Previous</a> | <a href="/block/${block.height + 1}">Next →</a></p>`,
+<p><a href="/block/${block.height - 1}">&larr; Previous</a> | <a href="/block/${block.height + 1}">Next &rarr;</a></p>`,
 	);
 }
 
@@ -143,6 +182,7 @@ export function renderBlockList(blocks: BlockData[]): string {
 
 	return layout(
 		"Blocks",
+		"blocks",
 		`<h2>Blocks</h2><table><tr><th>Height</th><th>Txs</th><th>Proposer</th></tr>${rows}</table>`,
 	);
 }
@@ -160,6 +200,7 @@ export function renderValidators(validators: ValidatorData[]): string {
 
 	return layout(
 		"Validators",
+		"validators",
 		`<h2>Validators</h2><table><tr><th>DID</th><th>Stake</th><th>Blocks</th><th>Uptime</th><th>Delegation</th></tr>${rows}</table>`,
 	);
 }
