@@ -10,6 +10,8 @@ export interface CliArgs {
 	port: number;
 	apiPort: number;
 	help: boolean;
+	install: boolean;
+	uninstall: boolean;
 }
 
 const DEFAULT_DATA_DIR = "~/.ensoul";
@@ -40,6 +42,8 @@ export function parseArgs(argv: string[]): CliArgs {
 		port: DEFAULT_PORT,
 		apiPort: DEFAULT_API_PORT,
 		help: false,
+		install: false,
+		uninstall: false,
 	};
 
 	for (let i = 0; i < argv.length; i++) {
@@ -63,6 +67,10 @@ export function parseArgs(argv: string[]): CliArgs {
 			args.port = Number(argv[++i]);
 		} else if (arg === "--api-port" && argv[i + 1]) {
 			args.apiPort = Number(argv[++i]);
+		} else if (arg === "--install") {
+			args.install = true;
+		} else if (arg === "uninstall" || arg === "--uninstall") {
+			args.uninstall = true;
 		}
 	}
 
@@ -91,12 +99,15 @@ export function printHelp(): string {
 	return `ensoul-node - Ensoul L1 validator and full node
 
 USAGE:
-  npx ensoul-node [OPTIONS]         Run as full node
-  npx ensoul-node --validate        Run as validator (produce blocks)
-  npx ensoul-node status            Print node status
+  npx ensoul-node [OPTIONS]                Run as full node
+  npx ensoul-node --validate               Run as validator (produce blocks)
+  npx ensoul-node --validate --install     Install as auto-start service
+  npx ensoul-node status                   Check service status
+  npx ensoul-node uninstall                Remove the background service
 
 OPTIONS:
   --validate, -v            Run as validator (participate in consensus)
+  --install                 Install as a background service (auto-start, auto-restart)
   --data-dir <path>         Data directory (default: ~/.ensoul)
   --storage <GB>            Storage allocation in GB (default: 10)
   --bootstrap <multiaddr>   Bootstrap peer (can specify multiple)
@@ -107,7 +118,9 @@ OPTIONS:
 
 EXAMPLES:
   npx ensoul-node --validate
+  npx ensoul-node --validate --install
   npx ensoul-node --validate --storage 50 --data-dir /data/ensoul
   npx ensoul-node --validate --bootstrap /ip4/192.168.1.100/tcp/9000
-  npx ensoul-node status`;
+  npx ensoul-node status
+  npx ensoul-node uninstall`;
 }

@@ -11,3 +11,10 @@ export {
 	formatEnsl,
 } from "./wallet.js";
 export type { WalletCommand, HistoryEntry, WalletTxResult } from "./wallet.js";
+export {
+	installService,
+	uninstallService,
+	checkServiceStatus,
+	buildPlist,
+} from "./service.js";
+export type { ServiceResult } from "./service.js";
