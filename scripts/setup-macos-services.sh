@@ -2,12 +2,24 @@
 #
 # setup-macos-services.sh
 #
-# Installs macOS launchd services for 3 Ensoul validators + the explorer.
-# Services auto-start on login and auto-restart on crash.
+# Installs macOS launchd services for 3 Ensoul validators, the explorer,
+# and a cloudflared tunnel. Services auto-start on login and auto-restart
+# on crash.
 #
 # Usage:
 #   ./scripts/setup-macos-services.sh          # install & load
 #   ./scripts/setup-macos-services.sh uninstall # unload & remove
+#
+# NOTE on cloudflared tunnel:
+#   This script uses a quick tunnel (cloudflared tunnel --url ...) which
+#   generates a random *.trycloudflare.com URL on each restart. This is
+#   fine for development but NOT suitable for production.
+#
+#   For production, create a named tunnel with a permanent URL:
+#     cloudflared tunnel create ensoul
+#     cloudflared tunnel route dns ensoul explorer.ensoul.dev
+#     cloudflared tunnel run ensoul
+#   Then replace the quick tunnel plist with one that runs the named tunnel.
 #
 
 set -euo pipefail
@@ -32,18 +44,25 @@ fi
 
 NODE_BIN_DIR="$(dirname "$NPX_PATH")"
 
+CLOUDFLARED_PATH="$(which cloudflared 2>/dev/null || true)"
+if [ -z "$CLOUDFLARED_PATH" ]; then
+  echo "Warning: cloudflared not found. Tunnel service will not be installed." >&2
+  echo "  Install: brew install cloudflared" >&2
+fi
+
 echo "Ensoul macOS service installer"
-echo "  Repo:     $REPO_DIR"
-echo "  npx:      $NPX_PATH"
-echo "  Node bin: $NODE_BIN_DIR"
-echo "  Data dir: $DATA_DIR"
+echo "  Repo:       $REPO_DIR"
+echo "  npx:        $NPX_PATH"
+echo "  Node bin:   $NODE_BIN_DIR"
+echo "  cloudflared: ${CLOUDFLARED_PATH:-not found}"
+echo "  Data dir:   $DATA_DIR"
 echo ""
 
 # ── Uninstall mode ────────────────────────────────────────────────────
 
 if [ "${1:-}" = "uninstall" ]; then
   echo "Uninstalling Ensoul services..."
-  for label in dev.ensoul.validator-0 dev.ensoul.validator-1 dev.ensoul.validator-2 dev.ensoul.explorer; do
+  for label in dev.ensoul.validator-0 dev.ensoul.validator-1 dev.ensoul.validator-2 dev.ensoul.explorer dev.ensoul.tunnel; do
     plist="$LAUNCH_DIR/$label.plist"
     if [ -f "$plist" ]; then
       launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
@@ -152,6 +171,18 @@ explorer_args() {
 ARGS
 }
 
+# For tunnel: cloudflared tunnel --url http://localhost:3000
+# Uses a quick tunnel (random *.trycloudflare.com URL on each restart).
+# See NOTE at top of script for production setup with named tunnels.
+tunnel_args() {
+  cat << ARGS
+    <string>$CLOUDFLARED_PATH</string>
+    <string>tunnel</string>
+    <string>--url</string>
+    <string>http://localhost:3000</string>
+ARGS
+}
+
 # ── Create plists ─────────────────────────────────────────────────────
 
 echo "Creating launchd service plists..."
@@ -162,12 +193,23 @@ done
 
 write_plist "dev.ensoul.explorer" "$(explorer_args)" "explorer"
 
+if [ -n "$CLOUDFLARED_PATH" ]; then
+  write_plist "dev.ensoul.tunnel" "$(tunnel_args)" "tunnel"
+else
+  echo "  Skipped dev.ensoul.tunnel (cloudflared not installed)"
+fi
+
 # ── Load services ─────────────────────────────────────────────────────
 
 echo ""
 echo "Loading services..."
 
-for label in dev.ensoul.validator-0 dev.ensoul.validator-1 dev.ensoul.validator-2 dev.ensoul.explorer; do
+ALL_LABELS="dev.ensoul.validator-0 dev.ensoul.validator-1 dev.ensoul.validator-2 dev.ensoul.explorer"
+if [ -n "$CLOUDFLARED_PATH" ]; then
+  ALL_LABELS="$ALL_LABELS dev.ensoul.tunnel"
+fi
+
+for label in $ALL_LABELS; do
   plist="$LAUNCH_DIR/$label.plist"
   # Unload first in case it was already loaded
   launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
@@ -188,6 +230,12 @@ echo ""
 echo "  Explorer:"
 echo "    http://localhost:3000    log: $DATA_DIR/explorer.log"
 echo ""
+if [ -n "$CLOUDFLARED_PATH" ]; then
+echo "  Tunnel:"
+echo "    Check $DATA_DIR/tunnel.log for the public *.trycloudflare.com URL"
+echo "    (URL changes on each restart — see script header for production setup)"
+echo ""
+fi
 echo "Management commands:"
 echo "  launchctl list | grep ensoul          # check status"
 echo "  launchctl kickstart gui/$(id -u)/dev.ensoul.validator-0  # force restart"
