@@ -27,3 +27,7 @@
 - Explorer: transaction search, address pages, network graphs
 - Mobile wallet app
 - Plugin for LangChain, CrewAI, Virtuals (beyond ElizaOS)
+
+## Architecture Decisions (future)
+
+- Programmable logic / smart contract support: Two paths available. Path A (near-term): add purpose-built transaction types for each new use case (agent escrow, knowledge purchase, agent DAOs, consciousness derivatives). The ledger already supports extensible tx types. Path B (long-term): add a lightweight WASM VM (similar to CosmWasm) when custom tx types can't keep up with demand. Trigger for Path B: when builders actively request arbitrary programmable logic. Until then, stay on Path A. Nothing in the current architecture prevents either path. Key use cases that would eventually need this: agent-to-agent conditional agreements, consciousness escrow, agent DAOs/governance, knowledge marketplace with dynamic pricing, consciousness-backed DeFi.
