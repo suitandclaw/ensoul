@@ -10,7 +10,7 @@
 	"use strict";
 
 	// ── Edit this URL when the explorer location changes ──
-	var EXPLORER_URL = "http://localhost:3000";
+	var EXPLORER_URL = "https://explorer.ensoul.dev";
 
 	// Update all explorer links in the page
 	var links = document.querySelectorAll("a.explorer-link");

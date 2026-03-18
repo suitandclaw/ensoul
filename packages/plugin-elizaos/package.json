@@ -1,5 +1,5 @@
 {
-	"name": "@ensoul/plugin-elizaos",
+	"name": "@ensoul-network/plugin-elizaos",
 	"version": "0.1.0",
 	"type": "module",
 	"main": "dist/index.js",
