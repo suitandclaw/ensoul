@@ -2,6 +2,7 @@
 
 import { parseArgs, printHelp } from "./args.js";
 import { EnsoulNodeRunner } from "./node-runner.js";
+import { PeerNetwork, parsePeerAddresses } from "../chain/peer-network.js";
 
 /**
  * Main entry point for the ensoul-node CLI.
@@ -38,8 +39,25 @@ async function main(): Promise<void> {
 		args.mode === "validate" ? [identity.did] : [];
 	runner.initChain(validatorDids);
 
-	// Step 3: Sync from peers
-	await runner.syncFromPeers();
+	// Step 3: Peer networking (if --peers provided)
+	let peerNet: PeerNetwork | null = null;
+
+	if (args.peers.length > 0) {
+		const gossip = runner.getGossip();
+		if (gossip) {
+			peerNet = new PeerNetwork(gossip, identity.did, (msg) =>
+				console.log(`[peers] ${msg}`),
+			);
+			await peerNet.startServer(args.port);
+
+			const addresses = parsePeerAddresses(args.peers.join(","));
+			const connected = await peerNet.connectToPeers(addresses);
+			console.log(`\n  Peers: ${connected}/${addresses.length} connected\n`);
+		}
+	} else {
+		// Legacy: sync from bootstrap peers (placeholder)
+		await runner.syncFromPeers();
+	}
 
 	// Step 4: Start block loop
 	if (args.mode === "validate") {
@@ -52,8 +70,9 @@ async function main(): Promise<void> {
 	// Print periodic status
 	const statusInterval = setInterval(() => {
 		const status = runner.getStatus();
+		const peerCount = peerNet?.getPeerCount() ?? status.peersConnected;
 		console.log(
-			`[status] height=${status.chainHeight} blocks=${status.blocksProduced} peers=${status.peersConnected}`,
+			`[status] height=${status.chainHeight} blocks=${status.blocksProduced} peers=${peerCount}`,
 		);
 	}, 30000);
 
@@ -62,6 +81,7 @@ async function main(): Promise<void> {
 		console.log("\n[ensoul] Shutting down...");
 		runner.stopBlockLoop();
 		clearInterval(statusInterval);
+		if (peerNet) void peerNet.stop();
 		process.exit(0);
 	};
 
