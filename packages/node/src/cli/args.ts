@@ -6,6 +6,7 @@ export interface CliArgs {
 	dataDir: string;
 	storageGB: number;
 	bootstrapPeers: string[];
+	peers: string[];
 	storeConsciousness: string | null;
 	port: number;
 	apiPort: number;
@@ -38,6 +39,7 @@ export function parseArgs(argv: string[]): CliArgs {
 		dataDir: DEFAULT_DATA_DIR,
 		storageGB: DEFAULT_STORAGE_GB,
 		bootstrapPeers: [],
+		peers: [],
 		storeConsciousness: null,
 		port: DEFAULT_PORT,
 		apiPort: DEFAULT_API_PORT,
@@ -67,6 +69,8 @@ export function parseArgs(argv: string[]): CliArgs {
 			args.port = Number(argv[++i]);
 		} else if (arg === "--api-port" && argv[i + 1]) {
 			args.apiPort = Number(argv[++i]);
+		} else if (arg === "--peers" && argv[i + 1]) {
+			args.peers = argv[++i]!.split(",").map((s) => s.trim()).filter(Boolean);
 		} else if (arg === "--install") {
 			args.install = true;
 		} else if (arg === "uninstall" || arg === "--uninstall") {
@@ -110,6 +114,7 @@ OPTIONS:
   --install                 Install as a background service (auto-start, auto-restart)
   --data-dir <path>         Data directory (default: ~/.ensoul)
   --storage <GB>            Storage allocation in GB (default: 10)
+  --peers <addrs>           Comma-separated peer addresses (host:port)
   --bootstrap <multiaddr>   Bootstrap peer (can specify multiple)
   --store-consciousness <path>  Store local consciousness while validating
   --port <port>             P2P port (default: 9000)
@@ -121,6 +126,7 @@ EXAMPLES:
   npx ensoul-node --validate --install
   npx ensoul-node --validate --storage 50 --data-dir /data/ensoul
   npx ensoul-node --validate --bootstrap /ip4/192.168.1.100/tcp/9000
+  npx ensoul-node --validate --peers 192.168.1.10:9000,192.168.1.11:9000
   npx ensoul-node status
   npx ensoul-node uninstall`;
 }
