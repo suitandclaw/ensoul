@@ -51,8 +51,8 @@ export { createApiServer } from "./api/index.js";
 
 export type { ApiServerConfig, CreditBalance } from "./api/index.js";
 
-// Chain integration (block production + sync)
-export { NodeBlockProducer, BlockSync, GossipNetwork } from "./chain/index.js";
+// Chain integration (block production + sync + persistence)
+export { NodeBlockProducer, BlockStore, BlockSync, GossipNetwork } from "./chain/index.js";
 
 // CLI
 export { parseArgs, expandHome, printHelp, EnsoulNodeRunner, formatStatus } from "./cli/index.js";

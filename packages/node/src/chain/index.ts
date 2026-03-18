@@ -1,4 +1,5 @@
 export { NodeBlockProducer } from "./producer.js";
+export { BlockStore } from "./store.js";
 export { BlockSync } from "./sync.js";
 export { GossipNetwork } from "./gossip.js";
 export {

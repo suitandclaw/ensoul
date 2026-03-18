@@ -14,6 +14,7 @@ import {
 } from "@ensoul/ledger";
 import type { GenesisConfig, Transaction, Block } from "@ensoul/ledger";
 import type { ChainNodeConfig } from "./types.js";
+import type { BlockStore } from "./store.js";
 
 const DEFAULT_CONFIG: ChainNodeConfig = {
 	blockTimeMs: 6000,
@@ -25,6 +26,10 @@ const DEFAULT_CONFIG: ChainNodeConfig = {
 /**
  * Node-level block producer that integrates the ledger with
  * adaptive timing, consensus watchdog, and spam protection.
+ *
+ * If a BlockStore is provided, all blocks and state are persisted to
+ * disk. On restart, the chain resumes from the last persisted height
+ * instead of starting from genesis.
  */
 export class NodeBlockProducer {
 	private ledger: LedgerBlockProducer;
@@ -35,6 +40,7 @@ export class NodeBlockProducer {
 	private config: ChainNodeConfig;
 	private validatorDids: string[] = [];
 	private genesisConfig: GenesisConfig;
+	private store: BlockStore | null;
 
 	/** Callback invoked when a new block is produced. */
 	onBlock: ((block: Block) => void) | null = null;
@@ -42,10 +48,12 @@ export class NodeBlockProducer {
 	constructor(
 		genesisConfig: GenesisConfig,
 		config?: Partial<ChainNodeConfig>,
+		store?: BlockStore,
 	) {
 		this.config = { ...DEFAULT_CONFIG, ...config };
 		this.genesisConfig = genesisConfig;
 		this.state = new AccountState();
+		this.store = store ?? null;
 		this.mempool = new EnhancedMempool(
 			10000,
 			this.config.nonceGapTimeoutMs,
@@ -65,6 +73,80 @@ export class NodeBlockProducer {
 
 	/**
 	 * Initialize genesis and register validators.
+	 * If a BlockStore is present and has persisted state, this loads
+	 * from disk instead of creating a fresh genesis.
+	 * Returns the genesis block (from disk or freshly created).
+	 */
+	async initGenesisAsync(
+		validatorDids: string[],
+	): Promise<{ block: Block; resumed: boolean; height: number }> {
+		this.validatorDids = [...validatorDids];
+
+		if (this.store && (await this.store.hasChain())) {
+			// Resume from persisted state
+			const savedState = await this.store.getAccountState();
+			if (savedState) {
+				// Replace the state in both the ledger and this producer
+				this.state = savedState;
+				const ledgerAny = this.ledger as unknown as Record<
+					string,
+					unknown
+				>;
+				ledgerAny["state"] = savedState;
+			}
+
+			// Restore totalEmitted
+			const emittedStr = await this.store.getMetadata("totalEmitted");
+			if (emittedStr) {
+				const ledgerAny = this.ledger as unknown as Record<
+					string,
+					unknown
+				>;
+				ledgerAny["totalEmitted"] = BigInt(emittedStr);
+			}
+
+			// Restore validator DIDs from metadata
+			const vidsStr = await this.store.getMetadata("validatorDids");
+			if (vidsStr) {
+				this.validatorDids = JSON.parse(vidsStr) as string[];
+			}
+
+			// Reload blocks into the in-memory chain
+			const heightStr = await this.store.getMetadata("height");
+			const height = heightStr ? Number(heightStr) : 0;
+			const chain = (
+				this.ledger as unknown as { chain: Block[] }
+			).chain;
+			chain.length = 0;
+			for (let h = 0; h <= height; h++) {
+				const block = await this.store.getBlock(h);
+				if (block) chain.push(block);
+			}
+
+			const genesis = chain[0];
+			if (!genesis) {
+				throw new Error("Persisted chain has no genesis block");
+			}
+			return { block: genesis, resumed: true, height };
+		}
+
+		// Fresh genesis
+		const block = this.ledger.initGenesis();
+
+		if (this.store) {
+			await this.persistBlock(block);
+			await this.store.putMetadata(
+				"validatorDids",
+				JSON.stringify(this.validatorDids),
+			);
+		}
+
+		return { block, resumed: false, height: 0 };
+	}
+
+	/**
+	 * Initialize genesis (synchronous, for backward compatibility).
+	 * Does NOT load from disk. Use initGenesisAsync for persistence.
 	 */
 	initGenesis(validatorDids: string[]): Block {
 		this.validatorDids = [...validatorDids];
@@ -129,6 +211,11 @@ export class NodeBlockProducer {
 		const limitsCheck = validateBlockLimits(block);
 		if (!limitsCheck.valid) return null;
 
+		// Persist to disk if store is available
+		if (this.store) {
+			void this.persistBlock(block);
+		}
+
 		if (this.onBlock) this.onBlock(block);
 		return block;
 	}
@@ -175,12 +262,21 @@ export class NodeBlockProducer {
 				this.state.debit(REWARDS_POOL, reward);
 				this.state.credit(block.proposer, reward);
 				// Update the ledger's totalEmitted to stay in sync
-				const ledgerAny = this.ledger as unknown as Record<string, unknown>;
+				const ledgerAny = this.ledger as unknown as Record<
+					string,
+					unknown
+				>;
 				ledgerAny["totalEmitted"] = totalEmitted + reward;
 			}
 		}
 
 		this.watchdog.recordBlock();
+
+		// Persist to disk if store is available
+		if (this.store) {
+			void this.persistBlock(block);
+		}
+
 		return { valid: true };
 	}
 
@@ -217,5 +313,18 @@ export class NodeBlockProducer {
 	/** Get the validator list. */
 	getValidators(): string[] {
 		return [...this.validatorDids];
+	}
+
+	// ── Internal persistence ─────────────────────────────────────
+
+	private async persistBlock(block: Block): Promise<void> {
+		if (!this.store) return;
+		await this.store.putBlock(block.height, block);
+		await this.store.putMetadata("height", String(block.height));
+		await this.store.putMetadata(
+			"totalEmitted",
+			this.ledger.getTotalEmitted().toString(),
+		);
+		await this.store.putAccountState(this.state);
 	}
 }
