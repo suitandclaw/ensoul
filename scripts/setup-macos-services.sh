@@ -62,7 +62,7 @@ echo ""
 
 if [ "${1:-}" = "uninstall" ]; then
   echo "Uninstalling Ensoul services..."
-  for label in dev.ensoul.validator-0 dev.ensoul.validator-1 dev.ensoul.validator-2 dev.ensoul.explorer dev.ensoul.tunnel; do
+  for label in dev.ensoul.validator-0 dev.ensoul.validator-1 dev.ensoul.validator-2 dev.ensoul.explorer dev.ensoul.tunnel dev.ensoul.agent; do
     plist="$LAUNCH_DIR/$label.plist"
     if [ -f "$plist" ]; then
       launchctl bootout "gui/$(id -u)" "$plist" 2>/dev/null || true
@@ -88,6 +88,7 @@ write_plist() {
   local label="$1"
   local program_args="$2"  # XML fragment with <string> elements
   local log_prefix="$3"
+  local work_dir="${4:-$REPO_DIR}"  # optional working directory override
   local plist_path="$LAUNCH_DIR/$label.plist"
 
   cat > "$plist_path" << PLIST_EOF
@@ -105,7 +106,7 @@ $program_args
   </array>
 
   <key>WorkingDirectory</key>
-  <string>$REPO_DIR</string>
+  <string>$work_dir</string>
 
   <key>RunAtLoad</key>
   <true/>
@@ -183,6 +184,17 @@ tunnel_args() {
 ARGS
 }
 
+# For agent: npx tsx src/agent.ts (runs from ~/ensoul-agent)
+AGENT_DIR="$HOME/ensoul-agent"
+
+agent_args() {
+  cat << ARGS
+    <string>$NPX_PATH</string>
+    <string>tsx</string>
+    <string>$AGENT_DIR/src/agent.ts</string>
+ARGS
+}
+
 # ── Create plists ─────────────────────────────────────────────────────
 
 echo "Creating launchd service plists..."
@@ -199,6 +211,12 @@ else
   echo "  Skipped dev.ensoul.tunnel (cloudflared not installed)"
 fi
 
+if [ -d "$AGENT_DIR/src" ]; then
+  write_plist "dev.ensoul.agent" "$(agent_args)" "agent" "$AGENT_DIR"
+else
+  echo "  Skipped dev.ensoul.agent ($AGENT_DIR/src not found)"
+fi
+
 # ── Load services ─────────────────────────────────────────────────────
 
 echo ""
@@ -207,6 +225,9 @@ echo "Loading services..."
 ALL_LABELS="dev.ensoul.validator-0 dev.ensoul.validator-1 dev.ensoul.validator-2 dev.ensoul.explorer"
 if [ -n "$CLOUDFLARED_PATH" ]; then
   ALL_LABELS="$ALL_LABELS dev.ensoul.tunnel"
+fi
+if [ -d "$AGENT_DIR/src" ]; then
+  ALL_LABELS="$ALL_LABELS dev.ensoul.agent"
 fi
 
 for label in $ALL_LABELS; do
@@ -234,6 +255,11 @@ if [ -n "$CLOUDFLARED_PATH" ]; then
 echo "  Tunnel:"
 echo "    Check $DATA_DIR/tunnel.log for the public *.trycloudflare.com URL"
 echo "    (URL changes on each restart — see script header for production setup)"
+echo ""
+fi
+if [ -d "$AGENT_DIR/src" ]; then
+echo "  Agent:"
+echo "    @ensoul_network Twitter bot   log: $DATA_DIR/agent.log"
 echo ""
 fi
 echo "Management commands:"
