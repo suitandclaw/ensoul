@@ -2,8 +2,11 @@
  * Parsed CLI arguments.
  */
 export interface CliArgs {
-	mode: "validate" | "fullnode" | "status";
+	mode: "validate" | "fullnode" | "status" | "genesis";
 	dataDir: string;
+	genesisConfig: string;
+	genesisOutput: string;
+	genesisFile: string;
 	storageGB: number;
 	bootstrapPeers: string[];
 	peers: string[];
@@ -43,6 +46,9 @@ export function parseArgs(argv: string[]): CliArgs {
 	const args: CliArgs = {
 		mode: "fullnode",
 		dataDir: DEFAULT_DATA_DIR,
+		genesisConfig: "",
+		genesisOutput: "",
+		genesisFile: "",
 		storageGB: DEFAULT_STORAGE_GB,
 		bootstrapPeers: [],
 		peers: [],
@@ -62,8 +68,16 @@ export function parseArgs(argv: string[]): CliArgs {
 
 		if (arg === "--validate" || arg === "-v") {
 			args.mode = "validate";
+		} else if (arg === "genesis") {
+			args.mode = "genesis";
 		} else if (arg === "status") {
 			args.mode = "status";
+		} else if (arg === "--config" && argv[i + 1]) {
+			args.genesisConfig = argv[++i]!;
+		} else if (arg === "--output" && argv[i + 1]) {
+			args.genesisOutput = argv[++i]!;
+		} else if (arg === "--genesis" && argv[i + 1]) {
+			args.genesisFile = argv[++i]!;
 		} else if (arg === "--help" || arg === "-h") {
 			args.help = true;
 		} else if (arg === "--data-dir" && argv[i + 1]) {
@@ -121,6 +135,7 @@ USAGE:
   npx ensoul-node [OPTIONS]                Run as full node
   npx ensoul-node --validate               Run as validator (produce blocks)
   npx ensoul-node --validate --install     Install as auto-start service
+  npx ensoul-node genesis --config <file>   Generate genesis block from config
   npx ensoul-node status                   Check service status
   npx ensoul-node uninstall                Remove the background service
 
@@ -136,6 +151,10 @@ OPTIONS:
   --store-consciousness <path>  Store local consciousness while validating
   --port <port>             P2P port (default: 9000)
   --api-port <port>         API port (default: 3000)
+  --genesis <file>          Load genesis block from file on startup
+  --config <file>           Genesis config JSON (for genesis subcommand)
+  --output <file>           Output path for generated genesis block
+  --no-min-stake            Disable minimum stake requirement (bootstrap phase)
   --help, -h                Show this help
 
 EXAMPLES:

@@ -18,3 +18,9 @@ export {
 	buildPlist,
 } from "./service.js";
 export type { ServiceResult } from "./service.js";
+export {
+	runGenesisCommand,
+	loadGenesisConfig,
+	saveGenesisBlock,
+	loadGenesisBlock,
+} from "./genesis-cmd.js";

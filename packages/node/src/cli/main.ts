@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
-import { parseArgs, printHelp } from "./args.js";
+import { join } from "node:path";
+import { parseArgs, printHelp, expandHome } from "./args.js";
 import { EnsoulNodeRunner } from "./node-runner.js";
 import { PeerNetwork, parsePeerAddresses } from "../chain/peer-network.js";
+import { runGenesisCommand, loadGenesisBlock } from "./genesis-cmd.js";
 
 /**
  * Main entry point for the ensoul-node CLI.
@@ -21,6 +23,16 @@ async function main(): Promise<void> {
 		return;
 	}
 
+	if (args.mode === "genesis") {
+		if (!args.genesisConfig) {
+			console.error("Error: --config is required for genesis subcommand");
+			process.exit(1);
+		}
+		const output = args.genesisOutput || join(expandHome(args.dataDir), "genesis.json");
+		await runGenesisCommand(args.genesisConfig, output);
+		return;
+	}
+
 	console.log("╔═══════════════════════════════════════╗");
 	console.log("║         ENSOUL NODE v0.1.0            ║");
 	console.log("║   Sovereign L1 for Agent Consciousness ║");
@@ -28,7 +40,16 @@ async function main(): Promise<void> {
 	console.log();
 
 	const chainConfig = args.noMinStake ? { minimumStake: 0n } : {};
-	const runner = new EnsoulNodeRunner(args, undefined, chainConfig);
+
+	// Load genesis config from file if --genesis is provided
+	let genesisConfig = undefined;
+	if (args.genesisFile) {
+		const loaded = await loadGenesisBlock(args.genesisFile);
+		genesisConfig = loaded.config;
+		console.log(`[ensoul] Loaded genesis from ${args.genesisFile} (${loaded.block.transactions.length} allocations)`);
+	}
+
+	const runner = new EnsoulNodeRunner(args, genesisConfig, chainConfig);
 	runner.onLog = (msg) => console.log(`[ensoul] ${msg}`);
 
 	if (args.noMinStake) {
