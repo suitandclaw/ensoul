@@ -1,0 +1,294 @@
+{
+  "chainId": "ensoul-1",
+  "timestamp": 1773939077598,
+  "totalSupply": "1000000000000000000000000000",
+  "allocations": [
+    {
+      "label": "Foundation Validator",
+      "percentage": 15,
+      "tokens": "4285724000000000000000000",
+      "recipient": "did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6Mkq4htxWS8jyLz3jjtDGtU36cXvE3kbXa9FTbF4xpPmr4g",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkjWwm9vRwo25R8GCDFQmgCvXkKcG5AZGeCj5SSQeQuW9Q",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6Mkk5HCbmULHwL6iDcVfNgsm5kzWQVFwGeupQqDw9D6SMpy",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkmozExkxmdrSXtnhPeaSujw7KHtrP9gftBGjvVH7ZE3ZS",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkfUJgmfDw9ipEtUEj1aM2KzvcL5V35YPfzeCqnhprH6pv",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6Mkw5KkTJc3dZdMA47E71JavngQ4CDcL8qrmPEEBcc7p464",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkoAs8JdFnQ3sDkhDGr1QyroUmVj5BMwXL1DzVLzRDyvJZ",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkojPmKYrzFuoMqRVYrp4cdGsA4xsXdJ1vKkUmhKqn57Dr",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkvxSyjdy7MZd4WmR3vQQsZaaDsLKvRfgYXjerKyF76b8g",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6Mkgdqjyiwiie9hCy9hPkGmp2y8dtMUrgPvguy1wgtAHye5",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkiB1iAqVCcFPm3PyZmFqmtQqN8UMWxWw3YuzC1HPzrsKt",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkuTD3waVwDJnUq8eChVNdGN4LHp5xJqrbgyQUydqTDH5B",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkmKGjf9oGWbF3oSgSDwJ3AFpgsY8eGtszf2F22p41Rnry",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkvnQ4f36mPWiWKwy5EE2enreynbFw2YpmThAL68ECwsU5",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkhJ5ErDvgXp1wpmSW55sDpbBxXJ9o4dGE9Ukue77rPSaR",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6Mkf4e4mvWEbCM2HEhaU1QDo83wkdey8ZpEdJvFwekdAXbz",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkpBHfsncKdRic3mrGRDsdfGRz76FoQs6EYDMzXw9YyNbT",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6Mkp8jXR22REXjXAu8m1twNKGr9LAxdn9koqgDqWAZNFAbd",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkeoBaLsJ2LTVQiZUwFQAS4zqxh5XsphqabEQpoTUdSzap",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkpevsRF15MoNqs7ps1putD7vwfWGfgsvB48kGCPFt6XcC",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkvRteszWtf5iWuHidJoaQ3SDsfrcPFEf6KxfCgCkLUkjj",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkknRdWX6CK6Y4zqqrEFxSUFa2p48cC742AYuX5PoQHusa",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkoWHBPQoeZAohxv83oemmh2tuF1XVa73jjbDGSk6Gx33S",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MksivyUdiNUhJWMxgSnzhvPLTSHUVZjZA8X6i72kyZ9KV8",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkvmK2YQ9GzUJKfQzhmfwoEtmT2GQTLKqa941GSMszSb3U",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MknckwpzNtccdbwC85Z4T1Lb2H9yn9E6BDqNgxCnRgCsoB",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkherrQNyVe5WykdW6vJpXiDdEMekGvaoBPW4WDzvqXoRo",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkgYbeY93qhEDVRD1mSYkKdshrJsXHjjZfjGBVtXrUf9Rq",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkpQYC7it5pRmbjKaiN3wqf4xpz5PY5eBPqiD7d3oEEbkR",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkiW5UB7Xh2tPUstUNJTDYGUYwRE7LjtydWm2RWVoR3E9q",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkiPYyZ5P75AY72FcBvzLMVdGnnyptoXvwp6zJjPPSEt1z",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkonrzYoqNqD7iL87xz8Ppqrjtq73xYWaxA3pYxevURvDi",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkgNxKbmse6px1xeXr1C2L53LXD6zUoCdxsHRygcYfUkXU",
+      "autoStake": true
+    },
+    {
+      "label": "Foundation Validator",
+      "percentage": 0,
+      "tokens": "4285714000000000000000000",
+      "recipient": "did:key:z6MkgBaLg2KEK5bGcAax2PeVp1n6hJvBzM6ZRjMPrfwPQS1V",
+      "autoStake": true
+    },
+    {
+      "label": "Network Rewards",
+      "percentage": 50,
+      "tokens": "500000000000000000000000000",
+      "recipient": "did:ensoul:protocol:rewards"
+    },
+    {
+      "label": "Protocol Treasury",
+      "percentage": 10,
+      "tokens": "100000000000000000000000000",
+      "recipient": "did:key:z6Mki9jwpYMBB93zxYfsmNUHThpSgKATqydN4xJA1xcxGecm"
+    },
+    {
+      "label": "Agent Onboarding",
+      "percentage": 10,
+      "tokens": "100000000000000000000000000",
+      "recipient": "did:key:z6MkhyWUyAgAcs4Sv5AHfwqkyfnov1kLGj42VC7NvK9kcotf"
+    },
+    {
+      "label": "Initial Liquidity",
+      "percentage": 5,
+      "tokens": "50000000000000000000000000",
+      "recipient": "did:key:z6MkepCt389w2K5p8MrU4paUgrvr5EAYHg8MjUhdRiCTjsGz"
+    },
+    {
+      "label": "Early Contributors",
+      "percentage": 5,
+      "tokens": "50000000000000000000000000",
+      "recipient": "did:key:z6MkpkBGr18AkgAipmmtXCU9kPz11f2bVtSDG2p471F31imL"
+    },
+    {
+      "label": "Insurance Reserve",
+      "percentage": 5,
+      "tokens": "50000000000000000000000000",
+      "recipient": "did:key:z6MkjNGivywrX7nmUE9aiAfjqDU97fdJBw15y61X4DpgawMV"
+    }
+  ],
+  "emissionPerBlock": "19025875190258751902",
+  "networkRewardsPool": "500000000000000000000000000",
+  "protocolFees": {
+    "storageFeeProtocolShare": 10,
+    "txBaseFee": "1000"
+  }
+}
