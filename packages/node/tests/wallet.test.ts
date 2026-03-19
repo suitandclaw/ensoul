@@ -425,7 +425,8 @@ describe("WalletManager stake/unstake", () => {
 		producer.submitTransaction(stakeTx);
 		const block = producer.produceBlock(bob.did);
 		expect(block).not.toBeNull();
-		expect(block!.transactions.length).toBe(1);
+		// 1 user tx + 1 block_reward tx
+		expect(block!.transactions.length).toBe(2);
 
 		const account = producer.getState().getAccount(alice.did);
 		expect(account.balance).toBe(300n * DECIMALS);

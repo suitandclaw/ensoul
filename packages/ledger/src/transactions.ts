@@ -75,6 +75,14 @@ export function validateTransaction(
 		return { valid: false, error: "Negative amount" };
 	}
 
+	// block_reward txs are protocol-generated, skip nonce/signature checks
+	if (tx.type === "block_reward") {
+		if (tx.from !== REWARDS_POOL) {
+			return { valid: false, error: "Block reward must come from rewards pool" };
+		}
+		return { valid: true };
+	}
+
 	const sender = state.getAccount(tx.from);
 
 	// Nonce check
@@ -205,6 +213,14 @@ export function applyTransaction(
 			}
 			break;
 		}
+		case "block_reward": {
+			// Protocol-generated: debit pool, credit proposer
+			if (tx.amount > 0n) {
+				state.debit(REWARDS_POOL, tx.amount);
+				state.credit(tx.to, tx.amount);
+			}
+			break;
+		}
 		case "slash": {
 			state.slash(tx.to, tx.amount);
 			break;
@@ -216,5 +232,8 @@ export function applyTransaction(
 		}
 	}
 
-	state.incrementNonce(tx.from);
+	// block_reward is protocol-generated, no nonce tracking needed
+	if (tx.type !== "block_reward") {
+		state.incrementNonce(tx.from);
+	}
 }

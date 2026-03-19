@@ -97,7 +97,8 @@ describe("NodeBlockProducer", () => {
 		});
 		producer.submitTransaction(tx);
 		const block = producer.produceBlock(validator2.did);
-		expect(block!.transactions.length).toBe(1);
+		// 1 user tx + 1 block_reward tx
+		expect(block!.transactions.length).toBe(2);
 		expect(producer.getState().getBalance(bob.did)).toBe(10n * DECIMALS);
 	});
 

@@ -391,7 +391,8 @@ describe("NodeBlockProducer with BlockStore", () => {
 			const store = new BlockStore(storePath);
 			const block = await store.getBlock(1);
 			expect(block).not.toBeNull();
-			expect(block!.transactions.length).toBe(1);
+			// 1 user tx + 1 block_reward tx
+			expect(block!.transactions.length).toBe(2);
 			expect(block!.transactions[0]!.amount).toBe(100n * DECIMALS);
 			expect(block!.transactions[0]!.from).toBe(alice.did);
 			expect(block!.transactions[0]!.to).toBe(bob.did);

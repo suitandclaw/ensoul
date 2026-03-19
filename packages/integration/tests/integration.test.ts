@@ -479,7 +479,8 @@ describe("Scenario 3: Block Production and Transaction Flow", () => {
 		// Validator 2 is proposer for height 1 (1 % 3 = 1 → v2)
 		const block = net.gossips[0]!.tryProduceBlock(net.validators[1]!.did);
 		expect(block).not.toBeNull();
-		expect(block!.transactions.length).toBe(1);
+		// 1 user tx + 1 block_reward tx
+		expect(block!.transactions.length).toBe(2);
 
 		// All 3 nodes at same height
 		for (const g of net.gossips) {

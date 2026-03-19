@@ -9,8 +9,6 @@ import {
 	validateBlockLimits,
 	validateTransaction,
 	applyTransaction,
-	computeBlockReward,
-	REWARDS_POOL,
 } from "@ensoul/ledger";
 import type { GenesisConfig, Transaction, Block } from "@ensoul/ledger";
 import type { ChainNodeConfig } from "./types.js";
@@ -234,39 +232,32 @@ export class NodeBlockProducer {
 		).chain;
 		chain.push(block);
 
-		// Apply transactions to state
+		// Apply transactions to state (includes block_reward tx)
 		for (const tx of block.transactions) {
-			const vr = validateTransaction(tx, this.state);
-			if (vr.valid) {
+			if (tx.type === "block_reward") {
+				// Protocol-generated, skip normal validation
 				applyTransaction(
 					tx,
 					this.state,
-					this.genesisConfig.protocolFees
-						.storageFeeProtocolShare,
+					this.genesisConfig.protocolFees.storageFeeProtocolShare,
 				);
-			}
-		}
-
-		// Apply emission reward and update totalEmitted counter
-		const totalEmitted = this.ledger.getTotalEmitted();
-		const reward = computeBlockReward(
-			block.height,
-			this.genesisConfig.emissionPerBlock,
-			5_256_000,
-			this.genesisConfig.networkRewardsPool,
-			totalEmitted,
-		);
-		if (reward > 0n) {
-			const pool = this.state.getBalance(REWARDS_POOL);
-			if (pool >= reward) {
-				this.state.debit(REWARDS_POOL, reward);
-				this.state.credit(block.proposer, reward);
-				// Update the ledger's totalEmitted to stay in sync
+				// Track totalEmitted
 				const ledgerAny = this.ledger as unknown as Record<
 					string,
 					unknown
 				>;
-				ledgerAny["totalEmitted"] = totalEmitted + reward;
+				const prev = this.ledger.getTotalEmitted();
+				ledgerAny["totalEmitted"] = prev + tx.amount;
+			} else {
+				const vr = validateTransaction(tx, this.state);
+				if (vr.valid) {
+					applyTransaction(
+						tx,
+						this.state,
+						this.genesisConfig.protocolFees
+							.storageFeeProtocolShare,
+					);
+				}
 			}
 		}
 

@@ -59,10 +59,10 @@ export function computeBlockReward(
 	if (totalEmitted >= totalReserved) return 0n;
 
 	const halvings = Math.floor(height / halvingIntervalBlocks);
-	// Each halving reduces reward by ~20% (not exactly half, to match the 10-year schedule)
+	// Each year reduces reward by 25% (Year 1: 100M, Year 2: 75M, Year 3: 56.25M, ...)
 	let reward = year1PerBlock;
 	for (let i = 0; i < halvings; i++) {
-		reward = (reward * 80n) / 100n;
+		reward = (reward * 75n) / 100n;
 	}
 
 	// Don't exceed remaining reserves
@@ -151,18 +151,29 @@ export class BlockProducer {
 		const reward = computeBlockReward(
 			height,
 			this.config.emissionPerBlock,
-			5_256_000, // ~3 years at 6s blocks
+			5_256_000, // ~1 year at 6s blocks
 			this.config.networkRewardsPool,
 			this.totalEmitted,
 		);
 
 		if (reward > 0n) {
-			// Debit from rewards pool, credit to proposer
 			const poolBalance = this.state.getBalance(REWARDS_POOL);
 			if (poolBalance >= reward) {
 				this.state.debit(REWARDS_POOL, reward);
 				this.state.credit(proposer, reward);
 				this.totalEmitted += reward;
+
+				// Include reward as a visible transaction in the block
+				const rewardTx: Transaction = {
+					type: "block_reward",
+					from: REWARDS_POOL,
+					to: proposer,
+					amount: reward,
+					nonce: 0,
+					timestamp: Date.now(),
+					signature: new Uint8Array(64),
+				};
+				validTxs.push(rewardTx);
 			}
 		}
 
@@ -211,37 +222,24 @@ export class BlockProducer {
 			return { valid: false, error: "Invalid transactions root" };
 		}
 
-		// Replay transactions against state copy
+		// Replay transactions against state copy (includes block_reward tx)
 		const stateCopy = this.state.clone();
 		for (const tx of block.transactions) {
-			const result = validateTransaction(tx, stateCopy);
-			if (!result.valid) {
-				return {
-					valid: false,
-					error: `Invalid transaction: ${result.error}`,
-				};
+			// block_reward txs are protocol-generated, skip nonce/balance checks
+			if (tx.type !== "block_reward") {
+				const result = validateTransaction(tx, stateCopy);
+				if (!result.valid) {
+					return {
+						valid: false,
+						error: `Invalid transaction: ${result.error}`,
+					};
+				}
 			}
 			applyTransaction(
 				tx,
 				stateCopy,
 				this.config.protocolFees.storageFeeProtocolShare,
 			);
-		}
-
-		// Apply emission reward to copy
-		const reward = computeBlockReward(
-			block.height,
-			this.config.emissionPerBlock,
-			5_256_000,
-			this.config.networkRewardsPool,
-			this.totalEmitted,
-		);
-		if (reward > 0n) {
-			const poolBalance = stateCopy.getBalance(REWARDS_POOL);
-			if (poolBalance >= reward) {
-				stateCopy.debit(REWARDS_POOL, reward);
-				stateCopy.credit(block.proposer, reward);
-			}
 		}
 
 		// Check state root

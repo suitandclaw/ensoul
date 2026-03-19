@@ -7,6 +7,7 @@ export type TransactionType =
 	| "unstake"
 	| "storage_payment"
 	| "reward_claim"
+	| "block_reward"
 	| "slash"
 	| "burn";
 

@@ -782,7 +782,10 @@ describe("BlockProducer", () => {
 
 		const block = producer.produceBlock("did:proposer");
 		expect(block.height).toBe(1);
-		expect(block.transactions.length).toBe(1);
+		// 1 user tx + 1 block_reward tx
+		expect(block.transactions.length).toBe(2);
+		expect(block.transactions[0]!.type).toBe("transfer");
+		expect(block.transactions[1]!.type).toBe("block_reward");
 		expect(block.proposer).toBe("did:proposer");
 		expect(block.stateRoot).toBeTruthy();
 
