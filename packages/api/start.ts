@@ -80,6 +80,16 @@ async function log(msg: string): Promise<void> {
 	} catch { /* non-fatal */ }
 }
 
+const DECIMALS_VAL = 10n ** 18n;
+
+function fmtEnsl(wei: bigint): string {
+	const whole = wei / DECIMALS_VAL;
+	const frac = wei % DECIMALS_VAL;
+	const fracStr = frac.toString().padStart(18, "0").slice(0, 2);
+	const wholeStr = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+	return `${wholeStr}.${fracStr} ENSL`;
+}
+
 async function queryValidatorStatus(): Promise<{ height: number; validatorCount: number; alive: number }> {
 	let maxHeight = 0;
 	let alive = 0;
@@ -132,6 +142,85 @@ async function main(): Promise<void> {
 	app.get("/health", async () => {
 		const net = await queryValidatorStatus();
 		return { status: "ok", validators: net.alive, blockHeight: net.height };
+	});
+
+	// ── Account Balance ──────────────────────────────────────────
+
+	app.get<{ Params: { did: string } }>("/v1/account/:did", async (req) => {
+		const did = decodeURIComponent(req.params.did);
+		const encoded = encodeURIComponent(did);
+
+		// Try each validator until one responds
+		for (const url of VALIDATORS) {
+			try {
+				const resp = await fetch(`${url}/peer/account/${encoded}`, {
+					signal: AbortSignal.timeout(5000),
+				});
+				if (!resp.ok) continue;
+				const data = (await resp.json()) as {
+					did: string;
+					balance: string;
+					staked: string;
+					unstaking?: string;
+					unstakingCompleteAt?: number;
+					stakeLockedUntil?: number;
+					delegatedBalance?: string;
+					pendingRewards?: string;
+					nonce: number;
+					storageCredits?: string;
+				};
+
+				const available = BigInt(data.balance);
+				const staked = BigInt(data.staked);
+				const delegated = BigInt(data.delegatedBalance ?? "0");
+				const unstaking = BigInt(data.unstaking ?? "0");
+				const pending = BigInt(data.pendingRewards ?? "0");
+				const credits = BigInt(data.storageCredits ?? "0");
+				const total = available + staked + delegated + unstaking + pending;
+
+				return {
+					did: data.did,
+					available: fmtEnsl(available),
+					staked: fmtEnsl(staked),
+					delegated: fmtEnsl(delegated),
+					unstaking: fmtEnsl(unstaking),
+					unstakingCompleteAt: data.unstakingCompleteAt ?? 0,
+					pendingRewards: fmtEnsl(pending),
+					storageCredits: credits.toString(),
+					total: fmtEnsl(total),
+					raw: {
+						available: available.toString(),
+						staked: staked.toString(),
+						delegated: delegated.toString(),
+						unstaking: unstaking.toString(),
+						pendingRewards: pending.toString(),
+						storageCredits: credits.toString(),
+						total: total.toString(),
+					},
+					nonce: data.nonce,
+				};
+			} catch {
+				continue;
+			}
+		}
+
+		// No validator responded or DID never seen: return zeroes
+		return {
+			did,
+			available: "0.00 ENSL",
+			staked: "0.00 ENSL",
+			delegated: "0.00 ENSL",
+			unstaking: "0.00 ENSL",
+			unstakingCompleteAt: 0,
+			pendingRewards: "0.00 ENSL",
+			storageCredits: "0",
+			total: "0.00 ENSL",
+			raw: {
+				available: "0", staked: "0", delegated: "0",
+				unstaking: "0", pendingRewards: "0", storageCredits: "0", total: "0",
+			},
+			nonce: 0,
+		};
 	});
 
 	// ── Network Status ───────────────────────────────────────────
@@ -303,6 +392,7 @@ async function main(): Promise<void> {
 	process.stdout.write(`\nEnsoul API Gateway running on http://localhost:${port}\n`);
 	process.stdout.write(`\n  Endpoints:\n`);
 	process.stdout.write(`    GET  /health\n`);
+	process.stdout.write(`    GET  /v1/account/:did\n`);
 	process.stdout.write(`    GET  /v1/network/status\n`);
 	process.stdout.write(`    POST /v1/consciousness/store\n`);
 	process.stdout.write(`    GET  /v1/consciousness/:did\n`);
