@@ -15,6 +15,7 @@ export interface CliArgs {
 	help: boolean;
 	install: boolean;
 	uninstall: boolean;
+	noMinStake: boolean;
 }
 
 /** Default seed node URL. */
@@ -53,6 +54,7 @@ export function parseArgs(argv: string[]): CliArgs {
 		help: false,
 		install: false,
 		uninstall: false,
+		noMinStake: false,
 	};
 
 	for (let i = 0; i < argv.length; i++) {
@@ -82,6 +84,8 @@ export function parseArgs(argv: string[]): CliArgs {
 			args.seed = argv[++i]!;
 		} else if (arg === "--public-url" && argv[i + 1]) {
 			args.publicUrl = argv[++i]!;
+		} else if (arg === "--no-min-stake") {
+			args.noMinStake = true;
 		} else if (arg === "--install") {
 			args.install = true;
 		} else if (arg === "uninstall" || arg === "--uninstall") {

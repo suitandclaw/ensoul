@@ -27,8 +27,13 @@ async function main(): Promise<void> {
 	console.log("╚═══════════════════════════════════════╝");
 	console.log();
 
-	const runner = new EnsoulNodeRunner(args);
+	const chainConfig = args.noMinStake ? { minimumStake: 0n } : {};
+	const runner = new EnsoulNodeRunner(args, undefined, chainConfig);
 	runner.onLog = (msg) => console.log(`[ensoul] ${msg}`);
+
+	if (args.noMinStake) {
+		console.log("[ensoul] WARNING: minimum stake disabled. Blocks can be produced without stake.");
+	}
 
 	// Step 1: Identity
 	const identity = await runner.initIdentity();
