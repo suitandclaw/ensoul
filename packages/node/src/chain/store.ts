@@ -75,6 +75,9 @@ export class BlockStore {
 				did: a.did,
 				balance: a.balance.toString(),
 				stakedBalance: a.stakedBalance.toString(),
+				unstakingBalance: a.unstakingBalance.toString(),
+				unstakingCompleteAt: a.unstakingCompleteAt,
+				stakeLockedUntil: a.stakeLockedUntil,
 				nonce: a.nonce,
 				storageCredits: a.storageCredits.toString(),
 				lastActivity: a.lastActivity,
@@ -95,6 +98,9 @@ export class BlockStore {
 				did: string;
 				balance: string;
 				stakedBalance: string;
+				unstakingBalance?: string;
+				unstakingCompleteAt?: number;
+				stakeLockedUntil?: number;
 				nonce: number;
 				storageCredits: string;
 				lastActivity: number;
@@ -105,6 +111,9 @@ export class BlockStore {
 					did: e.did,
 					balance: BigInt(e.balance),
 					stakedBalance: BigInt(e.stakedBalance),
+					unstakingBalance: BigInt(e.unstakingBalance ?? "0"),
+					unstakingCompleteAt: e.unstakingCompleteAt ?? 0,
+					stakeLockedUntil: e.stakeLockedUntil ?? 0,
 					nonce: e.nonce,
 					storageCredits: BigInt(e.storageCredits),
 					lastActivity: e.lastActivity,

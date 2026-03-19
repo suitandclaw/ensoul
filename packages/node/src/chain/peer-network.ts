@@ -129,6 +129,9 @@ export class PeerNetwork {
 					did: account.did,
 					balance: account.balance.toString(),
 					staked: account.stakedBalance.toString(),
+					unstaking: account.unstakingBalance.toString(),
+					unstakingCompleteAt: account.unstakingCompleteAt,
+					stakeLockedUntil: account.stakeLockedUntil,
 					nonce: account.nonce,
 					storageCredits: account.storageCredits.toString(),
 				};

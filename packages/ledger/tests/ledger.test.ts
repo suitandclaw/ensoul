@@ -124,12 +124,16 @@ describe("AccountState", () => {
 	it("stake and unstake", () => {
 		const state = new AccountState();
 		state.credit("did:v", 100n);
-		state.stake("did:v", 60n);
+		state.stake("did:v", 60n, 0); // no lockup for test
 		expect(state.getBalance("did:v")).toBe(40n);
 		expect(state.getAccount("did:v").stakedBalance).toBe(60n);
-		state.unstake("did:v", 20n);
-		expect(state.getBalance("did:v")).toBe(60n);
+		state.unstake("did:v", 20n, 0); // no cooldown for test
+		// Unstaking goes to unstakingBalance, not available
+		expect(state.getAccount("did:v").unstakingBalance).toBe(20n);
 		expect(state.getAccount("did:v").stakedBalance).toBe(40n);
+		// Complete unstaking immediately (cooldown = 0)
+		state.completeUnstaking("did:v");
+		expect(state.getBalance("did:v")).toBe(60n);
 	});
 
 	it("stake throws on insufficient balance", () => {
@@ -400,7 +404,7 @@ describe("transaction validation", () => {
 	it("validates unstake transaction", async () => {
 		const state = new AccountState();
 		state.credit(alice.did, 100n);
-		state.stake(alice.did, 50n);
+		state.stake(alice.did, 50n, 0); // no lockup for test
 		const tx = await signTx(alice, {
 			type: "unstake",
 			from: alice.did,
@@ -593,10 +597,10 @@ describe("applyTransaction", () => {
 		expect(state.getAccount(alice.did).stakedBalance).toBe(60n);
 	});
 
-	it("unstake unlocks tokens", async () => {
+	it("unstake moves tokens to cooldown", async () => {
 		const state = new AccountState();
 		state.credit(alice.did, 100n);
-		state.stake(alice.did, 60n);
+		state.stake(alice.did, 60n, 0); // no lockup for test
 		const tx = await signTx(alice, {
 			type: "unstake",
 			from: alice.did,
@@ -606,8 +610,10 @@ describe("applyTransaction", () => {
 			timestamp: Date.now(),
 		});
 		applyTransaction(tx, state, 10);
-		expect(state.getBalance(alice.did)).toBe(60n);
+		// Tokens move to unstaking, not available
+		expect(state.getAccount(alice.did).unstakingBalance).toBe(20n);
 		expect(state.getAccount(alice.did).stakedBalance).toBe(40n);
+		expect(state.getBalance(alice.did)).toBe(40n); // available unchanged
 	});
 
 	it("slash removes staked tokens", async () => {

@@ -180,11 +180,13 @@ export class NodeBlockProducer {
 	}
 
 	/**
-	 * Get the list of validators with stake >= minimumStake.
+	 * Get the list of validators with stake >= minimumStake and not unstaking.
 	 */
 	getEligibleValidators(): string[] {
 		return this.validatorDids.filter((did) => {
 			const account = this.state.getAccount(did);
+			// Exclude validators that are unstaking (in cooldown)
+			if (account.unstakingBalance > 0n) return false;
 			return account.stakedBalance >= this.config.minimumStake;
 		});
 	}

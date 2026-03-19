@@ -129,6 +129,16 @@ export function validateTransaction(
 					error: "Insufficient staked balance",
 				};
 			}
+			// Check lockup period
+			const nowSec = Math.floor(Date.now() / 1000);
+			if (sender.stakeLockedUntil > nowSec) {
+				const remaining = sender.stakeLockedUntil - nowSec;
+				const days = Math.ceil(remaining / 86400);
+				return {
+					valid: false,
+					error: `Cannot unstake: lockup period has ${days} days remaining`,
+				};
+			}
 			break;
 		}
 		case "storage_payment": {
@@ -195,7 +205,7 @@ export function applyTransaction(
 			break;
 		}
 		case "unstake": {
-			state.unstake(tx.from, tx.amount);
+			state.unstake(tx.from, tx.amount); // Enters cooldown, not immediately available
 			break;
 		}
 		case "storage_payment": {

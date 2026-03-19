@@ -350,6 +350,8 @@ interface RpcAccountInfo {
 	did: string;
 	balance: string;
 	staked: string;
+	unstaking: string;
+	unstakingCompleteAt: number;
 	nonce: number;
 	storageCredits: string;
 }
@@ -422,14 +424,19 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 
 	const balance = BigInt(account.balance);
 	const staked = BigInt(account.staked);
-	const total = balance + staked;
+	const unstaking = BigInt(account.unstaking ?? "0");
+	const total = balance + staked + unstaking;
 
 	switch (cmd.subcommand) {
 		case "balance": {
+			const completesAt = account.unstakingCompleteAt
+				? new Date(account.unstakingCompleteAt * 1000).toISOString().slice(0, 16)
+				: "N/A";
 			out("");
 			out(`  DID:       ${identity.did}`);
 			out(`  Available: ${formatEnsl(balance)}`);
 			out(`  Staked:    ${formatEnsl(staked)}`);
+			out(`  Unstaking: ${formatEnsl(unstaking)} (completes: ${completesAt})`);
 			out(`  Total:     ${formatEnsl(total)}`);
 			out(`  Nonce:     ${account.nonce}`);
 			out("");

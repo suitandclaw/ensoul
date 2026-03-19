@@ -4,7 +4,7 @@ import type { Account } from "./types.js";
 
 /**
  * Account state manager.
- * Tracks balances, stakes, nonces, and storage credits for all identities.
+ * Tracks balances, stakes, nonces, storage credits, and lockup state.
  */
 export class AccountState {
 	private accounts: Map<string, Account> = new Map();
@@ -18,6 +18,9 @@ export class AccountState {
 				did,
 				balance: 0n,
 				stakedBalance: 0n,
+				unstakingBalance: 0n,
+				unstakingCompleteAt: 0,
+				stakeLockedUntil: 0,
 				nonce: 0,
 				storageCredits: 0n,
 				lastActivity: 0,
@@ -74,8 +77,9 @@ export class AccountState {
 
 	/**
 	 * Add to staked balance (deducted from available balance).
+	 * Records lockup start time. lockupDurationSec defaults to 30 days.
 	 */
-	stake(did: string, amount: bigint): void {
+	stake(did: string, amount: bigint, lockupDurationSec = 2592000): void {
 		const acc = this.getAccount(did);
 		if (acc.balance < amount) {
 			throw new Error(
@@ -84,24 +88,80 @@ export class AccountState {
 		}
 		acc.balance -= amount;
 		acc.stakedBalance += amount;
+		acc.stakeLockedUntil = Math.floor(Date.now() / 1000) + lockupDurationSec;
 		acc.lastActivity = Date.now();
 		this.accounts.set(did, acc);
 	}
 
 	/**
-	 * Remove from staked balance (returned to available balance).
+	 * Check if a validator's stake is locked.
+	 * Returns remaining seconds, or 0 if unlocked.
 	 */
-	unstake(did: string, amount: bigint): void {
+	getLockupRemaining(did: string): number {
+		const acc = this.getAccount(did);
+		const now = Math.floor(Date.now() / 1000);
+		if (acc.stakeLockedUntil > now) {
+			return acc.stakeLockedUntil - now;
+		}
+		return 0;
+	}
+
+	/**
+	 * Begin unstaking: move tokens from staked to unstaking with cooldown.
+	 * Tokens are unavailable during the cooldown period.
+	 * @throws If lockup period has not expired or insufficient staked balance.
+	 */
+	unstake(did: string, amount: bigint, cooldownDurationSec = 604800): void {
 		const acc = this.getAccount(did);
 		if (acc.stakedBalance < amount) {
 			throw new Error(
 				`Insufficient staked balance: ${acc.stakedBalance} < ${amount}`,
 			);
 		}
+
+		// Check lockup
+		const now = Math.floor(Date.now() / 1000);
+		if (acc.stakeLockedUntil > now) {
+			const remaining = acc.stakeLockedUntil - now;
+			const days = Math.ceil(remaining / 86400);
+			throw new Error(
+				`Cannot unstake: lockup period has ${days} days remaining`,
+			);
+		}
+
 		acc.stakedBalance -= amount;
-		acc.balance += amount;
+		acc.unstakingBalance += amount;
+		acc.unstakingCompleteAt = now + cooldownDurationSec;
 		acc.lastActivity = Date.now();
 		this.accounts.set(did, acc);
+	}
+
+	/**
+	 * Complete unstaking: move tokens from unstaking to available balance.
+	 * Only works if the cooldown period has expired.
+	 * Returns the amount completed, or 0 if cooldown is still active.
+	 */
+	completeUnstaking(did: string): bigint {
+		const acc = this.getAccount(did);
+		if (acc.unstakingBalance === 0n) return 0n;
+
+		const now = Math.floor(Date.now() / 1000);
+		if (acc.unstakingCompleteAt > now) return 0n;
+
+		const completed = acc.unstakingBalance;
+		acc.balance += completed;
+		acc.unstakingBalance = 0n;
+		acc.unstakingCompleteAt = 0;
+		acc.lastActivity = Date.now();
+		this.accounts.set(did, acc);
+		return completed;
+	}
+
+	/**
+	 * Check if a validator is currently unstaking (in cooldown).
+	 */
+	isUnstaking(did: string): boolean {
+		return this.getAccount(did).unstakingBalance > 0n;
 	}
 
 	/**
@@ -155,6 +215,7 @@ export class AccountState {
 					acc.did,
 					acc.balance.toString(),
 					acc.stakedBalance.toString(),
+					acc.unstakingBalance.toString(),
 					acc.nonce,
 					acc.storageCredits.toString(),
 				]),

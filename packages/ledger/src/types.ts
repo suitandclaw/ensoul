@@ -43,6 +43,9 @@ export interface Account {
 	did: string;
 	balance: bigint;
 	stakedBalance: bigint;
+	unstakingBalance: bigint;
+	unstakingCompleteAt: number;
+	stakeLockedUntil: number;
 	nonce: number;
 	storageCredits: bigint;
 	lastActivity: number;
