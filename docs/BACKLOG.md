@@ -5,6 +5,7 @@
 - Protocol versioning: every block gets a protocol_version field. Validators apply rules based on version. Add a governance transaction type that triggers version switch at a specific block height. Backward compatibility window for validators running old software.
 - Storage quotas: cap free storage per agent (e.g. 1MB). Define paid tiers. Prevent abuse before the free storage period attracts a whale agent dumping 10GB.
 - Incremental consciousness sync: only shard the delta on updates, not the full state tree. Current approach works at 20KB but breaks at 10MB+.
+- Coordinated block production: implement round-robin or stake-weighted proposer selection so validators take turns producing blocks. Currently each validator produces its own independent chain and peering syncs blocks between them, but there is no "whose turn" mechanism. This is required for the 35 validators to show as distinct proposers in the explorer and for the network to function as a true shared chain rather than parallel chains that sync.
 
 ## High (before DEX listing)
 
