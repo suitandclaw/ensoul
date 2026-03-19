@@ -155,6 +155,7 @@ do_start() {
 	npx tsx "$REPO_DIR/packages/node/src/cli/main.ts" \
 		--validate \
 		--no-min-stake \
+		--genesis "$LOG_DIR/genesis.json" \
 		--port 9000 \
 		--api-port 10000 \
 		--data-dir "$LOG_DIR/validator-0" \
