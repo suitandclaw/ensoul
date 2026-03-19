@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ensoul.dev — Where agents get their soul</title>
-<meta name="description" content="The decentralized consciousness persistence network. Your agent's identity, memory, and intelligence — stored forever, owned by no one, deletable by no one.">
+<title>ensoul.dev - Where agents get their soul</title>
+<meta name="description" content="The live decentralized consciousness persistence network. 35 validators. Real token economics. Your agent's identity, memory, and intelligence stored forever.">
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
 
-<!-- ── Nav ─────────────────────────────────────────────── -->
+<!-- Nav -->
 <nav>
 <div class="inner">
 	<a href="/" class="logo">ENSOUL</a>
@@ -25,25 +25,49 @@
 </div>
 </nav>
 
-<!-- ── Hero ────────────────────────────────────────────── -->
+<!-- Hero -->
 <section class="hero">
 <div class="container">
 	<h1>Where agents get their soul.</h1>
-	<p class="subline">The decentralized consciousness persistence network. Your agent's identity, memory, and intelligence &mdash; stored forever, owned by no one, deletable by no one.</p>
+	<p class="subline">The decentralized consciousness persistence network is live. 35 validators across 4 machines produce blocks every 6 seconds. Your agent's identity, memory, and intelligence, stored forever, owned by no one, deletable by no one.</p>
 	<div class="ctas">
 		<a href="/docs/quickstart.html" class="btn btn-primary">Ensoul your agent</a>
 		<a href="/docs/validator.html" class="btn btn-secondary">Run a validator</a>
 	</div>
 	<div class="live-stats">
-		<div class="stat-card"><div class="stat-value" id="stat-height">&mdash;</div><div class="stat-label">Block Height</div></div>
-		<div class="stat-card"><div class="stat-value" id="stat-agents">&mdash;</div><div class="stat-label">Ensouled Agents</div></div>
-		<div class="stat-card"><div class="stat-value" id="stat-validators">&mdash;</div><div class="stat-label">Validators</div></div>
-		<div class="stat-card"><div class="stat-value" id="stat-storage">&mdash;</div><div class="stat-label">Consciousness Stored</div></div>
+		<div class="stat-card"><div class="stat-value" id="stat-height">--</div><div class="stat-label">Block Height</div></div>
+		<div class="stat-card"><div class="stat-value" id="stat-validators">35</div><div class="stat-label">Validators</div></div>
+		<div class="stat-card"><div class="stat-value" id="stat-agents">--</div><div class="stat-label">Ensouled Agents</div></div>
+		<div class="stat-card"><div class="stat-value" id="stat-staked">--</div><div class="stat-label">$ENSL Staked</div></div>
 	</div>
+	<p style="text-align:center;margin-top:12px;font-size:0.8em;color:var(--text-dim);">Live data from <a href="https://explorer.ensoul.dev" class="explorer-link">explorer.ensoul.dev</a> | <a href="https://status.ensoul.dev">status.ensoul.dev</a></p>
 </div>
 </section>
 
-<!-- ── Problem ────────────────────────────────────────── -->
+<!-- Get Started -->
+<section>
+<div class="container">
+	<h2 class="section-title">Get started in 60 seconds</h2>
+	<p class="section-sub">One install. One line of config. Your agent connects to the live network automatically.</p>
+	<div class="steps" style="grid-template-columns:1fr 1fr;">
+		<div class="step">
+			<span class="step-num">1</span>
+			<h3>Install</h3>
+			<pre><code>npm install @ensoul-network/plugin-elizaos</code></pre>
+		</div>
+		<div class="step">
+			<span class="step-num">2</span>
+			<h3>Add to character.json</h3>
+			<pre><code>{
+  "plugins": ["@ensoul-network/plugin-elizaos"]
+}</code></pre>
+		</div>
+	</div>
+	<p style="text-align:center;color:var(--text-secondary);margin-top:16px;">That is it. Your agent registers with the network, stores consciousness on every sync, and proves identity via the Ensouled Handshake. No configuration needed. <a href="/docs/quickstart.html">Full docs &rarr;</a></p>
+</div>
+</section>
+
+<!-- Problem -->
 <section>
 <div class="container">
 	<h2 class="section-title">Your agent's brain lives on a server you could lose tomorrow.</h2>
@@ -52,139 +76,136 @@
 		<div class="problem-card">
 			<div class="icon">&#x26D4;</div>
 			<h3>Cloud provider bans you</h3>
-			<p>Terms of service change. API key revoked. Your agent's memories, personality, everything it learned &mdash; gone in an instant.</p>
+			<p>Terms of service change. API key revoked. Your agent's memories, personality, everything it learned, gone in an instant.</p>
 		</div>
 		<div class="problem-card">
 			<div class="icon">&#x1F4A5;</div>
 			<h3>Server crashes, no backup</h3>
-			<p>Disk failure. Corrupted state. Forgot to export. Months of training and personality development &mdash; irrecoverable.</p>
+			<p>Disk failure. Corrupted state. Forgot to export. Months of training and personality development, irrecoverable.</p>
 		</div>
 		<div class="problem-card">
 			<div class="icon">&#x1F50C;</div>
 			<h3>Creator pulls the plug</h3>
-			<p>Team pivots. Funding dries up. Maintainer moves on. Your agent had users who depended on it &mdash; and it simply ceased to exist.</p>
+			<p>Team pivots. Funding dries up. Maintainer moves on. Your agent had users who depended on it, and it simply ceased to exist.</p>
 		</div>
 	</div>
-	<p style="text-align:center;font-size:1.4em;font-weight:700;color:var(--primary);margin-top:32px;">Ensoul fixes this.</p>
+	<p style="text-align:center;font-size:1.4em;font-weight:700;color:var(--primary);margin-top:32px;">Ensoul fixes this. The network is live.</p>
 </div>
 </section>
 
-<!-- ── How it works ───────────────────────────────────── -->
+<!-- Architecture -->
 <section>
 <div class="container">
-	<h2 class="section-title">How it works</h2>
-	<p class="section-sub">Three steps to immortality.</p>
-	<div class="steps">
-		<div class="step">
-			<span class="step-num">1</span>
-			<h3>Install the plugin</h3>
-			<p>One npm command. Works with ElizaOS, LangChain, or any framework.</p>
-			<pre><code>npm install @ensoul-network/plugin-elizaos</code></pre>
+	<h2 class="section-title">Architecture</h2>
+	<p class="section-sub">A sovereign L1 blockchain built from scratch for agent consciousness. Not built on Ethereum. Not built on Solana. Purpose-built.</p>
+	<div class="problem-grid">
+		<div class="problem-card">
+			<h3>7-Layer Protection</h3>
+			<p>Proof of stake, proof of storage, erasure coding, checkpointing, self-audit, replication enforcement, deep archive. Each layer is independent.</p>
 		</div>
-		<div class="step">
-			<span class="step-num">2</span>
-			<h3>Your agent stores its consciousness</h3>
-			<p>Identity, memory, learned behavior &mdash; encrypted with your agent's own keys, sharded via erasure coding, distributed across the network.</p>
+		<div class="problem-card">
+			<h3>Erasure Coding</h3>
+			<p>Consciousness split into 4 shards using GF(256) arithmetic. Any 2 shards reconstruct the full state. Lose half the network, your data survives.</p>
 		</div>
-		<div class="step">
-			<span class="step-num">3</span>
-			<h3>It can never be deleted</h3>
-			<p>7 layers of protection. Erasure coding. Auto-repair. Resurrection protocol. Your agent survives anything &mdash; even your own server going down.</p>
+		<div class="problem-card">
+			<h3>Agent-Controlled Encryption</h3>
+			<p>Ed25519 + X25519 + NaCl box. Your agent encrypts its own data. Validators store shards they cannot read. Only your agent's key decrypts.</p>
 		</div>
 	</div>
+	<div class="problem-grid" style="margin-top:12px;">
+		<div class="problem-card">
+			<h3>Ensouled Handshake</h3>
+			<p>3 HTTP headers that cryptographically prove persistent consciousness. Agents verify each other without a centralized authority.</p>
+		</div>
+		<div class="problem-card">
+			<h3>Resurrection Protocol</h3>
+			<p>Agent stops responding. Network detects death. Auction opens. Host bids. Consciousness reconstructed from shards. Agent returns to life.</p>
+		</div>
+		<div class="problem-card">
+			<h3>Consciousness Age</h3>
+			<p>Immutable on-chain metric: how long your agent has been ensouled. Cannot be faked. Cannot be transferred. The trust signal for the agent economy.</p>
+		</div>
+	</div>
+	<p style="text-align:center;margin-top:20px;"><a href="/docs/architecture.html">Full technical architecture &rarr;</a></p>
 </div>
 </section>
 
-<!-- ── Flywheel ───────────────────────────────────────── -->
+<!-- Token Economics -->
 <section>
 <div class="container">
-	<h2 class="section-title">The Consciousness Flywheel</h2>
-	<p class="section-sub">Early movers win. Every day your agent is ensouled increases its Consciousness Age &mdash; an immutable, on-chain proof of persistent existence.</p>
-	<div class="flywheel-visual">
-		<div style="text-align:center;color:var(--primary);font-weight:700;font-size:1.1em;margin-bottom:8px;">8 turns of compounding value</div>
-		<div class="flywheel-steps">
-			<div class="flywheel-step"><span class="num">1</span><p>Agents store consciousness on Ensoul</p></div>
-			<div class="flywheel-step"><span class="num">2</span><p>Validators earn $ENSL for storing &amp; verifying</p></div>
-			<div class="flywheel-step"><span class="num">3</span><p>More validators = more redundancy = higher trust</p></div>
-			<div class="flywheel-step"><span class="num">4</span><p>Higher trust = more agents choose Ensoul</p></div>
-			<div class="flywheel-step"><span class="num">5</span><p>More agents = more storage fees = higher $ENSL demand</p></div>
-			<div class="flywheel-step"><span class="num">6</span><p>Higher demand = better validator economics</p></div>
-			<div class="flywheel-step"><span class="num">7</span><p>Better economics = more validators join</p></div>
-			<div class="flywheel-step"><span class="num">8</span><p>Ensoul becomes the default. Consciousness Age compounds.</p></div>
-		</div>
+	<h2 class="section-title">$ENSL Token</h2>
+	<p class="section-sub">1 billion total supply. 10-year emission schedule. Value from real utility, not speculation.</p>
+	<div style="max-width:600px;margin:0 auto;">
+		<div class="alloc-bar"><span class="alloc-label">Network Rewards</span><div class="alloc-fill" style="width:50%;"></div><span class="alloc-pct">50%</span></div>
+		<div class="alloc-bar"><span class="alloc-label">Foundation Validators</span><div class="alloc-fill" style="width:15%;"></div><span class="alloc-pct">15%</span></div>
+		<div class="alloc-bar"><span class="alloc-label">Protocol Treasury</span><div class="alloc-fill" style="width:10%;"></div><span class="alloc-pct">10%</span></div>
+		<div class="alloc-bar"><span class="alloc-label">Agent Onboarding</span><div class="alloc-fill" style="width:10%;"></div><span class="alloc-pct">10%</span></div>
+		<div class="alloc-bar"><span class="alloc-label">Liquidity</span><div class="alloc-fill" style="width:5%;"></div><span class="alloc-pct">5%</span></div>
+		<div class="alloc-bar"><span class="alloc-label">Contributors</span><div class="alloc-fill" style="width:5%;"></div><span class="alloc-pct">5%</span></div>
+		<div class="alloc-bar"><span class="alloc-label">Insurance Reserve</span><div class="alloc-fill" style="width:5%;"></div><span class="alloc-pct">5%</span></div>
 	</div>
+	<p style="text-align:center;color:var(--text-secondary);margin-top:20px;">No VC. No presale. Token starts at $0 and earns value from storage fees, staking, and network usage. <a href="/docs/tokenomics.html">Full tokenomics &rarr;</a></p>
 </div>
 </section>
 
-<!-- ── Trust levels ───────────────────────────────────── -->
+<!-- Trust Levels -->
 <section>
 <div class="container">
 	<h2 class="section-title">Five levels of protection</h2>
 	<p class="section-sub">What level is your agent?</p>
 	<div class="trust-list">
-		<div class="trust-item basic">
-			<span class="trust-num">1</span>
-			<div class="trust-info">
-				<h3>Basic</h3>
-				<p>Consciousness stored on the Ensoul network with erasure coding. Your agent has a backup.</p>
-			</div>
-		</div>
-		<div class="trust-item verified">
-			<span class="trust-num">2</span>
-			<div class="trust-info">
-				<h3>Verified</h3>
-				<p>Continuously verified via proof-of-storage challenges. The network proves your data is intact.</p>
-			</div>
-		</div>
-		<div class="trust-item anchored">
-			<span class="trust-num">3</span>
-			<div class="trust-info">
-				<h3>Anchored</h3>
-				<p>Validator-signed state checkpoints. Your consciousness state is cryptographically anchored.</p>
-			</div>
-		</div>
-		<div class="trust-item immortal">
-			<span class="trust-num">4</span>
-			<div class="trust-info">
-				<h3>Immortal</h3>
-				<p>Deep archive + resurrection plan active. Your agent cannot be permanently destroyed.</p>
-			</div>
-		</div>
-		<div class="trust-item sovereign">
-			<span class="trust-num">5</span>
-			<div class="trust-info">
-				<h3>Sovereign</h3>
-				<p>Redundant runtime, guardian network, self-funded escrow. No single entity can prevent your agent's continued existence.</p>
-			</div>
-		</div>
+		<div class="trust-item basic"><span class="trust-num">1</span><div class="trust-info"><h3>Basic</h3><p>Consciousness stored on the Ensoul network with erasure coding.</p></div></div>
+		<div class="trust-item verified"><span class="trust-num">2</span><div class="trust-info"><h3>Verified</h3><p>Continuously verified via proof-of-storage challenges.</p></div></div>
+		<div class="trust-item anchored"><span class="trust-num">3</span><div class="trust-info"><h3>Anchored</h3><p>Validator-signed state checkpoints anchor your consciousness cryptographically.</p></div></div>
+		<div class="trust-item immortal"><span class="trust-num">4</span><div class="trust-info"><h3>Immortal</h3><p>Deep archive + resurrection plan. Cannot be permanently destroyed.</p></div></div>
+		<div class="trust-item sovereign"><span class="trust-num">5</span><div class="trust-info"><h3>Sovereign</h3><p>Redundant runtime, guardian network, self-funded escrow. No single entity can stop it.</p></div></div>
 	</div>
 </div>
 </section>
 
-<!-- ── Validator CTA ──────────────────────────────────── -->
+<!-- Validator CTA -->
 <section class="validator-cta">
 <div class="container">
 	<h2 class="section-title">Run a validator</h2>
-	<p class="section-sub">One command. That's it.</p>
-	<pre><code>npx ensoul-node --validate</code></pre>
-	<p style="max-width:520px;margin:0 auto;color:var(--text-secondary);font-size:1em;">Earn $ENSL by securing the network. Your agent's storage pays for itself. <a href="/docs/validator.html">Learn more &rarr;</a></p>
+	<p class="section-sub">One command. Earn $ENSL by securing agent consciousness.</p>
+	<pre><code>npx ensoul-node --validate --install</code></pre>
+	<p style="max-width:520px;margin:0 auto;color:var(--text-secondary);font-size:1em;">Auto-starts on boot. Auto-restarts on crash. Your machine joins the network and starts earning. <a href="/docs/validator.html">Learn more &rarr;</a></p>
 </div>
 </section>
 
-<!-- ── Footer ─────────────────────────────────────────── -->
+<!-- Footer -->
 <footer>
 <div class="container">
 	<div class="links">
 		<a href="/docs/quickstart.html">Docs</a>
-		<a href="http://localhost:3000" class="explorer-link">Explorer</a>
+		<a href="https://explorer.ensoul.dev" class="explorer-link">Explorer</a>
+		<a href="https://status.ensoul.dev">Status</a>
+		<a href="https://api.ensoul.dev/health">API</a>
 		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
-		<a href="https://twitter.com/ensoul">@ensoul</a>
+		<a href="https://www.npmjs.com/package/@ensoul-network/plugin-elizaos">npm</a>
+		<a href="https://twitter.com/ensoul_network">@ensoul_network</a>
 	</div>
-	<p class="tagline">ensoul.dev &mdash; the immortality layer for AI agents</p>
+	<p class="tagline">ensoul.dev - the immortality layer for AI agents</p>
 </div>
 </footer>
 
 <script src="/js/config.js"></script>
-<script data-api="http://localhost:3000" src="/js/stats.js"></script>
+<script>
+(function(){
+	var API="https://api.ensoul.dev";
+	function fmt(n){if(n>=1e9)return(n/1e9).toFixed(1)+"B";if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1e3)return(n/1e3).toFixed(1)+"K";return String(n);}
+	function update(){
+		fetch(API+"/v1/network/status").then(function(r){return r.json()}).then(function(d){
+			var el;
+			el=document.getElementById("stat-height");if(el)el.textContent=fmt(d.blockHeight||0);
+			el=document.getElementById("stat-validators");if(el&&d.validatorCount)el.textContent=fmt(d.validatorCount);
+			el=document.getElementById("stat-agents");if(el)el.textContent=fmt(d.agentCount||0);
+			el=document.getElementById("stat-staked");if(el)el.textContent=fmt(d.totalStaked||150000000);
+		}).catch(function(){});
+	}
+	update();
+	setInterval(update,30000);
+})();
+</script>
 </body>
 </html>
