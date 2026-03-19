@@ -750,7 +750,9 @@ describe("BlockProducer", () => {
 		expect(genesis.height).toBe(0);
 		expect(genesis.previousHash).toBe("0".repeat(64));
 		expect(genesis.proposer).toBe("genesis");
-		expect(genesis.transactions.length).toBe(0);
+		// Genesis block contains allocation transactions
+		expect(genesis.transactions.length).toBe(7);
+		expect(genesis.transactions[0]!.type).toBe("genesis_allocation");
 
 		// Check allocations were distributed
 		expect(state.getBalance("did:test:foundation")).toBe(

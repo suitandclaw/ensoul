@@ -32,7 +32,7 @@ export {
 	computeBlockReward,
 } from "./blocks.js";
 
-export { createDefaultGenesis, validateGenesis } from "./genesis.js";
+export { createDefaultGenesis, validateGenesis, buildGenesisTransactions } from "./genesis.js";
 
 // L1 protections (lessons learned from Solana, Ethereum, Sui, Polygon)
 export {

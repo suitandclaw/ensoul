@@ -11,6 +11,7 @@ import {
 	computeTxHash,
 	REWARDS_POOL,
 } from "./transactions.js";
+import { buildGenesisTransactions } from "./genesis.js";
 import { AccountState } from "./accounts.js";
 import { Mempool } from "./mempool.js";
 
@@ -92,22 +93,26 @@ export class BlockProducer {
 
 	/**
 	 * Initialize the chain with the genesis block.
-	 * Distributes initial token allocations.
+	 * Distributes initial token allocations as visible genesis_allocation
+	 * transactions. Foundation validator allocations are auto-staked.
 	 */
 	initGenesis(): Block {
-		// Distribute genesis allocations
-		for (const alloc of this.config.allocations) {
-			this.state.credit(alloc.recipient, alloc.tokens);
+		// Build genesis allocation transactions
+		const genesisTxs = buildGenesisTransactions(this.config);
+
+		// Apply each allocation to state
+		for (const tx of genesisTxs) {
+			applyTransaction(tx, this.state, 0);
 		}
 
 		const genesisBlock: Block = {
 			height: 0,
 			previousHash: "0".repeat(64),
 			stateRoot: this.state.computeStateRoot(),
-			transactionsRoot: computeTransactionsRoot([]),
+			transactionsRoot: computeTransactionsRoot(genesisTxs),
 			timestamp: this.config.timestamp,
 			proposer: "genesis",
-			transactions: [],
+			transactions: genesisTxs,
 			attestations: [],
 		};
 

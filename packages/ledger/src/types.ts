@@ -8,6 +8,7 @@ export type TransactionType =
 	| "storage_payment"
 	| "reward_claim"
 	| "block_reward"
+	| "genesis_allocation"
 	| "slash"
 	| "burn";
 
@@ -78,6 +79,8 @@ export interface GenesisAllocation {
 	percentage: number;
 	tokens: bigint;
 	recipient: string;
+	/** If true, tokens are credited as staked balance (for validators). */
+	autoStake?: boolean;
 }
 
 /**

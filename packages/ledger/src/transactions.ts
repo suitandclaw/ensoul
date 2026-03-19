@@ -75,11 +75,16 @@ export function validateTransaction(
 		return { valid: false, error: "Negative amount" };
 	}
 
-	// block_reward txs are protocol-generated, skip nonce/signature checks
+	// Protocol-generated txs skip nonce/signature checks
 	if (tx.type === "block_reward") {
 		if (tx.from !== REWARDS_POOL) {
 			return { valid: false, error: "Block reward must come from rewards pool" };
 		}
+		return { valid: true };
+	}
+
+	if (tx.type === "genesis_allocation") {
+		// Genesis allocations are protocol-generated
 		return { valid: true };
 	}
 
@@ -221,6 +226,15 @@ export function applyTransaction(
 			}
 			break;
 		}
+		case "genesis_allocation": {
+			// Protocol-generated: credit recipient (and optionally auto-stake)
+			state.credit(tx.to, tx.amount);
+			// If data field contains "stake", auto-stake the tokens
+			if (tx.data && new TextDecoder().decode(tx.data) === "stake") {
+				state.stake(tx.to, tx.amount);
+			}
+			break;
+		}
 		case "slash": {
 			state.slash(tx.to, tx.amount);
 			break;
@@ -232,8 +246,8 @@ export function applyTransaction(
 		}
 	}
 
-	// block_reward is protocol-generated, no nonce tracking needed
-	if (tx.type !== "block_reward") {
+	// Protocol-generated txs do not track nonces
+	if (tx.type !== "block_reward" && tx.type !== "genesis_allocation") {
 		state.incrementNonce(tx.from);
 	}
 }
