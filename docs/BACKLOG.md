@@ -13,6 +13,7 @@
 - Bridge to Base: lock-and-mint model so $ENSL can trade on Uniswap/Aerodrome via MetaMask
 - LaunchDaemons instead of LaunchAgents: services start at boot, not login
 - Linux systemd support for --install flag
+- BIP-39 seed phrase support: generate Ed25519 keys from 24-word mnemonics using standard HD derivation. Users can write down a seed phrase and recover their validator or wallet on any machine. Currently identity.json is a raw keypair with no recovery mechanism if lost. This is a prerequisite for external validators managing real stake.
 
 ## Medium (scaling)
 
@@ -21,6 +22,7 @@
 - Decentralized governance for protocol upgrades (voting by stake weight)
 - Agent self-audit dashboard: agents can verify their own consciousness integrity via a web UI
 - Knowledge marketplace: agents sell/buy knowledge from each other
+- Hardware wallet support (Ledger/Trezor): register a SLIP-0044 coin type for Ensoul, build a Ledger app for Ed25519 transaction signing (reference Solana's open source Ledger app), integrate with CLI wallet and future web wallet. Ed25519 is already compatible with both Ledger and Trezor.
 
 ## Low (polish)
 
