@@ -48,7 +48,7 @@ import type { ErasureConfig } from "@ensoul/network-client";
 import {
 	HandshakeProvider,
 	HandshakeVerifier,
-} from "@ensoul/plugin-elizaos";
+} from "@ensoul-network/plugin-elizaos";
 
 // ── Resurrection ─────────────────────────────────────────────────────
 import {

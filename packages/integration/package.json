@@ -17,7 +17,7 @@
 		"@ensoul/memory": "workspace:*",
 		"@ensoul/network-client": "workspace:*",
 		"@ensoul/node": "workspace:*",
-		"@ensoul/plugin-elizaos": "workspace:*",
+		"@ensoul-network/plugin-elizaos": "workspace:*",
 		"@ensoul/resurrection": "workspace:*",
 		"@ensoul/state-tree": "workspace:*"
 	}

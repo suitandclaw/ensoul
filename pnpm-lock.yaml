@@ -89,6 +89,9 @@ importers:
 
   packages/integration:
     dependencies:
+      '@ensoul-network/plugin-elizaos':
+        specifier: workspace:*
+        version: link:../plugin-elizaos
       '@ensoul/archive':
         specifier: workspace:*
         version: link:../archive
@@ -110,9 +113,6 @@ importers:
       '@ensoul/node':
         specifier: workspace:*
         version: link:../node
-      '@ensoul/plugin-elizaos':
-        specifier: workspace:*
-        version: link:../plugin-elizaos
       '@ensoul/resurrection':
         specifier: workspace:*
         version: link:../resurrection
@@ -146,6 +146,12 @@ importers:
       '@noble/hashes':
         specifier: ^2.0.1
         version: 2.0.1
+
+  packages/monitor:
+    dependencies:
+      fastify:
+        specifier: ^5.8.2
+        version: 5.8.2
 
   packages/network-client:
     dependencies:
@@ -251,6 +257,9 @@ importers:
 
   packages/security:
     dependencies:
+      '@ensoul-network/plugin-elizaos':
+        specifier: workspace:*
+        version: link:../plugin-elizaos
       '@ensoul/identity':
         specifier: workspace:*
         version: link:../identity
@@ -263,9 +272,6 @@ importers:
       '@ensoul/node':
         specifier: workspace:*
         version: link:../node
-      '@ensoul/plugin-elizaos':
-        specifier: workspace:*
-        version: link:../plugin-elizaos
       '@ensoul/state-tree':
         specifier: workspace:*
         version: link:../state-tree
@@ -293,6 +299,8 @@ importers:
       memory-level:
         specifier: ^3.1.0
         version: 3.1.0
+
+  packages/website: {}
 
 packages:
 
