@@ -95,12 +95,13 @@ wait_for_port() {
 do_stop() {
 	log "Stopping all services..."
 	kill_service "agent"
+	kill_service "api"
 	kill_service "monitor"
 	kill_service "explorer"
 	kill_service "validator"
 	kill_service "tunnel"
 	# Also kill by port as fallback
-	for port in 9000 3000 4000; do
+	for port in 9000 3000 4000 5050; do
 		lsof -ti ":$port" 2>/dev/null | xargs kill 2>/dev/null || true
 	done
 	log "All services stopped."
@@ -112,7 +113,7 @@ do_status() {
 	echo ""
 	echo "  Service          PID        Port    Status"
 	echo "  -------          ---        ----    ------"
-	for name in tunnel validator explorer monitor agent; do
+	for name in tunnel validator explorer monitor api agent; do
 		local pid
 		pid=$(get_pid "$name")
 		local port="-"
@@ -121,6 +122,7 @@ do_status() {
 			validator) port="9000" ;;
 			explorer) port="3000" ;;
 			monitor) port="4000" ;;
+			api) port="5050" ;;
 			agent) port="-" ;;
 		esac
 		if is_alive "$pid"; then
@@ -186,7 +188,16 @@ do_start() {
 	log "Monitor started (pid $!)"
 	wait_for_port 4000 10 "monitor" || true
 
-	# 5. Twitter Agent
+	# 5. API Gateway
+	log "Starting API gateway on port 5050..."
+	npx tsx "$REPO_DIR/packages/api/start.ts" \
+		--port 5050 \
+		>"$LOG_DIR/api.log" 2>&1 &
+	save_pid "api" $!
+	log "API gateway started (pid $!)"
+	wait_for_port 5050 10 "api" || true
+
+	# 6. Twitter Agent
 	if [ -d "$AGENT_DIR/src" ] && [ -f "$AGENT_DIR/.env" ]; then
 		log "Starting Twitter agent..."
 		cd "$AGENT_DIR" && npx tsx src/agent.ts \
@@ -206,12 +217,14 @@ do_start() {
 	echo "    tail -f $LOG_DIR/validator-0.log"
 	echo "    tail -f $LOG_DIR/explorer.log"
 	echo "    tail -f $LOG_DIR/monitor.log"
+	echo "    tail -f $LOG_DIR/api.log"
 	echo "    tail -f $LOG_DIR/tunnel.log"
 	echo "    tail -f $LOG_DIR/agent.log"
 	echo ""
 	echo "  URLs:"
 	echo "    Explorer:  http://localhost:3000"
 	echo "    Monitor:   http://localhost:4000"
+	echo "    API:       http://localhost:5050"
 	echo "    Validator: http://localhost:9000/peer/status"
 	echo ""
 }
