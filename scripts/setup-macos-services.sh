@@ -2,24 +2,18 @@
 #
 # setup-macos-services.sh
 #
-# Installs macOS launchd services for 3 Ensoul validators, the explorer,
-# and a cloudflared tunnel. Services auto-start on login and auto-restart
-# on crash.
+# Installs macOS launchd services for the Ensoul validator, explorer,
+# cloudflared named tunnel, and Twitter agent on this MacBook Pro.
+# The 3 Mac Minis each run their own validator; this machine runs 1.
 #
 # Usage:
 #   ./scripts/setup-macos-services.sh          # install & load
 #   ./scripts/setup-macos-services.sh uninstall # unload & remove
 #
-# NOTE on cloudflared tunnel:
-#   This script uses a quick tunnel (cloudflared tunnel --url ...) which
-#   generates a random *.trycloudflare.com URL on each restart. This is
-#   fine for development but NOT suitable for production.
-#
-#   For production, create a named tunnel with a permanent URL:
-#     cloudflared tunnel create ensoul
-#     cloudflared tunnel route dns ensoul explorer.ensoul.dev
-#     cloudflared tunnel run ensoul
-#   Then replace the quick tunnel plist with one that runs the named tunnel.
+# Cloudflared named tunnel setup (one-time):
+#   cloudflared tunnel create ensoul
+#   cloudflared tunnel route dns ensoul explorer.ensoul.dev
+#   # Then this script runs: cloudflared tunnel run ensoul
 #
 
 set -euo pipefail
@@ -29,6 +23,9 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 LAUNCH_DIR="$HOME/Library/LaunchAgents"
 DATA_DIR="$HOME/.ensoul"
+
+# Peer URLs for the 3 Mac Mini validators
+PEER_URLS="https://v1.ensoul.dev,https://v2.ensoul.dev,https://v3.ensoul.dev"
 
 NPX_PATH="$(which npx 2>/dev/null || true)"
 if [ -z "$NPX_PATH" ]; then
@@ -50,12 +47,13 @@ if [ -z "$CLOUDFLARED_PATH" ]; then
   echo "  Install: brew install cloudflared" >&2
 fi
 
-echo "Ensoul macOS service installer"
-echo "  Repo:       $REPO_DIR"
-echo "  npx:        $NPX_PATH"
-echo "  Node bin:   $NODE_BIN_DIR"
+echo "Ensoul macOS service installer (MacBook Pro)"
+echo "  Repo:        $REPO_DIR"
+echo "  npx:         $NPX_PATH"
+echo "  Node bin:    $NODE_BIN_DIR"
 echo "  cloudflared: ${CLOUDFLARED_PATH:-not found}"
-echo "  Data dir:   $DATA_DIR"
+echo "  Data dir:    $DATA_DIR"
+echo "  Peers:       $PEER_URLS"
 echo ""
 
 # ── Uninstall mode ────────────────────────────────────────────────────
@@ -78,9 +76,7 @@ fi
 
 mkdir -p "$LAUNCH_DIR"
 mkdir -p "$DATA_DIR"
-for i in 0 1 2; do
-  mkdir -p "$DATA_DIR/validator-$i"
-done
+mkdir -p "$DATA_DIR/validator-0"
 
 # ── Helper: write a plist ─────────────────────────────────────────────
 
@@ -139,26 +135,21 @@ PLIST_EOF
 
 # ── Build program arguments ───────────────────────────────────────────
 
-# For validators: npx tsx packages/node/src/cli/main.ts --validate --port N --data-dir DIR
-# For explorer:   npx tsx packages/explorer/start.ts
-
+# Single validator on MacBook Pro, connecting to Mac Mini peers
 validator_args() {
-  local index="$1"
-  local port=$((9000 + index))
-  local api_port=$((10000 + index))
-  local data_dir="$DATA_DIR/validator-$index"
-
   cat << ARGS
     <string>$NPX_PATH</string>
     <string>tsx</string>
     <string>$REPO_DIR/packages/node/src/cli/main.ts</string>
     <string>--validate</string>
     <string>--port</string>
-    <string>$port</string>
+    <string>9000</string>
     <string>--api-port</string>
-    <string>$api_port</string>
+    <string>10000</string>
     <string>--data-dir</string>
-    <string>$data_dir</string>
+    <string>$DATA_DIR/validator-0</string>
+    <string>--peers</string>
+    <string>$PEER_URLS</string>
 ARGS
 }
 
@@ -172,19 +163,18 @@ explorer_args() {
 ARGS
 }
 
-# For tunnel: cloudflared tunnel --url http://localhost:3000
-# Uses a quick tunnel (random *.trycloudflare.com URL on each restart).
-# See NOTE at top of script for production setup with named tunnels.
+# Named tunnel: cloudflared tunnel run ensoul
+# Requires one-time setup: cloudflared tunnel create ensoul
 tunnel_args() {
   cat << ARGS
     <string>$CLOUDFLARED_PATH</string>
     <string>tunnel</string>
-    <string>--url</string>
-    <string>http://localhost:3000</string>
+    <string>run</string>
+    <string>ensoul</string>
 ARGS
 }
 
-# For agent: npx tsx src/agent.ts (runs from ~/ensoul-agent)
+# Agent: npx tsx src/agent.ts (runs from ~/ensoul-agent)
 AGENT_DIR="$HOME/ensoul-agent"
 
 agent_args() {
@@ -199,9 +189,7 @@ ARGS
 
 echo "Creating launchd service plists..."
 
-for i in 0 1 2; do
-  write_plist "dev.ensoul.validator-$i" "$(validator_args $i)" "validator-$i"
-done
+write_plist "dev.ensoul.validator-0" "$(validator_args)" "validator-0"
 
 write_plist "dev.ensoul.explorer" "$(explorer_args)" "explorer"
 
@@ -222,7 +210,7 @@ fi
 echo ""
 echo "Loading services..."
 
-ALL_LABELS="dev.ensoul.validator-0 dev.ensoul.validator-1 dev.ensoul.validator-2 dev.ensoul.explorer"
+ALL_LABELS="dev.ensoul.validator-0 dev.ensoul.explorer"
 if [ -n "$CLOUDFLARED_PATH" ]; then
   ALL_LABELS="$ALL_LABELS dev.ensoul.tunnel"
 fi
@@ -243,18 +231,16 @@ done
 echo ""
 echo "All services installed and running."
 echo ""
-echo "  Validators:"
+echo "  Validator:"
 echo "    validator-0  port 9000   api 10000  log: $DATA_DIR/validator-0.log"
-echo "    validator-1  port 9001   api 10001  log: $DATA_DIR/validator-1.log"
-echo "    validator-2  port 9002   api 10002  log: $DATA_DIR/validator-2.log"
+echo "    peers: $PEER_URLS"
 echo ""
 echo "  Explorer:"
 echo "    http://localhost:3000    log: $DATA_DIR/explorer.log"
 echo ""
 if [ -n "$CLOUDFLARED_PATH" ]; then
-echo "  Tunnel:"
-echo "    Check $DATA_DIR/tunnel.log for the public *.trycloudflare.com URL"
-echo "    (URL changes on each restart — see script header for production setup)"
+echo "  Tunnel (named: ensoul):"
+echo "    explorer.ensoul.dev     log: $DATA_DIR/tunnel.log"
 echo ""
 fi
 if [ -d "$AGENT_DIR/src" ]; then
