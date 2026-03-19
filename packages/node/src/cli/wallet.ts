@@ -1,7 +1,11 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { createIdentity, hexToBytes } from "@ensoul/identity";
 import type { AgentIdentity } from "@ensoul/identity";
 import { encodeTxPayload } from "@ensoul/ledger";
 import type { AccountState } from "@ensoul/ledger";
 import type { Block, Transaction, TransactionType } from "@ensoul/ledger";
+import { expandHome } from "./args.js";
 
 const DECIMALS = 10n ** 18n;
 
@@ -18,6 +22,7 @@ export interface WalletCommand {
 	recipientDid: string;
 	amount: bigint;
 	dataDir: string;
+	rpc: string;
 }
 
 /** A formatted history entry for display. */
@@ -47,6 +52,7 @@ export function parseWalletArgs(argv: string[]): WalletCommand {
 		recipientDid: "",
 		amount: 0n,
 		dataDir: "~/.ensoul",
+		rpc: "http://localhost:9000",
 	};
 
 	let walletFound = false;
@@ -56,6 +62,12 @@ export function parseWalletArgs(argv: string[]): WalletCommand {
 
 		if (arg === "--data-dir" && argv[i + 1]) {
 			cmd.dataDir = argv[i + 1]!;
+			i++;
+			continue;
+		}
+
+		if (arg === "--rpc" && argv[i + 1]) {
+			cmd.rpc = argv[i + 1]!;
 			i++;
 			continue;
 		}
@@ -329,4 +341,146 @@ function formatTimestamp(ms: number): string {
 	const hour = String(d.getHours()).padStart(2, "0");
 	const min = String(d.getMinutes()).padStart(2, "0");
 	return `${month}-${day} ${hour}:${min}`;
+}
+
+// ── RPC wallet runner (no node, just query and exit) ─────────────────
+
+/** Account info returned from the peer API. */
+interface RpcAccountInfo {
+	did: string;
+	balance: string;
+	staked: string;
+	nonce: number;
+	storageCredits: string;
+}
+
+/**
+ * Load identity from {dataDir}/identity.json.
+ * Returns null if the file does not exist.
+ */
+async function loadIdentityFromDisk(dataDir: string): Promise<AgentIdentity | null> {
+	try {
+		const idPath = join(expandHome(dataDir), "identity.json");
+		const raw = await readFile(idPath, "utf-8");
+		const stored = JSON.parse(raw) as { seed: string };
+		const seed = hexToBytes(stored.seed);
+		return await createIdentity({ seed });
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Query account info from a validator's peer API.
+ */
+async function queryAccount(rpc: string, did: string): Promise<RpcAccountInfo | null> {
+	try {
+		const url = `${rpc}/peer/account/${encodeURIComponent(did)}`;
+		const resp = await fetch(url);
+		if (!resp.ok) return null;
+		return (await resp.json()) as RpcAccountInfo;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Run a wallet subcommand: load identity, query RPC, print result, exit.
+ * Returns true if the command was handled.
+ */
+export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
+	if (cmd.subcommand === "none") return false;
+
+	const out = (msg: string): void => {
+		process.stdout.write(`${msg}\n`);
+	};
+
+	// "receive" only needs the DID, no RPC query
+	if (cmd.subcommand === "receive") {
+		const identity = await loadIdentityFromDisk(cmd.dataDir);
+		if (!identity) {
+			out("No identity found. Run ensoul-node first to generate one.");
+			return true;
+		}
+		out(`\n  Send $ENSL to: ${identity.did}\n`);
+		return true;
+	}
+
+	// All other commands need identity + RPC
+	const identity = await loadIdentityFromDisk(cmd.dataDir);
+	if (!identity) {
+		out("No identity found. Run ensoul-node first to generate one.");
+		return true;
+	}
+
+	const account = await queryAccount(cmd.rpc, identity.did);
+	if (!account) {
+		out(`Cannot connect to validator at ${cmd.rpc}`);
+		out("Make sure a validator is running, or use --rpc to specify the endpoint.");
+		return true;
+	}
+
+	const balance = BigInt(account.balance);
+	const staked = BigInt(account.staked);
+	const total = balance + staked;
+
+	switch (cmd.subcommand) {
+		case "balance": {
+			out("");
+			out(`  DID:       ${identity.did}`);
+			out(`  Available: ${formatEnsl(balance)}`);
+			out(`  Staked:    ${formatEnsl(staked)}`);
+			out(`  Total:     ${formatEnsl(total)}`);
+			out(`  Nonce:     ${account.nonce}`);
+			out("");
+			break;
+		}
+
+		case "send": {
+			if (!cmd.recipientDid || cmd.amount === 0n) {
+				out("Usage: ensoul-node wallet send <recipient_did> <amount>");
+				break;
+			}
+			if (!validateDid(cmd.recipientDid)) {
+				out(`Invalid DID: ${cmd.recipientDid}`);
+				break;
+			}
+			out(formatSendConfirmation(cmd.recipientDid, cmd.amount));
+			out("(Transaction submission via RPC not yet implemented)");
+			break;
+		}
+
+		case "history": {
+			out("\n  Transaction history requires a full node connection.");
+			out("  (RPC-based history query not yet implemented)");
+			out("");
+			break;
+		}
+
+		case "stake": {
+			if (cmd.amount === 0n) {
+				out("Usage: ensoul-node wallet stake <amount>");
+				break;
+			}
+			out(`\n  Stake ${formatEnsl(cmd.amount)} from ${shortenDid(identity.did)}`);
+			out("  (Transaction submission via RPC not yet implemented)\n");
+			break;
+		}
+
+		case "unstake": {
+			if (cmd.amount === 0n) {
+				out("Usage: ensoul-node wallet unstake <amount>");
+				break;
+			}
+			out(`\n  Unstake ${formatEnsl(cmd.amount)} from ${shortenDid(identity.did)}`);
+			out("  (Transaction submission via RPC not yet implemented)\n");
+			break;
+		}
+	}
+
+	return true;
+}
+
+function formatSendConfirmation(recipientDid: string, amount: bigint): string {
+	return `\n  Send ${formatEnsl(amount)} to ${shortenDid(recipientDid)}?\n  (Transaction submission via RPC not yet implemented)`;
 }

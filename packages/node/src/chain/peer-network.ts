@@ -118,6 +118,23 @@ export class PeerNetwork {
 			},
 		);
 
+		// GET /peer/account/:did
+		this.server.get<{ Params: { did: string } }>(
+			"/peer/account/:did",
+			async (req) => {
+				const account = this.gossip.getProducer().getState().getAccount(
+					decodeURIComponent(req.params.did),
+				);
+				return {
+					did: account.did,
+					balance: account.balance.toString(),
+					staked: account.stakedBalance.toString(),
+					nonce: account.nonce,
+					storageCredits: account.storageCredits.toString(),
+				};
+			},
+		);
+
 		// GET /peer/peers
 		this.server.get("/peer/peers", async () => {
 			return {

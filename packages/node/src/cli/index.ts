@@ -9,6 +9,7 @@ export {
 	validateDid,
 	shortenDid,
 	formatEnsl,
+	runWalletCommand,
 } from "./wallet.js";
 export type { WalletCommand, HistoryEntry, WalletTxResult } from "./wallet.js";
 export {
