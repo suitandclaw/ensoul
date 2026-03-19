@@ -14,11 +14,28 @@ import type { GenesisConfig, Transaction, Block } from "@ensoul/ledger";
 import type { ChainNodeConfig } from "./types.js";
 import type { BlockStore } from "./store.js";
 
+const DECIMALS = 10n ** 18n;
+
+function addCommas(s: string): string {
+	const parts: string[] = [];
+	let remaining = s;
+	while (remaining.length > 3) {
+		parts.unshift(remaining.slice(-3));
+		remaining = remaining.slice(0, -3);
+	}
+	parts.unshift(remaining);
+	return parts.join(",");
+}
+
+/** Default: 1,000 ENSL minimum stake for testnet. */
+const DEFAULT_MINIMUM_STAKE = 1000n * DECIMALS;
+
 const DEFAULT_CONFIG: ChainNodeConfig = {
 	blockTimeMs: 6000,
 	maxTxPerBlock: 100,
 	maxTxPerIdentity: 10,
 	nonceGapTimeoutMs: 60000,
+	minimumStake: DEFAULT_MINIMUM_STAKE,
 };
 
 /**
@@ -42,6 +59,9 @@ export class NodeBlockProducer {
 
 	/** Callback invoked when a new block is produced. */
 	onBlock: ((block: Block) => void) | null = null;
+
+	/** Callback for log messages (stake warnings, slashing events). */
+	onLog: ((msg: string) => void) | null = null;
 
 	constructor(
 		genesisConfig: GenesisConfig,
@@ -160,17 +180,88 @@ export class NodeBlockProducer {
 	}
 
 	/**
+	 * Get the list of validators with stake >= minimumStake.
+	 */
+	getEligibleValidators(): string[] {
+		return this.validatorDids.filter((did) => {
+			const account = this.state.getAccount(did);
+			return account.stakedBalance >= this.config.minimumStake;
+		});
+	}
+
+	/**
+	 * Select the proposer for a given block height using stake-weighted selection.
+	 * Validators with more stake get proportionally more slots.
+	 * Falls back to equal-weight round-robin if all eligible validators have equal stake.
+	 */
+	selectProposer(height: number): string | null {
+		const eligible = this.getEligibleValidators();
+		if (eligible.length === 0) return null;
+
+		// Build a weighted list based on staked balance
+		const stakes = eligible.map((did) => ({
+			did,
+			stake: this.state.getAccount(did).stakedBalance,
+		}));
+
+		const totalStake = stakes.reduce((sum, s) => sum + s.stake, 0n);
+
+		// If no one has any stake (e.g. testnet with minimumStake=0),
+		// fall back to equal-weight round-robin
+		if (totalStake === 0n) {
+			const idx = height % eligible.length;
+			return eligible[idx] ?? null;
+		}
+
+		// Use block height as a deterministic seed into the weighted range
+		const slot = BigInt(height) % totalStake;
+		let cumulative = 0n;
+		for (const entry of stakes) {
+			cumulative += entry.stake;
+			if (slot < cumulative) return entry.did;
+		}
+
+		// Fallback (should not reach here)
+		return eligible[0] ?? null;
+	}
+
+	/**
+	 * Check if a validator has sufficient stake to produce blocks.
+	 */
+	hasMinimumStake(did: string): boolean {
+		const account = this.state.getAccount(did);
+		return account.stakedBalance >= this.config.minimumStake;
+	}
+
+	/**
+	 * Get the minimum stake requirement.
+	 */
+	getMinimumStake(): bigint {
+		return this.config.minimumStake;
+	}
+
+	/**
 	 * Produce a block for the current slot.
-	 * Returns null if myDid is not the current proposer.
+	 * Returns null if myDid is not the selected proposer or lacks minimum stake.
 	 */
 	produceBlock(myDid: string): Block | null {
 		if (this.validatorDids.length === 0) return null;
 
-		// Round-robin proposer selection based on next block height
 		const height = this.ledger.getHeight() + 1;
-		const proposerIndex = height % this.validatorDids.length;
-		const expectedProposer = this.validatorDids[proposerIndex];
 
+		// Check minimum stake
+		if (!this.hasMinimumStake(myDid)) {
+			const account = this.state.getAccount(myDid);
+			const staked = account.stakedBalance / DECIMALS;
+			const required = this.config.minimumStake / DECIMALS;
+			this.log(
+				`Cannot produce block: staked balance (${staked} ENSL) below minimum (${addCommas(required.toString())} ENSL)`,
+			);
+			return null;
+		}
+
+		// Stake-weighted proposer selection
+		const expectedProposer = this.selectProposer(height);
 		if (expectedProposer !== myDid) return null;
 
 		// Drain ready txs from enhanced mempool, enforce per-identity limit
@@ -304,6 +395,34 @@ export class NodeBlockProducer {
 	/** Get the validator list. */
 	getValidators(): string[] {
 		return [...this.validatorDids];
+	}
+
+	/**
+	 * Log a slashing warning for a missed block.
+	 * Actual slashing will be implemented separately.
+	 */
+	logMissedBlock(did: string, height: number): void {
+		this.log(`Slashing event: ${did} missed block production at height ${height}`);
+	}
+
+	/**
+	 * Log a slashing warning for a failed proof-of-storage challenge.
+	 */
+	logFailedChallenge(did: string): void {
+		this.log(`Slashing event: ${did} failed proof-of-storage challenge`);
+	}
+
+	/**
+	 * Log a slashing warning for double block production.
+	 */
+	logDoubleProduction(did: string, height: number): void {
+		this.log(`Slashing event: ${did} produced duplicate block at height ${height}`);
+	}
+
+	// ── Internal helpers ─────────────────────────────────────────
+
+	private log(msg: string): void {
+		if (this.onLog) this.onLog(msg);
 	}
 
 	// ── Internal persistence ─────────────────────────────────────

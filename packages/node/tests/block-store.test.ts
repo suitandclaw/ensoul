@@ -206,7 +206,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		const store = new BlockStore(storePath);
 		const dids = [v1.did, v2.did, v3.did];
 
-		const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 		await producer.initGenesisAsync(dids);
 
 		// Produce 5 blocks
@@ -214,9 +214,11 @@ describe("NodeBlockProducer with BlockStore", () => {
 			const h = producer.getHeight() + 1;
 			const proposer = dids[h % dids.length]!;
 			producer.produceBlock(proposer);
+			// Wait for each persist to complete
+			await new Promise((r) => setTimeout(r, 30));
 		}
 
-		// Wait for async persistence
+		// Wait for final persistence
 		await new Promise((r) => setTimeout(r, 100));
 
 		expect(producer.getHeight()).toBe(5);
@@ -246,7 +248,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// First run: produce 10 blocks
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			await producer.initGenesisAsync(dids);
 
 			for (let i = 0; i < 10; i++) {
@@ -263,7 +265,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// Second run: resume from height 10
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			const result = await producer.initGenesisAsync(dids);
 
 			expect(result.resumed).toBe(true);
@@ -299,7 +301,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		let v1BalanceBeforeRestart: bigint;
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			await producer.initGenesisAsync(dids);
 
 			producer.getState().credit(alice.did, 1000n * DECIMALS);
@@ -320,7 +322,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// Second run: balances should survive
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			const result = await producer.initGenesisAsync(dids);
 
 			expect(result.resumed).toBe(true);
@@ -338,7 +340,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// First run
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			const result = await producer.initGenesisAsync(dids);
 			expect(result.resumed).toBe(false);
 			expect(result.height).toBe(0);
@@ -349,7 +351,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// Second run: should resume, not create new genesis
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			const result = await producer.initGenesisAsync(dids);
 			expect(result.resumed).toBe(true);
 			expect(producer.getBlock(0)!.proposer).toBe("genesis");
@@ -358,7 +360,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 	});
 
 	it("without BlockStore, behavior is unchanged (in-memory only)", () => {
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		const dids = [v1.did, v2.did];
 		producer.initGenesis(dids);
 		producer.produceBlock(v2.did);
@@ -372,7 +374,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// First run: produce block with tx
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			await producer.initGenesisAsync(dids);
 			producer.getState().credit(alice.did, 500n * DECIMALS);
 
@@ -406,13 +408,13 @@ describe("NodeBlockProducer with BlockStore", () => {
 		const dids = [v1.did, v2.did];
 
 		// Node 1: produce a block
-		const producer1 = new NodeBlockProducer(testGenesis());
+		const producer1 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer1.initGenesis(dids);
 		const block = producer1.produceBlock(v2.did)!;
 
 		// Node 2: apply the block from node 1
 		const store = new BlockStore(storePath);
-		const producer2 = new NodeBlockProducer(testGenesis(), undefined, store);
+		const producer2 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 		await producer2.initGenesisAsync(dids);
 		const result = producer2.applyBlock(block);
 		expect(result.valid).toBe(true);
@@ -433,7 +435,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// First run
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			await producer.initGenesisAsync(dids);
 			expect(producer.getValidators()).toEqual(dids);
 			await store.close();
@@ -442,7 +444,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// Second run: validators should be restored from metadata
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			// Pass empty array -- the persisted validators should take precedence
 			await producer.initGenesisAsync([]);
 			expect(producer.getValidators()).toEqual(dids);
@@ -457,7 +459,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// First run: produce 3 blocks, each gets emission rewards
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			await producer.initGenesisAsync(dids);
 			for (let i = 0; i < 3; i++) {
 				const h = producer.getHeight() + 1;
@@ -472,7 +474,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// Second run: produce more blocks, emission should be continuous
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			const result = await producer.initGenesisAsync(dids);
 			expect(result.height).toBe(3);
 
@@ -500,7 +502,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// First run
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			await producer.initGenesisAsync(dids);
 			for (let i = 0; i < 5; i++) {
 				const h = producer.getHeight() + 1;
@@ -514,7 +516,7 @@ describe("NodeBlockProducer with BlockStore", () => {
 		// Second run
 		{
 			const store = new BlockStore(storePath);
-			const producer = new NodeBlockProducer(testGenesis(), undefined, store);
+			const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 			await producer.initGenesisAsync(dids);
 			const resumedRoot = producer.getState().computeStateRoot();
 			expect(resumedRoot).toBe(stateRootAtHeight5);
@@ -537,7 +539,7 @@ describe("GossipNetwork with BlockStore persistence", () => {
 
 		const producers = await Promise.all(
 			stores.map(async (store) => {
-				const p = new NodeBlockProducer(testGenesis(), undefined, store);
+				const p = new NodeBlockProducer(testGenesis(), { minimumStake: 0n }, store);
 				await p.initGenesisAsync(dids);
 				return p;
 			}),

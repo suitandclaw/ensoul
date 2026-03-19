@@ -414,7 +414,7 @@ describe("WalletManager stake/unstake", () => {
 			protocolFees: { storageFeeProtocolShare: 10, txBaseFee: 1000n },
 		};
 
-		const producer = new NodeBlockProducer(genesis);
+		const producer = new NodeBlockProducer(genesis, { minimumStake: 0n });
 		producer.initGenesis([alice.did, bob.did]);
 		producer.getState().credit(alice.did, 500n * DECIMALS);
 

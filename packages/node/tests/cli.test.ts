@@ -160,6 +160,7 @@ describe("EnsoulNodeRunner", () => {
 		runner = new EnsoulNodeRunner(
 			parseArgs(["--validate"]),
 			testGenesis(),
+			{ minimumStake: 0n },
 		);
 	});
 
@@ -237,6 +238,7 @@ describe("EnsoulNodeRunner", () => {
 		const fullnodeRunner = new EnsoulNodeRunner(
 			parseArgs([]),
 			testGenesis(),
+			{ minimumStake: 0n },
 		);
 		fullnodeRunner.setIdentity(identity);
 		fullnodeRunner.initChain([]);

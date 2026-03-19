@@ -66,7 +66,7 @@ describe("NodeBlockProducer", () => {
 	it("initializes genesis on all nodes", () => {
 		const dids = [validator1.did, validator2.did, validator3.did];
 		const nodes = dids.map(() => {
-			const p = new NodeBlockProducer(testGenesis());
+			const p = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 			p.initGenesis(dids);
 			return p;
 		});
@@ -77,7 +77,7 @@ describe("NodeBlockProducer", () => {
 
 	it("round-robin proposer selection", () => {
 		const dids = [validator1.did, validator2.did, validator3.did];
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis(dids);
 		expect(producer.produceBlock(validator1.did)).toBeNull();
 		const block = producer.produceBlock(validator2.did);
@@ -87,7 +87,7 @@ describe("NodeBlockProducer", () => {
 
 	it("produces block with transaction", async () => {
 		const dids = [validator1.did, validator2.did, validator3.did];
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis(dids);
 		producer.getState().credit(alice.did, 100n * DECIMALS);
 
@@ -104,20 +104,20 @@ describe("NodeBlockProducer", () => {
 
 	it("returns null for non-proposer", () => {
 		const dids = [validator1.did, validator2.did];
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis(dids);
 		expect(producer.produceBlock("did:nobody")).toBeNull();
 	});
 
 	it("returns null with no validators", () => {
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis([]);
 		expect(producer.produceBlock("did:any")).toBeNull();
 	});
 
 	it("getters work correctly", () => {
 		const dids = [validator1.did];
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis(dids);
 		expect(producer.getValidators()).toEqual(dids);
 		expect(producer.getMempool()).toBeDefined();
@@ -130,7 +130,7 @@ describe("NodeBlockProducer", () => {
 
 	it("onBlock callback fires", () => {
 		const dids = [validator1.did, validator2.did];
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis(dids);
 		let captured = false;
 		producer.onBlock = () => { captured = true; };
@@ -144,9 +144,9 @@ describe("NodeBlockProducer", () => {
 describe("BlockSync", () => {
 	it("syncs a block between two nodes", async () => {
 		const dids = [validator1.did, validator2.did];
-		const node1 = new NodeBlockProducer(testGenesis());
+		const node1 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node1.initGenesis(dids);
-		const node2 = new NodeBlockProducer(testGenesis());
+		const node2 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node2.initGenesis(dids);
 		node1.getState().credit(alice.did, 100n * DECIMALS);
 		node2.getState().credit(alice.did, 100n * DECIMALS);
@@ -167,9 +167,9 @@ describe("BlockSync", () => {
 
 	it("rejects duplicate block", async () => {
 		const dids = [validator1.did, validator2.did];
-		const node1 = new NodeBlockProducer(testGenesis());
+		const node1 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node1.initGenesis(dids);
-		const node2 = new NodeBlockProducer(testGenesis());
+		const node2 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node2.initGenesis(dids);
 		node1.getState().credit(alice.did, 100n * DECIMALS);
 		node2.getState().credit(alice.did, 100n * DECIMALS);
@@ -187,7 +187,7 @@ describe("BlockSync", () => {
 
 	it("handleSyncRequest returns chain history", () => {
 		const dids = [validator1.did, validator2.did];
-		const node = new NodeBlockProducer(testGenesis());
+		const node = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node.initGenesis(dids);
 		node.produceBlock(validator2.did);
 		node.produceBlock(validator1.did);
@@ -198,12 +198,12 @@ describe("BlockSync", () => {
 
 	it("applySyncBlocks applies a batch", () => {
 		const dids = [validator1.did, validator2.did];
-		const node1 = new NodeBlockProducer(testGenesis());
+		const node1 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node1.initGenesis(dids);
 		node1.produceBlock(validator2.did);
 		node1.produceBlock(validator1.did);
 
-		const node2 = new NodeBlockProducer(testGenesis());
+		const node2 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node2.initGenesis(dids);
 		const sync2 = new BlockSync(node2);
 		const blocks = new BlockSync(node1).handleSyncRequest(1);
@@ -213,9 +213,9 @@ describe("BlockSync", () => {
 
 	it("onBroadcastBlock callback fires on valid block", async () => {
 		const dids = [validator1.did, validator2.did];
-		const node1 = new NodeBlockProducer(testGenesis());
+		const node1 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node1.initGenesis(dids);
-		const node2 = new NodeBlockProducer(testGenesis());
+		const node2 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node2.initGenesis(dids);
 
 		// Add a tx so the block has deterministic content
@@ -241,7 +241,7 @@ describe("BlockSync", () => {
 
 describe("GossipNetwork", () => {
 	it("submits and deduplicates transactions", async () => {
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis([validator1.did]);
 		producer.getState().credit(alice.did, 100n * DECIMALS);
 		const gossip = new GossipNetwork(producer);
@@ -256,7 +256,7 @@ describe("GossipNetwork", () => {
 	});
 
 	it("handleGossipTx deduplicates", async () => {
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis([validator1.did]);
 		producer.getState().credit(alice.did, 100n * DECIMALS);
 		const gossip = new GossipNetwork(producer);
@@ -272,9 +272,9 @@ describe("GossipNetwork", () => {
 
 	it("handleGossipBlock deduplicates", async () => {
 		const dids = [validator1.did, validator2.did];
-		const node1 = new NodeBlockProducer(testGenesis());
+		const node1 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node1.initGenesis(dids);
-		const node2 = new NodeBlockProducer(testGenesis());
+		const node2 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node2.initGenesis(dids);
 		node1.getState().credit(alice.did, 100n * DECIMALS);
 		node2.getState().credit(alice.did, 100n * DECIMALS);
@@ -293,7 +293,7 @@ describe("GossipNetwork", () => {
 
 	it("tryProduceBlock produces and broadcasts", () => {
 		const dids = [validator1.did, validator2.did];
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis(dids);
 		const gossip = new GossipNetwork(producer);
 		let broadcasted = false;
@@ -303,13 +303,13 @@ describe("GossipNetwork", () => {
 	});
 
 	it("tryProduceBlock returns null for non-proposer", () => {
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis([validator1.did, validator2.did]);
 		expect(new GossipNetwork(producer).tryProduceBlock("did:nobody")).toBeNull();
 	});
 
 	it("broadcasts transactions to peers", async () => {
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis([validator1.did]);
 		producer.getState().credit(alice.did, 100n * DECIMALS);
 		const gossip = new GossipNetwork(producer);
@@ -325,7 +325,7 @@ describe("GossipNetwork", () => {
 	});
 
 	it("rebroadcasts gossip txs", async () => {
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis([validator1.did]);
 		producer.getState().credit(alice.did, 100n * DECIMALS);
 		const gossip = new GossipNetwork(producer);
@@ -342,7 +342,7 @@ describe("GossipNetwork", () => {
 	});
 
 	it("sync request/response works through gossip", () => {
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis([validator1.did, validator2.did]);
 		producer.produceBlock(validator2.did);
 		const gossip = new GossipNetwork(producer);
@@ -351,12 +351,12 @@ describe("GossipNetwork", () => {
 
 	it("applySyncBlocks works through gossip", () => {
 		const dids = [validator1.did, validator2.did];
-		const node1 = new NodeBlockProducer(testGenesis());
+		const node1 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node1.initGenesis(dids);
 		node1.produceBlock(validator2.did);
 		node1.produceBlock(validator1.did);
 
-		const node2 = new NodeBlockProducer(testGenesis());
+		const node2 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		node2.initGenesis(dids);
 		const gossip2 = new GossipNetwork(node2);
 		const blocks = new GossipNetwork(node1).handleSyncRequest(1);
@@ -364,7 +364,7 @@ describe("GossipNetwork", () => {
 	});
 
 	it("getProducer and getSync return internals", () => {
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis([validator1.did]);
 		const gossip = new GossipNetwork(producer);
 		expect(gossip.getProducer()).toBe(producer);
@@ -390,7 +390,7 @@ describe("3-node gossip integration", () => {
 	it("tx submitted to one node propagates and gets included in blocks on all", async () => {
 		const dids = [validator1.did, validator2.did, validator3.did];
 		const gossips = dids.map(() => {
-			const p = new NodeBlockProducer(testGenesis());
+			const p = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 			p.initGenesis(dids);
 			p.getState().credit(alice.did, 100n * DECIMALS);
 			return new GossipNetwork(p);
@@ -422,7 +422,7 @@ describe("3-node gossip integration", () => {
 	it("multi-block propagation across 3 nodes", async () => {
 		const dids = [validator1.did, validator2.did, validator3.did];
 		const gossips = dids.map(() => {
-			const p = new NodeBlockProducer(testGenesis());
+			const p = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 			p.initGenesis(dids);
 			p.getState().credit(alice.did, 1000n * DECIMALS);
 			return new GossipNetwork(p);
@@ -451,7 +451,7 @@ describe("3-node gossip integration", () => {
 
 	it("new node syncs single block from existing network", async () => {
 		const dids = [validator1.did, validator2.did, validator3.did];
-		const existing = new NodeBlockProducer(testGenesis());
+		const existing = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		existing.initGenesis(dids);
 		existing.getState().credit(alice.did, 100n * DECIMALS);
 
@@ -463,7 +463,7 @@ describe("3-node gossip integration", () => {
 		existing.produceBlock(validator2.did);
 
 		const existingGossip = new GossipNetwork(existing);
-		const newNode = new NodeBlockProducer(testGenesis());
+		const newNode = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		newNode.initGenesis(dids);
 		newNode.getState().credit(alice.did, 100n * DECIMALS);
 		const newGossip = new GossipNetwork(newNode);
@@ -483,7 +483,7 @@ describe("3-node gossip integration", () => {
 describe("block serialization", () => {
 	it("round-trips a block", async () => {
 		const dids = [validator1.did, validator2.did];
-		const producer = new NodeBlockProducer(testGenesis());
+		const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer.initGenesis(dids);
 		producer.getState().credit(alice.did, 100n * DECIMALS);
 

@@ -37,7 +37,7 @@ function testGenesis(): GenesisConfig {
 }
 
 function createNode(dids: string[]): { producer: NodeBlockProducer; gossip: GossipNetwork } {
-	const producer = new NodeBlockProducer(testGenesis());
+	const producer = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 	producer.initGenesis(dids);
 	const gossip = new GossipNetwork(producer);
 	return { producer, gossip };

@@ -121,7 +121,7 @@ function createTestNetwork(
 ): TestNetwork {
 	const dids = validatorIds.map((v) => v.did);
 	const producers = validatorIds.map(() => {
-		const p = new NodeBlockProducer(testGenesis());
+		const p = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		p.initGenesis(dids);
 		return p;
 	});

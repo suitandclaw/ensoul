@@ -12,6 +12,8 @@ export interface ChainNodeConfig {
 	maxTxPerIdentity: number;
 	/** Nonce gap timeout in ms. */
 	nonceGapTimeoutMs: number;
+	/** Minimum staked balance required to produce blocks (in wei). */
+	minimumStake: bigint;
 }
 
 /**

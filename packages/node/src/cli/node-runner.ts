@@ -5,6 +5,7 @@ import type { GenesisConfig, Block, Transaction } from "@ensoul/ledger";
 import { NodeBlockProducer } from "../chain/producer.js";
 import { GossipNetwork } from "../chain/gossip.js";
 import type { CliArgs } from "./args.js";
+import type { ChainNodeConfig } from "../chain/types.js";
 
 /**
  * Status snapshot of a running node.
@@ -31,6 +32,7 @@ export class EnsoulNodeRunner {
 	private gossip: GossipNetwork | null = null;
 	private producer: NodeBlockProducer | null = null;
 	private genesisConfig: GenesisConfig;
+	private chainConfig: Partial<ChainNodeConfig>;
 	private args: CliArgs;
 	private startedAt = 0;
 	private blocksProduced = 0;
@@ -41,10 +43,15 @@ export class EnsoulNodeRunner {
 	onLog: ((msg: string) => void) | null = null;
 	onBlock: ((block: Block) => void) | null = null;
 
-	constructor(args: CliArgs, genesisConfig?: GenesisConfig) {
+	constructor(
+		args: CliArgs,
+		genesisConfig?: GenesisConfig,
+		chainConfig?: Partial<ChainNodeConfig>,
+	) {
 		this.args = args;
 		this.genesisConfig =
 			genesisConfig ?? createDefaultGenesis();
+		this.chainConfig = chainConfig ?? {};
 	}
 
 	/**
@@ -69,7 +76,10 @@ export class EnsoulNodeRunner {
 	 * Step 2: Initialize chain and genesis.
 	 */
 	initChain(validatorDids: string[]): void {
-		this.producer = new NodeBlockProducer(this.genesisConfig);
+		this.producer = new NodeBlockProducer(
+			this.genesisConfig,
+			this.chainConfig,
+		);
 		this.producer.initGenesis(validatorDids);
 		this.gossip = new GossipNetwork(this.producer);
 
