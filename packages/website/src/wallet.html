@@ -404,10 +404,12 @@ window.registerAgent=async function(){
     });
     if(!r.ok){showActionMsg("Registration failed: "+r.status,"error");return;}
     var d=await r.json();
-    if(d.registered){
+    if(d.registered&&d.welcomeBonus){
       showActionMsg("Agent registered! Welcome bonus: "+d.welcomeBonus,"success");
+    }else if(d.registered){
+      showActionMsg(d.message||"Agent already registered","info");
     }else{
-      showActionMsg(d.message||"Already registered","info");
+      showActionMsg(d.message||"Registration failed","error");
     }
   }catch(e){
     showActionMsg("Cannot reach api.ensoul.dev","error");

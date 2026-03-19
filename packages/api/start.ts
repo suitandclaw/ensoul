@@ -372,7 +372,12 @@ async function main(): Promise<void> {
 			registeredAt: Date.now(),
 		});
 
-		await log(`Agent registered: ${body.did}`);
+		// TODO: Submit a TRANSFER transaction from the onboarding incentives
+		// account to body.did for 1000 ENSL. This requires the onboarding
+		// account's private key to sign the transaction, and a connected
+		// validator to submit it. For now the welcome bonus is tracked in
+		// the API gateway's in-memory state only.
+		await log(`Agent registered: ${body.did} (welcome bonus: 1000 ENSL pending on-chain credit)`);
 
 		return {
 			registered: true,
