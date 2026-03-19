@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { createIdentity } from "@ensoul/identity";
 import type { AgentIdentity } from "@ensoul/identity";
 import { encodeTxPayload, REWARDS_POOL, PROTOCOL_TREASURY } from "@ensoul/ledger";
@@ -352,5 +355,140 @@ describe("formatStatus", () => {
 			storageUsedBytes: 0, storageCapacityBytes: 0, balance: 0n, uptime: 7200000,
 		});
 		expect(long).toContain("2h");
+	});
+});
+
+// ── Identity persistence ─────────────────────────────────────────────
+
+describe("Identity persistence", () => {
+	let tmpDir: string;
+
+	beforeEach(async () => {
+		tmpDir = await mkdtemp(join(tmpdir(), "ensoul-id-test-"));
+	});
+
+	afterEach(async () => {
+		await rm(tmpDir, { recursive: true, force: true });
+	});
+
+	it("generates new identity and saves to data dir", async () => {
+		const runner = new EnsoulNodeRunner(
+			parseArgs(["--validate", "--data-dir", tmpDir]),
+			testGenesis(),
+			{ minimumStake: 0n },
+		);
+		const id = await runner.initIdentity();
+
+		expect(id.did).toBeTruthy();
+		expect(id.publicKey.length).toBe(32);
+
+		// Verify file was written
+		const raw = await readFile(join(tmpDir, "identity.json"), "utf-8");
+		const stored = JSON.parse(raw) as { seed: string; publicKey: string; did: string };
+		expect(stored.did).toBe(id.did);
+		expect(stored.seed.length).toBe(64); // 32 bytes hex
+		expect(stored.publicKey.length).toBe(64);
+
+		runner.stopBlockLoop();
+	});
+
+	it("loads existing identity from disk on restart", async () => {
+		// First run: create identity
+		const runner1 = new EnsoulNodeRunner(
+			parseArgs(["--validate", "--data-dir", tmpDir]),
+			testGenesis(),
+			{ minimumStake: 0n },
+		);
+		const id1 = await runner1.initIdentity();
+		runner1.stopBlockLoop();
+
+		// Second run: should load the same identity
+		const runner2 = new EnsoulNodeRunner(
+			parseArgs(["--validate", "--data-dir", tmpDir]),
+			testGenesis(),
+			{ minimumStake: 0n },
+		);
+		const id2 = await runner2.initIdentity();
+		runner2.stopBlockLoop();
+
+		expect(id2.did).toBe(id1.did);
+		expect(id2.publicKey).toEqual(id1.publicKey);
+	});
+
+	it("DID is stable across multiple restarts", async () => {
+		const dids: string[] = [];
+		for (let i = 0; i < 3; i++) {
+			const runner = new EnsoulNodeRunner(
+				parseArgs(["--validate", "--data-dir", tmpDir]),
+				testGenesis(),
+				{ minimumStake: 0n },
+			);
+			const id = await runner.initIdentity();
+			dids.push(id.did);
+			runner.stopBlockLoop();
+		}
+
+		expect(dids[0]).toBe(dids[1]);
+		expect(dids[1]).toBe(dids[2]);
+	});
+
+	it("loaded identity can sign and verify", async () => {
+		// Create
+		const runner1 = new EnsoulNodeRunner(
+			parseArgs(["--validate", "--data-dir", tmpDir]),
+			testGenesis(),
+			{ minimumStake: 0n },
+		);
+		const id1 = await runner1.initIdentity();
+		runner1.stopBlockLoop();
+
+		// Reload
+		const runner2 = new EnsoulNodeRunner(
+			parseArgs(["--validate", "--data-dir", tmpDir]),
+			testGenesis(),
+			{ minimumStake: 0n },
+		);
+		const id2 = await runner2.initIdentity();
+		runner2.stopBlockLoop();
+
+		// Sign with reloaded identity
+		const data = new TextEncoder().encode("test message");
+		const sig = await id2.sign(data);
+		expect(sig.length).toBe(64);
+
+		// Verify with original identity's public key
+		const valid = await id1.verify(data, sig);
+		expect(valid).toBe(true);
+	});
+
+	it("logs appropriate message for new vs loaded identity", async () => {
+		const logs: string[] = [];
+
+		// First run: new identity
+		const runner1 = new EnsoulNodeRunner(
+			parseArgs(["--validate", "--data-dir", tmpDir]),
+			testGenesis(),
+			{ minimumStake: 0n },
+		);
+		runner1.onLog = (msg) => logs.push(msg);
+		await runner1.initIdentity();
+		runner1.stopBlockLoop();
+
+		expect(logs.some((l) => l.includes("Created new identity"))).toBe(true);
+		expect(logs.some((l) => l.includes("saved to"))).toBe(true);
+
+		logs.length = 0;
+
+		// Second run: loaded from disk
+		const runner2 = new EnsoulNodeRunner(
+			parseArgs(["--validate", "--data-dir", tmpDir]),
+			testGenesis(),
+			{ minimumStake: 0n },
+		);
+		runner2.onLog = (msg) => logs.push(msg);
+		await runner2.initIdentity();
+		runner2.stopBlockLoop();
+
+		expect(logs.some((l) => l.includes("Loaded identity from disk"))).toBe(true);
 	});
 });

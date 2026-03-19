@@ -1,11 +1,21 @@
-import { createIdentity } from "@ensoul/identity";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { createIdentity, bytesToHex, hexToBytes } from "@ensoul/identity";
 import type { AgentIdentity } from "@ensoul/identity";
 import { createDefaultGenesis } from "@ensoul/ledger";
 import type { GenesisConfig, Block, Transaction } from "@ensoul/ledger";
 import { NodeBlockProducer } from "../chain/producer.js";
 import { GossipNetwork } from "../chain/gossip.js";
+import { expandHome } from "./args.js";
 import type { CliArgs } from "./args.js";
 import type { ChainNodeConfig } from "../chain/types.js";
+
+/** Persisted identity file format. */
+interface PersistedIdentity {
+	seed: string;
+	publicKey: string;
+	did: string;
+}
 
 /**
  * Status snapshot of a running node.
@@ -55,13 +65,42 @@ export class EnsoulNodeRunner {
 	}
 
 	/**
-	 * Step 1: Generate or load identity.
+	 * Step 1: Load identity from disk or generate a new one.
+	 * Identity is persisted to {dataDir}/identity.json.
 	 */
 	async initIdentity(): Promise<AgentIdentity> {
-		// In production, load from disk or generate and save.
-		// For now, generate fresh. A real CLI would persist to dataDir.
-		this.identity = await createIdentity();
-		this.log(`Identity created: ${this.identity.did}`);
+		const dataDir = expandHome(this.args.dataDir);
+		await mkdir(dataDir, { recursive: true });
+		const idPath = join(dataDir, "identity.json");
+
+		try {
+			const raw = await readFile(idPath, "utf-8");
+			const stored = JSON.parse(raw) as PersistedIdentity;
+			const seed = hexToBytes(stored.seed);
+			this.identity = await createIdentity({ seed });
+			this.log(
+				`Loaded identity from disk: ${this.identity.did}`,
+			);
+			return this.identity;
+		} catch {
+			// File does not exist or is invalid, generate new
+		}
+
+		// Generate new identity with a known seed so we can persist it
+		const { randomBytes } = await import("node:crypto");
+		const seed = new Uint8Array(randomBytes(32));
+		this.identity = await createIdentity({ seed });
+
+		const persisted: PersistedIdentity = {
+			seed: bytesToHex(seed),
+			publicKey: this.identity.toJSON().publicKey,
+			did: this.identity.did,
+		};
+
+		await writeFile(idPath, JSON.stringify(persisted, null, 2));
+		this.log(
+			`Created new identity: ${this.identity.did} (saved to ${idPath})`,
+		);
 		return this.identity;
 	}
 
