@@ -9,6 +9,7 @@ import {
 	validateBlockLimits,
 	validateTransaction,
 	applyTransaction,
+	DelegationRegistry,
 } from "@ensoul/ledger";
 import type { GenesisConfig, Transaction, Block } from "@ensoul/ledger";
 import type { ChainNodeConfig } from "./types.js";
@@ -56,6 +57,7 @@ export class NodeBlockProducer {
 	private validatorDids: string[] = [];
 	private genesisConfig: GenesisConfig;
 	private store: BlockStore | null;
+	private delegations: DelegationRegistry;
 
 	/** Callback invoked when a new block is produced. */
 	onBlock: ((block: Block) => void) | null = null;
@@ -82,6 +84,7 @@ export class NodeBlockProducer {
 			new Mempool(), // internal mempool (we bypass it)
 			genesisConfig,
 		);
+		this.delegations = new DelegationRegistry();
 		this.watchdog = new ConsensusWatchdog(this.config.blockTimeMs);
 		this.adaptiveTime = new AdaptiveBlockTime(
 			this.config.blockTimeMs,
@@ -168,6 +171,7 @@ export class NodeBlockProducer {
 	 */
 	initGenesis(validatorDids: string[]): Block {
 		this.validatorDids = [...validatorDids];
+		this.ledger.setDelegationRegistry(this.delegations);
 		return this.ledger.initGenesis();
 	}
 
@@ -180,14 +184,15 @@ export class NodeBlockProducer {
 	}
 
 	/**
-	 * Get the list of validators with stake >= minimumStake and not unstaking.
+	 * Get the list of validators with totalStakeWeight >= minimumStake and not unstaking.
 	 */
 	getEligibleValidators(): string[] {
 		return this.validatorDids.filter((did) => {
 			const account = this.state.getAccount(did);
 			// Exclude validators that are unstaking (in cooldown)
 			if (account.unstakingBalance > 0n) return false;
-			return account.stakedBalance >= this.config.minimumStake;
+			const totalWeight = this.delegations.getTotalStakeWeight(did, account.stakedBalance);
+			return totalWeight >= this.config.minimumStake;
 		});
 	}
 
@@ -200,10 +205,13 @@ export class NodeBlockProducer {
 		const eligible = this.getEligibleValidators();
 		if (eligible.length === 0) return null;
 
-		// Build a weighted list based on staked balance
+		// Build a weighted list based on total stake weight (own + delegated)
 		const stakes = eligible.map((did) => ({
 			did,
-			stake: this.state.getAccount(did).stakedBalance,
+			stake: this.delegations.getTotalStakeWeight(
+				did,
+				this.state.getAccount(did).stakedBalance,
+			),
 		}));
 
 		const totalStake = stakes.reduce((sum, s) => sum + s.stake, 0n);
@@ -325,9 +333,16 @@ export class NodeBlockProducer {
 		).chain;
 		chain.push(block);
 
-		// Apply transactions to state (includes block_reward tx)
+		// Apply transactions to state (includes block_reward, delegate, etc.)
 		for (const tx of block.transactions) {
-			if (tx.type === "block_reward") {
+			// Handle delegate/undelegate via the delegation registry
+			if (tx.type === "delegate") {
+				applyTransaction(tx, this.state, this.genesisConfig.protocolFees.storageFeeProtocolShare);
+				this.delegations.delegate(tx.from, tx.to, tx.amount);
+			} else if (tx.type === "undelegate") {
+				applyTransaction(tx, this.state, this.genesisConfig.protocolFees.storageFeeProtocolShare);
+				this.delegations.undelegate(tx.from, tx.to, tx.amount);
+			} else if (tx.type === "block_reward") {
 				// Protocol-generated, skip normal validation
 				applyTransaction(
 					tx,
@@ -392,6 +407,11 @@ export class NodeBlockProducer {
 	/** Get the latest block. */
 	getLatestBlock(): Block | null {
 		return this.ledger.getLatestBlock();
+	}
+
+	/** Get the delegation registry. */
+	getDelegations(): DelegationRegistry {
+		return this.delegations;
 	}
 
 	/** Get the validator list. */

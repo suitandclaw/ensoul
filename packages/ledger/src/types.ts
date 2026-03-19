@@ -9,6 +9,8 @@ export type TransactionType =
 	| "reward_claim"
 	| "block_reward"
 	| "genesis_allocation"
+	| "delegate"
+	| "undelegate"
 	| "slash"
 	| "burn";
 
@@ -46,6 +48,8 @@ export interface Account {
 	unstakingBalance: bigint;
 	unstakingCompleteAt: number;
 	stakeLockedUntil: number;
+	delegatedBalance: bigint;
+	pendingRewards: bigint;
 	nonce: number;
 	storageCredits: bigint;
 	lastActivity: number;

@@ -14,6 +14,7 @@ import {
 import { buildGenesisTransactions } from "./genesis.js";
 import { AccountState } from "./accounts.js";
 import { Mempool } from "./mempool.js";
+import type { DelegationRegistry } from "./delegations.js";
 
 const ENC = new TextEncoder();
 
@@ -80,6 +81,7 @@ export class BlockProducer {
 	private chain: Block[] = [];
 	private config: GenesisConfig;
 	private totalEmitted = 0n;
+	private delegations: DelegationRegistry | null = null;
 
 	constructor(
 		state: AccountState,
@@ -165,8 +167,30 @@ export class BlockProducer {
 			const poolBalance = this.state.getBalance(REWARDS_POOL);
 			if (poolBalance >= reward) {
 				this.state.debit(REWARDS_POOL, reward);
-				this.state.credit(proposer, reward);
 				this.totalEmitted += reward;
+
+				// Split reward: if delegations exist, distribute proportionally
+				if (this.delegations) {
+					const ownStake = this.state.getAccount(proposer).stakedBalance;
+					const splits = this.delegations.computeRewardSplit(
+						proposer,
+						ownStake,
+						reward,
+					);
+					// Credit proposer's share directly
+					const proposerShare = splits.get(proposer) ?? reward;
+					this.state.credit(proposer, proposerShare);
+
+					// Accrue delegator rewards as pending (claimed via reward_claim)
+					for (const [did, share] of splits) {
+						if (did !== proposer && share > 0n) {
+							this.state.addPendingRewards(did, share);
+						}
+					}
+				} else {
+					// No delegation registry: full reward to proposer
+					this.state.credit(proposer, reward);
+				}
 
 				// Include reward as a visible transaction in the block
 				const rewardTx: Transaction = {
@@ -283,6 +307,20 @@ export class BlockProducer {
 	 */
 	getState(): AccountState {
 		return this.state;
+	}
+
+	/**
+	 * Set the delegation registry for reward splitting.
+	 */
+	setDelegationRegistry(registry: DelegationRegistry): void {
+		this.delegations = registry;
+	}
+
+	/**
+	 * Get the delegation registry.
+	 */
+	getDelegationRegistry(): DelegationRegistry | null {
+		return this.delegations;
 	}
 
 	/**

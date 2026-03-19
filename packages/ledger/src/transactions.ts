@@ -155,8 +155,29 @@ export function validateTransaction(
 			// just triggers the distribution. Amount should be 0.
 			break;
 		}
+		case "delegate": {
+			if (sender.balance < tx.amount) {
+				return {
+					valid: false,
+					error: "Insufficient balance to delegate",
+				};
+			}
+			if (tx.from === tx.to) {
+				return { valid: false, error: "Cannot delegate to self" };
+			}
+			break;
+		}
+		case "undelegate": {
+			if (sender.delegatedBalance < tx.amount) {
+				return {
+					valid: false,
+					error: "Insufficient delegated balance",
+				};
+			}
+			break;
+		}
 		case "slash": {
-			// Only protocol can slash — from must be protocol treasury
+			// Only protocol can slash -- from must be protocol treasury
 			if (tx.from !== PROTOCOL_TREASURY) {
 				return {
 					valid: false,
@@ -243,6 +264,14 @@ export function applyTransaction(
 			if (tx.data && new TextDecoder().decode(tx.data) === "stake") {
 				state.stake(tx.to, tx.amount);
 			}
+			break;
+		}
+		case "delegate": {
+			state.delegateTokens(tx.from, tx.amount);
+			break;
+		}
+		case "undelegate": {
+			state.undelegateTokens(tx.from, tx.amount);
 			break;
 		}
 		case "slash": {

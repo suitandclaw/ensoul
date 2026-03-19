@@ -21,6 +21,8 @@ export class AccountState {
 				unstakingBalance: 0n,
 				unstakingCompleteAt: 0,
 				stakeLockedUntil: 0,
+				delegatedBalance: 0n,
+				pendingRewards: 0n,
 				nonce: 0,
 				storageCredits: 0n,
 				lastActivity: 0,
@@ -158,6 +160,61 @@ export class AccountState {
 	}
 
 	/**
+	 * Delegate tokens: deduct from available balance, add to delegatedBalance.
+	 */
+	delegateTokens(did: string, amount: bigint): void {
+		const acc = this.getAccount(did);
+		if (acc.balance < amount) {
+			throw new Error(
+				`Insufficient balance to delegate: ${acc.balance} < ${amount}`,
+			);
+		}
+		acc.balance -= amount;
+		acc.delegatedBalance += amount;
+		acc.lastActivity = Date.now();
+		this.accounts.set(did, acc);
+	}
+
+	/**
+	 * Begin undelegation: move tokens from delegatedBalance to unstaking with cooldown.
+	 */
+	undelegateTokens(did: string, amount: bigint, cooldownDurationSec = 604800): void {
+		const acc = this.getAccount(did);
+		if (acc.delegatedBalance < amount) {
+			throw new Error(
+				`Insufficient delegated balance: ${acc.delegatedBalance} < ${amount}`,
+			);
+		}
+		acc.delegatedBalance -= amount;
+		acc.unstakingBalance += amount;
+		acc.unstakingCompleteAt = Math.floor(Date.now() / 1000) + cooldownDurationSec;
+		acc.lastActivity = Date.now();
+		this.accounts.set(did, acc);
+	}
+
+	/**
+	 * Add pending rewards (accrued from delegation or block production).
+	 */
+	addPendingRewards(did: string, amount: bigint): void {
+		const acc = this.getAccount(did);
+		acc.pendingRewards += amount;
+		this.accounts.set(did, acc);
+	}
+
+	/**
+	 * Claim pending rewards: move from pendingRewards to balance.
+	 */
+	claimRewards(did: string): bigint {
+		const acc = this.getAccount(did);
+		const claimed = acc.pendingRewards;
+		acc.balance += claimed;
+		acc.pendingRewards = 0n;
+		acc.lastActivity = Date.now();
+		this.accounts.set(did, acc);
+		return claimed;
+	}
+
+	/**
 	 * Check if a validator is currently unstaking (in cooldown).
 	 */
 	isUnstaking(did: string): boolean {
@@ -216,6 +273,8 @@ export class AccountState {
 					acc.balance.toString(),
 					acc.stakedBalance.toString(),
 					acc.unstakingBalance.toString(),
+					acc.delegatedBalance.toString(),
+					acc.pendingRewards.toString(),
 					acc.nonce,
 					acc.storageCredits.toString(),
 				]),
