@@ -46,6 +46,9 @@ const peerUrls = (networkPeersArg ?? networkPeersEnv ?? "")
 	.split(",")
 	.map((s) => s.trim())
 	.filter(Boolean);
+const validatorCountOverride = process.env["ENSOUL_VALIDATOR_COUNT"]
+	? Number(process.env["ENSOUL_VALIDATOR_COUNT"])
+	: null;
 
 // ── Types for peer responses ─────────────────────────────────────────
 
@@ -169,7 +172,7 @@ class NetworkDataSource implements ExplorerDataSource {
 
 		return {
 			blockHeight: height,
-			validatorCount: uniqueDids.size,
+			validatorCount: validatorCountOverride ?? uniqueDids.size,
 			totalAgents: 0,
 			totalConsciousnessBytes: 0,
 			totalTransactions: 0,
