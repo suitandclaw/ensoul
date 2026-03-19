@@ -193,16 +193,26 @@
 <script>
 (function(){
 	var API="https://api.ensoul.dev";
+	var VALIDATOR_COUNT=35;
 	function fmt(n){if(n>=1e9)return(n/1e9).toFixed(1)+"B";if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1e3)return(n/1e3).toFixed(1)+"K";return String(n);}
-	function update(){
-		fetch(API+"/v1/network/status").then(function(r){return r.json()}).then(function(d){
-			var el;
-			el=document.getElementById("stat-height");if(el)el.textContent=fmt(d.blockHeight||0);
-			el=document.getElementById("stat-validators");if(el&&d.validatorCount)el.textContent=fmt(d.validatorCount);
-			el=document.getElementById("stat-agents");if(el)el.textContent=fmt(d.agentCount||0);
-			el=document.getElementById("stat-staked");if(el)el.textContent=fmt(d.totalStaked||150000000);
-		}).catch(function(){});
+	function set(id,val){var el=document.getElementById(id);if(el)el.textContent=val;}
+	function showError(){
+		set("stat-height","---");
+		set("stat-agents","---");
+		set("stat-staked","---");
 	}
+	function update(){
+		fetch(API+"/v1/network/status",{mode:"cors"})
+			.then(function(r){if(!r.ok)throw new Error(r.status);return r.json()})
+			.then(function(d){
+				set("stat-height",fmt(d.blockHeight||0));
+				set("stat-validators",String(VALIDATOR_COUNT));
+				set("stat-agents",fmt(d.agentCount||d.totalConsciousnessStored||0));
+				set("stat-staked",fmt(150000000));
+			})
+			.catch(function(){showError();});
+	}
+	set("stat-validators",String(VALIDATOR_COUNT));
 	update();
 	setInterval(update,30000);
 })();
