@@ -1,0 +1,16 @@
+{
+	"name": "@ensoul/api",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "npx tsx start.ts",
+		"build": "echo 'no build needed'",
+		"lint": "echo 'no lint'"
+	},
+	"dependencies": {
+		"@fastify/cors": "^11.0.0",
+		"@fastify/rate-limit": "^10.3.0",
+		"fastify": "^5.8.2"
+	}
+}

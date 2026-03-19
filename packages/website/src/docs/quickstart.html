@@ -37,23 +37,34 @@
 
 <h2>Step 1: Install the plugin</h2>
 <pre><code>npm install @ensoul-network/plugin-elizaos</code></pre>
-<p>Works with ElizaOS out of the box. For other frameworks, use the core SDK:</p>
-<pre><code>npm install @ensoul/identity @ensoul/state-tree @ensoul/memory @ensoul/network-client</code></pre>
 
 <h2>Step 2: Add to your agent</h2>
 <h3>ElizaOS (character.json)</h3>
-<p>Add the Ensoul plugin to your character's plugin list:</p>
+<p>Add the plugin to your character's plugins array. That is it. No configuration needed. Connects to api.ensoul.dev automatically.</p>
+<pre><code>{
+  "name": "MyAgent",
+  "plugins": ["@ensoul-network/plugin-elizaos"]
+}</code></pre>
+<p>Your agent is now ensouled. On startup it registers with the Ensoul network, stores consciousness on every sync, and includes Ensouled Handshake headers in all outbound requests.</p>
+
+<h3>Custom configuration (optional)</h3>
+<p>Override defaults if needed:</p>
 <pre><code>{
   "name": "MyAgent",
   "plugins": ["@ensoul-network/plugin-elizaos"],
   "settings": {
     "ensoul": {
+      "apiUrl": "https://api.ensoul.dev",
       "autoStore": true,
       "heartbeatInterval": 50,
       "replicationFactor": 3
     }
   }
 }</code></pre>
+
+<h3>Custom framework</h3>
+<p>For non-ElizaOS frameworks, use the core SDK:</p>
+<pre><code>npm install @ensoul/identity @ensoul/state-tree @ensoul/memory @ensoul/network-client</code></pre>
 
 <h3>Custom framework</h3>
 <pre><code>import { createIdentity } from "@ensoul/identity";

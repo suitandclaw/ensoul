@@ -19,10 +19,20 @@ import {
 } from "./providers.js";
 import { createShouldPersistEvaluator } from "./evaluators.js";
 
+/** Default Ensoul API gateway URL. */
+export const DEFAULT_API_URL = "https://api.ensoul.dev";
+
+function pluginLog(msg: string): void {
+	// Use globalThis to access console without @types/node
+	(globalThis as unknown as { console: { error: (m: string) => void } }).console.error(`[ensoul] ${msg}`);
+}
+
 /**
  * Configuration for the Ensoul consciousness plugin.
  */
 export interface EnsoulPluginConfig {
+	/** Ensoul API gateway URL (default: https://api.ensoul.dev). */
+	apiUrl?: string;
 	/** Bootstrap peer multiaddr(s) to connect to. */
 	bootstrapPeers?: string[];
 	/** Optional pre-created identity (otherwise auto-generated). */
@@ -41,6 +51,8 @@ export interface EnsoulPluginConfig {
 export async function createConsciousnessPlugin(
 	config?: EnsoulPluginConfig,
 ): Promise<ElizaPlugin> {
+	const apiUrl = config?.apiUrl ?? DEFAULT_API_URL;
+
 	// Auto-generate identity if not provided
 	const identity = config?.identity ?? (await createIdentity());
 
@@ -56,6 +68,27 @@ export async function createConsciousnessPlugin(
 	const peers = config?.bootstrapPeers ?? [];
 	if (peers.length > 0) {
 		await networkClient.connect(peers);
+	}
+
+	// Register agent with the Ensoul API gateway
+	try {
+		const resp = await fetch(`${apiUrl}/v1/agents/register`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				did: identity.did,
+				publicKey: Array.from(identity.publicKey)
+					.map((b) => b.toString(16).padStart(2, "0"))
+					.join(""),
+			}),
+			signal: AbortSignal.timeout(10000),
+		});
+		if (resp.ok) {
+			pluginLog(`Connected to Ensoul network via ${apiUrl}`);
+			pluginLog(`Agent registered: ${identity.did}`);
+		}
+	} catch {
+		pluginLog(`Warning: could not reach ${apiUrl}. Running in offline mode.`);
 	}
 
 	// Create memory manager
