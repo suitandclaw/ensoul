@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import type { GossipNetwork } from "./gossip.js";
 import type { SerializedBlock } from "./types.js";
+import { SeedClient } from "./seed-node.js";
 
 /**
  * HTTP-based peer network for validator-to-validator communication.
@@ -52,6 +53,7 @@ export class PeerNetwork {
 	private peers: Map<string, PeerInfo> = new Map();
 	private myDid: string;
 	private pollTimer: ReturnType<typeof setInterval> | null = null;
+	private seedClient: SeedClient | null = null;
 	private log: (msg: string) => void;
 
 	constructor(
@@ -190,9 +192,70 @@ export class PeerNetwork {
 	}
 
 	/**
-	 * Stop the peer network (server + polling).
+	 * Register with a seed node, discover peers, and connect to them.
+	 * Returns the number of peers connected via the seed.
+	 */
+	async registerWithSeed(
+		seedUrl: string,
+		myPublicUrl: string,
+	): Promise<number> {
+		this.seedClient = new SeedClient(
+			seedUrl,
+			myPublicUrl,
+			this.myDid,
+			() => this.gossip.getProducer().getHeight(),
+			this.log,
+		);
+
+		// When the seed discovers new peers we have not seen, connect to them
+		this.seedClient.setOnPeersDiscovered((urls) => {
+			for (const url of urls) {
+				if (!this.peers.has(url)) {
+					void this.addPeer(url);
+				}
+			}
+		});
+
+		const peerUrls = await this.seedClient.start();
+
+		// Connect to all discovered peers
+		let connected = 0;
+		for (const url of peerUrls) {
+			const ok = await this.addPeer(url);
+			if (ok) connected++;
+		}
+
+		// Sync from best peer after initial discovery
+		if (connected > 0) {
+			await this.syncFromBestPeer();
+		}
+
+		// Wire gossip broadcast if not already wired
+		if (!this.gossip.onBroadcastBlock) {
+			this.gossip.onBroadcastBlock = (block) => {
+				void this.broadcastBlock(block);
+			};
+		}
+
+		// Start polling if not already started
+		if (!this.pollTimer) {
+			this.pollTimer = setInterval(() => {
+				void this.pollPeers();
+			}, 6000);
+		}
+
+		this.log(`Seed: discovered ${peerUrls.length} peers, connected to ${connected}`);
+		return connected;
+	}
+
+	/**
+	 * Stop the peer network (server + polling + seed client).
 	 */
 	async stop(): Promise<void> {
+		if (this.seedClient) {
+			this.seedClient.stop();
+			this.seedClient = null;
+		}
 		if (this.pollTimer) {
 			clearInterval(this.pollTimer);
 			this.pollTimer = null;
@@ -267,6 +330,27 @@ export class PeerNetwork {
 			}
 		});
 		await Promise.allSettled(promises);
+	}
+
+	/**
+	 * Add a single peer by URL.
+	 */
+	private async addPeer(url: string): Promise<boolean> {
+		if (this.peers.has(url)) return true;
+		try {
+			const resp = await fetch(`${url}/peer/status`);
+			if (!resp.ok) return false;
+			const status = (await resp.json()) as PeerStatus;
+			this.peers.set(url, {
+				address: url,
+				height: status.height,
+				lastSeen: Date.now(),
+			});
+			this.log(`Connected to peer ${url} (height: ${status.height})`);
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	/**

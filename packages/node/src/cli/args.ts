@@ -7,6 +7,8 @@ export interface CliArgs {
 	storageGB: number;
 	bootstrapPeers: string[];
 	peers: string[];
+	seed: string;
+	publicUrl: string;
 	storeConsciousness: string | null;
 	port: number;
 	apiPort: number;
@@ -14,6 +16,9 @@ export interface CliArgs {
 	install: boolean;
 	uninstall: boolean;
 }
+
+/** Default seed node URL. */
+export const DEFAULT_SEED_URL = "https://seed.ensoul.dev";
 
 const DEFAULT_DATA_DIR = "~/.ensoul";
 const DEFAULT_STORAGE_GB = 10;
@@ -40,6 +45,8 @@ export function parseArgs(argv: string[]): CliArgs {
 		storageGB: DEFAULT_STORAGE_GB,
 		bootstrapPeers: [],
 		peers: [],
+		seed: DEFAULT_SEED_URL,
+		publicUrl: "",
 		storeConsciousness: null,
 		port: DEFAULT_PORT,
 		apiPort: DEFAULT_API_PORT,
@@ -71,6 +78,10 @@ export function parseArgs(argv: string[]): CliArgs {
 			args.apiPort = Number(argv[++i]);
 		} else if (arg === "--peers" && argv[i + 1]) {
 			args.peers = argv[++i]!.split(",").map((s) => s.trim()).filter(Boolean);
+		} else if (arg === "--seed" && argv[i + 1]) {
+			args.seed = argv[++i]!;
+		} else if (arg === "--public-url" && argv[i + 1]) {
+			args.publicUrl = argv[++i]!;
 		} else if (arg === "--install") {
 			args.install = true;
 		} else if (arg === "uninstall" || arg === "--uninstall") {
@@ -115,6 +126,8 @@ OPTIONS:
   --data-dir <path>         Data directory (default: ~/.ensoul)
   --storage <GB>            Storage allocation in GB (default: 10)
   --peers <addrs>           Comma-separated peer addresses (host:port)
+  --seed <url>              Seed node URL (default: https://seed.ensoul.dev)
+  --public-url <url>        This validator's public URL for seed registration
   --bootstrap <multiaddr>   Bootstrap peer (can specify multiple)
   --store-consciousness <path>  Store local consciousness while validating
   --port <port>             P2P port (default: 9000)

@@ -4,6 +4,8 @@ export { BlockSync } from "./sync.js";
 export { GossipNetwork } from "./gossip.js";
 export { PeerNetwork, parsePeerAddresses } from "./peer-network.js";
 export type { PeerInfo, PeerStatus } from "./peer-network.js";
+export { SeedNode, SeedClient } from "./seed-node.js";
+export type { RegisteredValidator, RegisterRequest } from "./seed-node.js";
 export {
 	serializeBlock,
 	deserializeBlock,
