@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+#
+# start-all.sh - Master startup script for the Ensoul network on MacBook Pro.
+#
+# Starts all services in dependency order:
+#   1. Cloudflared tunnel
+#   2. Validator (port 9000)
+#   3. Explorer (port 3000)
+#   4. Monitor (port 4000)
+#   5. Twitter Agent
+#
+# Usage:
+#   ./scripts/start-all.sh            # start everything
+#   ./scripts/start-all.sh stop       # stop everything
+#   ./scripts/start-all.sh status     # check all services
+#   ./scripts/start-all.sh restart    # stop then start
+#
+
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LOG_DIR="$HOME/.ensoul"
+AGENT_DIR="$HOME/ensoul-agent"
+PIDFILE="$LOG_DIR/pids.json"
+
+# Peer URLs for the Mac Mini validators
+export ENSOUL_PEERS="https://v1.ensoul.dev,https://v2.ensoul.dev,https://v3.ensoul.dev"
+export ENSOUL_VALIDATOR_COUNT=35
+
+mkdir -p "$LOG_DIR"
+
+# ── Helpers ───────────────────────────────────────────────────────────
+
+log() { echo "[$(date +%H:%M:%S)] $1"; }
+
+save_pid() {
+	local name="$1" pid="$2"
+	local tmp
+	tmp=$(mktemp)
+	if [ -f "$PIDFILE" ]; then
+		python3 -c "
+import json,sys
+d = json.load(open('$PIDFILE'))
+d['$name'] = $pid
+json.dump(d, open('$tmp','w'))
+" 2>/dev/null || echo "{\"$name\": $pid}" > "$tmp"
+	else
+		echo "{\"$name\": $pid}" > "$tmp"
+	fi
+	mv "$tmp" "$PIDFILE"
+}
+
+get_pid() {
+	local name="$1"
+	if [ -f "$PIDFILE" ]; then
+		python3 -c "import json; print(json.load(open('$PIDFILE')).get('$name', 0))" 2>/dev/null || echo 0
+	else
+		echo 0
+	fi
+}
+
+is_alive() {
+	local pid="$1"
+	[ "$pid" != "0" ] && kill -0 "$pid" 2>/dev/null
+}
+
+kill_service() {
+	local name="$1"
+	local pid
+	pid=$(get_pid "$name")
+	if is_alive "$pid"; then
+		kill "$pid" 2>/dev/null || true
+		sleep 1
+		kill -9 "$pid" 2>/dev/null || true
+		log "Stopped $name (pid $pid)"
+	fi
+}
+
+wait_for_port() {
+	local port="$1" timeout="${2:-10}" name="${3:-service}"
+	local elapsed=0
+	while [ $elapsed -lt "$timeout" ]; do
+		if curl -s -o /dev/null "http://localhost:$port" 2>/dev/null; then
+			return 0
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	log "WARNING: $name on port $port not responding after ${timeout}s"
+	return 1
+}
+
+# ── Stop ──────────────────────────────────────────────────────────────
+
+do_stop() {
+	log "Stopping all services..."
+	kill_service "agent"
+	kill_service "monitor"
+	kill_service "explorer"
+	kill_service "validator"
+	kill_service "tunnel"
+	# Also kill by port as fallback
+	for port in 9000 3000 4000; do
+		lsof -ti ":$port" 2>/dev/null | xargs kill 2>/dev/null || true
+	done
+	log "All services stopped."
+}
+
+# ── Status ────────────────────────────────────────────────────────────
+
+do_status() {
+	echo ""
+	echo "  Service          PID        Port    Status"
+	echo "  -------          ---        ----    ------"
+	for name in tunnel validator explorer monitor agent; do
+		local pid
+		pid=$(get_pid "$name")
+		local port="-"
+		case "$name" in
+			tunnel) port="443" ;;
+			validator) port="9000" ;;
+			explorer) port="3000" ;;
+			monitor) port="4000" ;;
+			agent) port="-" ;;
+		esac
+		if is_alive "$pid"; then
+			echo "  $name$(printf '%*s' $((18 - ${#name})) '')$pid$(printf '%*s' $((11 - ${#pid})) '')$port$(printf '%*s' $((8 - ${#port})) '')running"
+		else
+			echo "  $name$(printf '%*s' $((18 - ${#name})) '')-$(printf '%*s' 10 '')$port$(printf '%*s' $((8 - ${#port})) '')stopped"
+		fi
+	done
+	echo ""
+}
+
+# ── Start ─────────────────────────────────────────────────────────────
+
+do_start() {
+	log "Starting Ensoul network services..."
+	echo ""
+
+	# 1. Cloudflared tunnel
+	log "Starting tunnel (cloudflared)..."
+	if command -v cloudflared >/dev/null 2>&1; then
+		cloudflared tunnel run ensoul \
+			>"$LOG_DIR/tunnel.log" 2>&1 &
+		save_pid "tunnel" $!
+		log "Tunnel started (pid $!)"
+		sleep 2
+	else
+		log "WARNING: cloudflared not installed, skipping tunnel"
+	fi
+
+	# 2. Validator
+	log "Starting validator on port 9000..."
+	npx tsx "$REPO_DIR/packages/node/src/cli/main.ts" \
+		--validate \
+		--no-min-stake \
+		--port 9000 \
+		--api-port 10000 \
+		--data-dir "$LOG_DIR/validator-0" \
+		--peers "$ENSOUL_PEERS" \
+		>"$LOG_DIR/validator-0.log" 2>&1 &
+	save_pid "validator" $!
+	log "Validator started (pid $!)"
+	wait_for_port 9000 15 "validator" || true
+
+	# 3. Explorer
+	log "Starting explorer on port 3000..."
+	ENSOUL_PEERS="$ENSOUL_PEERS" \
+	ENSOUL_VALIDATOR_COUNT="$ENSOUL_VALIDATOR_COUNT" \
+	npx tsx "$REPO_DIR/packages/explorer/start.ts" \
+		--port 3000 \
+		--network-peers "https://v0.ensoul.dev,$ENSOUL_PEERS" \
+		>"$LOG_DIR/explorer.log" 2>&1 &
+	save_pid "explorer" $!
+	log "Explorer started (pid $!)"
+	wait_for_port 3000 15 "explorer" || true
+
+	# 4. Monitor
+	log "Starting monitor on port 4000..."
+	npx tsx "$REPO_DIR/packages/monitor/start.ts" \
+		--port 4000 \
+		>"$LOG_DIR/monitor.log" 2>&1 &
+	save_pid "monitor" $!
+	log "Monitor started (pid $!)"
+	wait_for_port 4000 10 "monitor" || true
+
+	# 5. Twitter Agent
+	if [ -d "$AGENT_DIR/src" ] && [ -f "$AGENT_DIR/.env" ]; then
+		log "Starting Twitter agent..."
+		cd "$AGENT_DIR" && npx tsx src/agent.ts \
+			>"$LOG_DIR/agent.log" 2>&1 &
+		save_pid "agent" $!
+		cd "$REPO_DIR"
+		log "Agent started (pid $!)"
+	else
+		log "Skipping agent ($AGENT_DIR/.env not found)"
+	fi
+
+	echo ""
+	log "All services started."
+	do_status
+
+	echo "  Logs:"
+	echo "    tail -f $LOG_DIR/validator-0.log"
+	echo "    tail -f $LOG_DIR/explorer.log"
+	echo "    tail -f $LOG_DIR/monitor.log"
+	echo "    tail -f $LOG_DIR/tunnel.log"
+	echo "    tail -f $LOG_DIR/agent.log"
+	echo ""
+	echo "  URLs:"
+	echo "    Explorer:  http://localhost:3000"
+	echo "    Monitor:   http://localhost:4000"
+	echo "    Validator: http://localhost:9000/peer/status"
+	echo ""
+}
+
+# ── Main ──────────────────────────────────────────────────────────────
+
+case "${1:-start}" in
+	start)   do_start ;;
+	stop)    do_stop ;;
+	status)  do_status ;;
+	restart) do_stop; sleep 2; do_start ;;
+	*)       echo "Usage: $0 {start|stop|status|restart}"; exit 1 ;;
+esac
