@@ -458,7 +458,7 @@ async function main(): Promise<void> {
 			}
 			done();
 		});
-		await log("Basic auth enabled (ENSOUL_STATUS_PASSWORD set)");
+		await logAlert("Basic auth enabled (ENSOUL_STATUS_PASSWORD set)");
 	}
 
 	app.get("/", async (_req, reply) => {
