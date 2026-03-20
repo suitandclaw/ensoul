@@ -73,6 +73,28 @@ export class PeerNetwork {
 	async startServer(port: number): Promise<void> {
 		this.server = Fastify({ logger: false });
 
+		// Peer authentication: if ENSOUL_PEER_KEY is set, require it on
+		// mutating endpoints (POST /peer/blocks, POST /peer/tx).
+		// In production, replace with mutual TLS or Ed25519 challenge-response.
+		const peerKey = process.env["ENSOUL_PEER_KEY"] ?? "";
+		if (peerKey) {
+			this.server.addHook("onRequest", (req, reply, done) => {
+				// Read-only endpoints are open
+				if (req.method === "GET") { done(); return; }
+				const provided = req.headers["x-ensoul-peer-key"];
+				if (provided !== peerKey) {
+					void reply.status(403).send({ error: "Invalid peer key" });
+					return;
+				}
+				done();
+			});
+			this.log("Peer authentication enabled (X-Ensoul-Peer-Key required for POST)");
+		}
+
+		// Rate limiting on transaction submission (100 tx/min per IP)
+		let txCountByIp = new Map<string, number>();
+		setInterval(() => { txCountByIp = new Map(); }, 60000);
+
 		// GET /peer/status
 		this.server.get("/peer/status", async () => {
 			return {
@@ -120,12 +142,24 @@ export class PeerNetwork {
 		);
 
 		// POST /peer/tx - accept a signed transaction into the mempool
-		// Verifies Ed25519 signature before accepting
 		this.server.post<{ Body: SerializedTx }>(
 			"/peer/tx",
-			async (req) => {
+			async (req, reply) => {
+				// Rate limiting: 100 tx/min per IP
+				const ip = req.ip;
+				const count = txCountByIp.get(ip) ?? 0;
+				if (count >= 100) {
+					return reply.status(429).send({ accepted: false, error: "Rate limit exceeded (100 tx/min)" });
+				}
+				txCountByIp.set(ip, count + 1);
+
 				try {
-					const tx = deserializeTx(req.body);
+					const body = req.body;
+					// Validate basic structure before deserializing
+					if (!body || !body.type || !body.from || !body.to) {
+						return { accepted: false, error: "Invalid transaction structure" };
+					}
+					const tx = deserializeTx(body);
 					// Validate signature length for user transactions
 					if (tx.type !== "block_reward" && tx.type !== "genesis_allocation") {
 						if (tx.signature.length !== 64) {

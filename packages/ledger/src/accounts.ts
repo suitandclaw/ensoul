@@ -81,16 +81,17 @@ export class AccountState {
 	 * Add to staked balance (deducted from available balance).
 	 * Records lockup start time. lockupDurationSec defaults to 30 days.
 	 */
-	stake(did: string, amount: bigint, lockupDurationSec = 2592000): void {
+	stake(did: string, amount: bigint, lockupDurationSec = 2592000, nowSec?: number): void {
 		const acc = this.getAccount(did);
 		if (acc.balance < amount) {
 			throw new Error(
 				`Insufficient balance to stake: ${acc.balance} < ${amount}`,
 			);
 		}
+		const now = nowSec ?? Math.floor(Date.now() / 1000);
 		acc.balance -= amount;
 		acc.stakedBalance += amount;
-		acc.stakeLockedUntil = Math.floor(Date.now() / 1000) + lockupDurationSec;
+		acc.stakeLockedUntil = now + lockupDurationSec;
 		acc.lastActivity = Date.now();
 		this.accounts.set(did, acc);
 	}
@@ -99,9 +100,9 @@ export class AccountState {
 	 * Check if a validator's stake is locked.
 	 * Returns remaining seconds, or 0 if unlocked.
 	 */
-	getLockupRemaining(did: string): number {
+	getLockupRemaining(did: string, nowSec?: number): number {
 		const acc = this.getAccount(did);
-		const now = Math.floor(Date.now() / 1000);
+		const now = nowSec ?? Math.floor(Date.now() / 1000);
 		if (acc.stakeLockedUntil > now) {
 			return acc.stakeLockedUntil - now;
 		}
@@ -113,7 +114,7 @@ export class AccountState {
 	 * Tokens are unavailable during the cooldown period.
 	 * @throws If lockup period has not expired or insufficient staked balance.
 	 */
-	unstake(did: string, amount: bigint, cooldownDurationSec = 604800): void {
+	unstake(did: string, amount: bigint, cooldownDurationSec = 604800, nowSec?: number): void {
 		const acc = this.getAccount(did);
 		if (acc.stakedBalance < amount) {
 			throw new Error(
@@ -121,8 +122,8 @@ export class AccountState {
 			);
 		}
 
-		// Check lockup
-		const now = Math.floor(Date.now() / 1000);
+		// Check lockup using provided timestamp (block timestamp for determinism)
+		const now = nowSec ?? Math.floor(Date.now() / 1000);
 		if (acc.stakeLockedUntil > now) {
 			const remaining = acc.stakeLockedUntil - now;
 			const days = Math.ceil(remaining / 86400);
@@ -143,11 +144,11 @@ export class AccountState {
 	 * Only works if the cooldown period has expired.
 	 * Returns the amount completed, or 0 if cooldown is still active.
 	 */
-	completeUnstaking(did: string): bigint {
+	completeUnstaking(did: string, nowSec?: number): bigint {
 		const acc = this.getAccount(did);
 		if (acc.unstakingBalance === 0n) return 0n;
 
-		const now = Math.floor(Date.now() / 1000);
+		const now = nowSec ?? Math.floor(Date.now() / 1000);
 		if (acc.unstakingCompleteAt > now) return 0n;
 
 		const completed = acc.unstakingBalance;

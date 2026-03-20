@@ -327,6 +327,18 @@ export class NodeBlockProducer {
 		const result = this.ledger.validateBlock(block);
 		if (!result.valid) return result;
 
+		// Validate that the block's proposer is the expected proposer for this height
+		const expectedProposer = this.selectProposer(block.height);
+		if (expectedProposer !== null && expectedProposer !== block.proposer) {
+			this.log(
+				`Rejected block ${block.height}: proposer ${block.proposer} is not the expected proposer ${expectedProposer}`,
+			);
+			return {
+				valid: false,
+				error: `Wrong proposer: expected ${expectedProposer}, got ${block.proposer}`,
+			};
+		}
+
 		// Push the block into our chain
 		const chain = (
 			this.ledger as unknown as { chain: Block[] }

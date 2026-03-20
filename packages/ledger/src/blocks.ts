@@ -99,6 +99,15 @@ export class BlockProducer {
 	 * transactions. Foundation validator allocations are auto-staked.
 	 */
 	initGenesis(): Block {
+		// Guard: prevent re-application of genesis
+		if (this.chain.length > 0) {
+			throw new Error(
+				"Genesis already applied (height: " +
+					this.chain[this.chain.length - 1]!.height +
+					"), cannot re-initialize",
+			);
+		}
+
 		// Build genesis allocation transactions
 		const genesisTxs = buildGenesisTransactions(this.config);
 

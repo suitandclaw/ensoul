@@ -93,12 +93,11 @@ const consciousnessStore = new Map<string, {
 
 // ── Onboarding key ───────────────────────────────────────────────────
 
-interface OnboardingKey {
-	seed: string;
-	did: string;
-}
-
-let onboardingKey: OnboardingKey | null = null;
+// Onboarding key: loaded from file on each signing, NOT kept in memory.
+// In production, this should use a hardware security module (HSM) or
+// an encrypted keystore with password prompt.
+let onboardingDid: string | null = null;
+let onboardingKeyPath: string | null = null;
 let onboardingNonce = 0;
 const WELCOME_BONUS = 1000n * (10n ** 18n);
 
@@ -106,11 +105,24 @@ async function loadOnboardingKey(): Promise<void> {
 	const keyPath = process.env["ONBOARDING_KEY_PATH"] ?? DEFAULT_ONBOARDING_KEY_PATH;
 	try {
 		const raw = await readFile(keyPath, "utf-8");
-		const data = JSON.parse(raw) as { seed: string; did: string; role: string };
-		onboardingKey = { seed: data.seed, did: data.did };
-		await log(`Loaded onboarding key: ${data.did} (role: ${data.role})`);
+		const data = JSON.parse(raw) as { did: string; role: string };
+		onboardingDid = data.did;
+		onboardingKeyPath = keyPath;
+		await log(`Onboarding key available: ${data.did} (role: ${data.role})`);
 	} catch {
 		await log(`Warning: onboarding key not found at ${keyPath}. Welcome bonus disabled.`);
+	}
+}
+
+/** Load seed from file, use it, then discard. Never kept in memory. */
+async function loadOnboardingSeed(): Promise<string | null> {
+	if (!onboardingKeyPath) return null;
+	try {
+		const raw = await readFile(onboardingKeyPath, "utf-8");
+		const data = JSON.parse(raw) as { seed: string };
+		return data.seed;
+	} catch {
+		return null;
 	}
 }
 
@@ -131,34 +143,39 @@ function bytesToHexLocal(buf: Uint8Array): string {
  * Uses Ed25519 via dynamic import of @noble/ed25519 (available in @ensoul/node deps).
  */
 async function signAndSubmitWelcomeBonus(agentDid: string): Promise<boolean> {
-	if (!onboardingKey) return false;
+	if (!onboardingDid || !onboardingKeyPath) return false;
 
 	try {
 		// Build the transaction payload (same format as @ensoul/ledger encodeTxPayload)
 		const txPayload = JSON.stringify({
 			type: "transfer",
-			from: onboardingKey.did,
+			from: onboardingDid,
 			to: agentDid,
 			amount: WELCOME_BONUS.toString(),
 			nonce: onboardingNonce,
 			timestamp: Date.now(),
 		});
 
-		// Sign with Ed25519
+		// Load seed from file, sign, then discard immediately
+		const seedHex = await loadOnboardingSeed();
+		if (!seedHex) return false;
+
 		const ed = await import("@noble/ed25519");
 		const { sha512 } = await import("@noble/hashes/sha2.js");
 		(ed as unknown as { hashes: { sha512: ((m: Uint8Array) => Uint8Array) | undefined } }).hashes.sha512 = (m: Uint8Array) => sha512(m);
 
-		const seed = hexToBytes(onboardingKey.seed);
+		const seed = hexToBytes(seedHex);
 		const signature = await ed.signAsync(
 			new TextEncoder().encode(txPayload),
 			seed,
 		);
+		// Clear seed from memory
+		seed.fill(0);
 
 		// Build serialized transaction for the peer API
 		const serializedTx = {
 			type: "transfer",
-			from: onboardingKey.did,
+			from: onboardingDid!,
 			to: agentDid,
 			amount: WELCOME_BONUS.toString(),
 			nonce: onboardingNonce,
@@ -528,7 +545,7 @@ async function main(): Promise<void> {
 
 		// Submit welcome bonus transaction on-chain
 		let bonusSubmitted = false;
-		if (onboardingKey) {
+		if (onboardingDid) {
 			bonusSubmitted = await signAndSubmitWelcomeBonus(body.did);
 		}
 

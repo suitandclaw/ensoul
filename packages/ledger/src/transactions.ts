@@ -22,10 +22,15 @@ export function computeTxHash(tx: Transaction): string {
 
 /**
  * Encode a transaction's signable payload.
+ * Includes chainId to prevent cross-chain replay attacks.
  */
-export function encodeTxPayload(tx: Transaction): Uint8Array {
+export function encodeTxPayload(
+	tx: Transaction,
+	chainId = "ensoul-1",
+): Uint8Array {
 	return new TextEncoder().encode(
 		JSON.stringify({
+			chainId,
 			type: tx.type,
 			from: tx.from,
 			to: tx.to,
@@ -108,6 +113,7 @@ export const REWARDS_POOL = "did:ensoul:protocol:rewards";
 export function validateTransaction(
 	tx: Transaction,
 	state: AccountState,
+	nowSec?: number,
 ): { valid: boolean; error?: string } {
 	if (tx.amount < 0n) {
 		return { valid: false, error: "Negative amount" };
@@ -167,10 +173,10 @@ export function validateTransaction(
 					error: "Insufficient staked balance",
 				};
 			}
-			// Check lockup period
-			const nowSec = Math.floor(Date.now() / 1000);
-			if (sender.stakeLockedUntil > nowSec) {
-				const remaining = sender.stakeLockedUntil - nowSec;
+			// Check lockup period using provided timestamp for determinism
+			const lockupNow = nowSec ?? Math.floor(Date.now() / 1000);
+			if (sender.stakeLockedUntil > lockupNow) {
+				const remaining = sender.stakeLockedUntil - lockupNow;
 				const days = Math.ceil(remaining / 86400);
 				return {
 					valid: false,
