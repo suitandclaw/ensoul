@@ -54,6 +54,13 @@ interface AgentRegisterRequest {
 	metadata?: Record<string, string>;
 }
 
+interface ValidatorRegisterRequest {
+	did: string;
+	publicKey: string;
+	name: string;
+	ip?: string;
+}
+
 interface PeerStatus {
 	height: number;
 	peerCount: number;
@@ -82,6 +89,148 @@ async function saveRegisteredAgents(): Promise<void> {
 	const entries = [...registeredAgents.values()];
 	await writeFile(AGENTS_FILE, JSON.stringify(entries, null, 2));
 }
+// ── Validator registration state ─────────────────────────────────────
+
+interface RegisteredValidator {
+	did: string;
+	name: string;
+	publicKey: string;
+	registeredAt: number;
+	delegated: string;
+	lastSeen: number;
+}
+
+const VALIDATORS_FILE = join(LOG_DIR, "registered-validators.json");
+const registeredValidators = new Map<string, RegisteredValidator>();
+
+async function loadRegisteredValidators(): Promise<void> {
+	try {
+		const raw = await readFile(VALIDATORS_FILE, "utf-8");
+		const entries = JSON.parse(raw) as RegisteredValidator[];
+		for (const e of entries) {
+			registeredValidators.set(e.did, e);
+		}
+		await log(`Loaded ${registeredValidators.size} registered validators from disk`);
+	} catch {
+		// File does not exist yet
+	}
+}
+
+async function saveRegisteredValidators(): Promise<void> {
+	const entries = [...registeredValidators.values()];
+	await writeFile(VALIDATORS_FILE, JSON.stringify(entries, null, 2));
+}
+
+// Treasury key: loaded per-sign, same pattern as onboarding key
+const DEFAULT_TREASURY_KEY_PATH = join(REPO_DIR, "genesis-keys", "treasury.json");
+let treasuryDid: string | null = null;
+let treasuryKeyPath: string | null = null;
+let treasuryNonce = 0;
+const FOUNDATION_DELEGATION = 100_000n * (10n ** 18n); // 100,000 ENSL
+const DAILY_VALIDATOR_CAP = 10;
+let dailyValidatorCount = 0;
+let dailyValidatorDate = new Date().toISOString().slice(0, 10);
+
+function checkDailyValidatorCap(): boolean {
+	const today = new Date().toISOString().slice(0, 10);
+	if (today !== dailyValidatorDate) {
+		dailyValidatorDate = today;
+		dailyValidatorCount = 0;
+	}
+	return dailyValidatorCount < DAILY_VALIDATOR_CAP;
+}
+
+async function loadTreasuryKey(): Promise<void> {
+	const keyPath = process.env["TREASURY_KEY_PATH"] ?? DEFAULT_TREASURY_KEY_PATH;
+	try {
+		const raw = await readFile(keyPath, "utf-8");
+		const data = JSON.parse(raw) as { did: string; role: string };
+		treasuryDid = data.did;
+		treasuryKeyPath = keyPath;
+		await log(`Treasury key available: ${data.did} (role: ${data.role})`);
+	} catch {
+		await log(`Warning: treasury key not found at ${keyPath}. Validator delegation disabled.`);
+	}
+}
+
+async function loadTreasurySeed(): Promise<string | null> {
+	if (!treasuryKeyPath) return null;
+	try {
+		const raw = await readFile(treasuryKeyPath, "utf-8");
+		const data = JSON.parse(raw) as { seed: string };
+		return data.seed;
+	} catch {
+		return null;
+	}
+}
+
+async function signAndSubmitDelegation(validatorDid: string): Promise<boolean> {
+	if (!treasuryDid || !treasuryKeyPath) return false;
+
+	try {
+		const txPayload = JSON.stringify({
+			type: "delegate",
+			from: treasuryDid,
+			to: validatorDid,
+			amount: FOUNDATION_DELEGATION.toString(),
+			nonce: treasuryNonce,
+			timestamp: Date.now(),
+		});
+
+		const seedHex = await loadTreasurySeed();
+		if (!seedHex) return false;
+
+		const ed = await import("@noble/ed25519");
+		const { sha512 } = await import("@noble/hashes/sha2.js");
+		(ed as unknown as { hashes: { sha512: ((m: Uint8Array) => Uint8Array) | undefined } }).hashes.sha512 = (m: Uint8Array) => sha512(m);
+
+		const seed = hexToBytes(seedHex);
+		const signature = await ed.signAsync(
+			new TextEncoder().encode(txPayload),
+			seed,
+		);
+		seed.fill(0);
+
+		const serializedTx = {
+			type: "delegate",
+			from: treasuryDid!,
+			to: validatorDid,
+			amount: FOUNDATION_DELEGATION.toString(),
+			nonce: treasuryNonce,
+			timestamp: Date.now(),
+			signature: bytesToHexLocal(signature),
+		};
+
+		for (const url of VALIDATORS) {
+			try {
+				const resp = await fetch(`${url}/peer/tx`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(serializedTx),
+					signal: AbortSignal.timeout(5000),
+				});
+				if (resp.ok) {
+					const result = (await resp.json()) as { accepted: boolean };
+					if (result.accepted) {
+						treasuryNonce++;
+						await log(`Foundation delegation submitted: 100,000 ENSL to ${validatorDid}`);
+						return true;
+					}
+				}
+			} catch {
+				continue;
+			}
+		}
+
+		await log(`Foundation delegation failed: no validator accepted the transaction for ${validatorDid}`);
+		return false;
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		await log(`Foundation delegation error: ${msg}`);
+		return false;
+	}
+}
+
 // In-memory consciousness store (indexed by DID)
 const consciousnessStore = new Map<string, {
 	did: string;
@@ -323,7 +472,9 @@ function incrementDailyBonus(): void {
 async function main(): Promise<void> {
 	await mkdir(LOG_DIR, { recursive: true });
 	await loadRegisteredAgents();
+	await loadRegisteredValidators();
 	await loadOnboardingKey();
+	await loadTreasuryKey();
 
 	const app = Fastify({ logger: false, bodyLimit: 1048576 }); // 1MB default
 
@@ -713,6 +864,104 @@ async function main(): Promise<void> {
 		return { total: agents.length, agents };
 	});
 
+	// ── Validator Registration ───────────────────────────────────
+
+	app.post<{ Body: ValidatorRegisterRequest }>("/v1/validators/register", { bodyLimit: 10240 }, async (req, reply) => {
+		const body = req.body;
+		if (!body.did || !body.publicKey || !body.name) {
+			return reply.status(400).send({ error: "did, publicKey, and name are required" });
+		}
+
+		// Check if already registered
+		const existing = registeredValidators.get(body.did);
+		if (existing) {
+			return {
+				registered: true,
+				did: body.did,
+				name: existing.name,
+				delegated: existing.delegated,
+				message: "Validator already registered",
+				registeredAt: new Date(existing.registeredAt).toISOString(),
+			};
+		}
+
+		// Check daily cap
+		if (!checkDailyValidatorCap()) {
+			// Still register but no delegation
+			const entry: RegisteredValidator = {
+				did: body.did,
+				name: body.name,
+				publicKey: body.publicKey,
+				registeredAt: Date.now(),
+				delegated: "0",
+				lastSeen: Date.now(),
+			};
+			registeredValidators.set(body.did, entry);
+			await saveRegisteredValidators();
+			await log(`Validator registered (daily cap hit): ${body.name} (${body.did})`);
+			return {
+				registered: true,
+				did: body.did,
+				delegated: "0",
+				minimumStake: "100,000 ENSL",
+				message: "Daily delegation cap reached. Registered without delegation. Try again tomorrow or self-stake.",
+			};
+		}
+
+		// Check if DID already has enough stake
+		let currentStake = 0n;
+		for (const url of VALIDATORS) {
+			try {
+				const resp = await fetch(
+					`${url}/peer/account/${encodeURIComponent(body.did)}`,
+					{ signal: AbortSignal.timeout(5000) },
+				);
+				if (!resp.ok) continue;
+				const data = (await resp.json()) as { staked: string; balance: string };
+				currentStake = BigInt(data.staked) + BigInt(data.balance);
+				break;
+			} catch { continue; }
+		}
+
+		const minimumStake = 100_000n * (10n ** 18n);
+		let delegated = false;
+		let delegatedAmount = "0";
+
+		if (currentStake < minimumStake && treasuryDid) {
+			delegated = await signAndSubmitDelegation(body.did);
+			if (delegated) {
+				dailyValidatorCount++;
+				delegatedAmount = "100,000 ENSL";
+			}
+		} else if (currentStake >= minimumStake) {
+			delegatedAmount = "not needed (sufficient stake)";
+		}
+
+		const entry: RegisteredValidator = {
+			did: body.did,
+			name: body.name,
+			publicKey: body.publicKey,
+			registeredAt: Date.now(),
+			delegated: delegatedAmount,
+			lastSeen: Date.now(),
+		};
+		registeredValidators.set(body.did, entry);
+		await saveRegisteredValidators();
+		await log(`Validator registered: ${body.name} (${body.did}) delegated=${delegatedAmount}`);
+
+		return {
+			registered: true,
+			did: body.did,
+			delegated: delegatedAmount,
+			minimumStake: "100,000 ENSL",
+			message: delegated
+				? "Foundation delegation active. Maintain 90%+ uptime to keep it."
+				: currentStake >= minimumStake
+					? "Sufficient stake detected. No delegation needed."
+					: "Registered. Foundation delegation could not be sent. Self-stake to begin producing blocks.",
+		};
+	});
+
 	// ── Start ────────────────────────────────────────────────────
 
 	await app.listen({ port, host: "0.0.0.0" });
@@ -732,6 +981,7 @@ async function main(): Promise<void> {
 	process.stdout.write(`    POST /v1/handshake/verify\n`);
 	process.stdout.write(`    POST /v1/agents/register\n`);
 	process.stdout.write(`    GET  /v1/agents/list\n`);
+	process.stdout.write(`    POST /v1/validators/register\n`);
 	process.stdout.write(`\n  Backend validators: ${VALIDATORS.length} (${net.alive} alive)\n`);
 	process.stdout.write(`  Block height: ${net.height}\n\n`);
 

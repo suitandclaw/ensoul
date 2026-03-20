@@ -226,6 +226,7 @@ do_start() {
 	# 5. API Gateway
 	log "Starting API gateway on port 5050..."
 	ONBOARDING_KEY_PATH="$REPO_DIR/genesis-keys/onboarding.json" \
+	TREASURY_KEY_PATH="$REPO_DIR/genesis-keys/treasury.json" \
 	npx tsx "$REPO_DIR/packages/api/start.ts" \
 		--port 5050 \
 		>"$LOG_DIR/api.log" 2>&1 &

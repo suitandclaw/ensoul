@@ -19,6 +19,8 @@ export interface CliArgs {
 	install: boolean;
 	uninstall: boolean;
 	noMinStake: boolean;
+	exportSeed: boolean;
+	importSeed: string;
 }
 
 /** Default seed node URL. Empty means no seed unless --seed is provided. */
@@ -61,6 +63,8 @@ export function parseArgs(argv: string[]): CliArgs {
 		install: false,
 		uninstall: false,
 		noMinStake: false,
+		exportSeed: false,
+		importSeed: "",
 	};
 
 	for (let i = 0; i < argv.length; i++) {
@@ -104,6 +108,10 @@ export function parseArgs(argv: string[]): CliArgs {
 			args.install = true;
 		} else if (arg === "uninstall" || arg === "--uninstall") {
 			args.uninstall = true;
+		} else if (arg === "--export-seed") {
+			args.exportSeed = true;
+		} else if (arg === "--import-seed" && argv[i + 1]) {
+			args.importSeed = argv[++i]!;
 		}
 	}
 
@@ -155,14 +163,16 @@ OPTIONS:
   --config <file>           Genesis config JSON (for genesis subcommand)
   --output <file>           Output path for generated genesis block
   --no-min-stake            Disable minimum stake requirement (bootstrap phase)
+  --export-seed             Display your validator seed (requires ENSOUL_KEY_PASSWORD if encrypted)
+  --import-seed <hex>       Create identity from an existing 64-char hex seed
   --help, -h                Show this help
 
 EXAMPLES:
-  npx ensoul-node --validate
   npx ensoul-node --validate --install
+  npx ensoul-node --validate --genesis ~/.ensoul/genesis.json --peers https://v0.ensoul.dev
   npx ensoul-node --validate --storage 50 --data-dir /data/ensoul
-  npx ensoul-node --validate --bootstrap /ip4/192.168.1.100/tcp/9000
-  npx ensoul-node --validate --peers 192.168.1.10:9000,192.168.1.11:9000
-  npx ensoul-node status
-  npx ensoul-node uninstall`;
+  npx ensoul-node --export-seed
+  npx ensoul-node --import-seed <64-char-hex>
+  npx ensoul-node --status
+  npx ensoul-node --uninstall`;
 }

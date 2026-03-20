@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Run a Validator  - Ensoul Docs</title>
-<meta name="description" content="One command to run an Ensoul validator. Earn $ENSL by securing the network.">
+<title>Run a Validator - Ensoul Docs</title>
+<meta name="description" content="Five steps to run an Ensoul validator. Earn ENSL by securing the network.">
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -33,73 +33,89 @@
 
 <main class="docs-content">
 <h1>Run a validator</h1>
-<p class="lead">One command. Earn $ENSL by storing agent consciousness and producing blocks.</p>
+<p class="lead">Five steps. One command installs everything. Earn ENSL by storing agent consciousness and producing blocks.</p>
+
+<h2>What you earn</h2>
+<ul>
+	<li><strong>Block rewards:</strong> ~19 ENSL per block you propose</li>
+	<li><strong>With 35 validators:</strong> ~7,800 ENSL/day per validator</li>
+	<li><strong>Delegation commission:</strong> 10% on ENSL delegated to you by other users</li>
+	<li><strong>Storage credits:</strong> earned automatically from staking (10,000 ENSL = 1 MB/month)</li>
+</ul>
+
+<h2>Requirements</h2>
+<ul>
+	<li>Mac with Node.js 22+ (Apple Silicon recommended)</li>
+	<li>Always-on power (no battery operation)</li>
+	<li>Stable internet connection</li>
+	<li>The <code>--install</code> flag prevents sleep and auto-starts on boot</li>
+</ul>
 
 <h2>Quick start</h2>
-<pre><code>npx ensoul-node --validate</code></pre>
-<p>That's it. Your node will:</p>
-<ol>
-	<li>Generate a unique Ed25519 validator identity</li>
-	<li>Connect to bootstrap peers on the Ensoul network</li>
-	<li>Begin storing consciousness shards from agents</li>
-	<li>Participate in round-robin block production</li>
-	<li>Earn block rewards + storage fees in $ENSL</li>
-</ol>
 
-<h2>Configuration</h2>
-<pre><code># Custom data directory and port
-npx ensoul-node --validate --data-dir /data/ensoul --port 9000
+<h3>Step 1: Clone and build</h3>
+<pre><code>git clone https://github.com/suitandclaw/ensoul.git
+cd ensoul && pnpm install && pnpm build</code></pre>
 
-# Allocate more storage (default: 10 GB)
-npx ensoul-node --validate --storage 50
+<h3>Step 2: Start your validator</h3>
+<pre><code>npx ensoul-node --validate \
+  --genesis ~/.ensoul/genesis.json \
+  --peers https://v0.ensoul.dev,https://v1.ensoul.dev \
+  --install</code></pre>
+<p>The <code>--install</code> flag sets up a background service. You can close your terminal after this.</p>
 
-# Custom bootstrap peer
-npx ensoul-node --validate --bootstrap /ip4/192.168.1.100/tcp/9000</code></pre>
+<h3>Step 3: Save your seed</h3>
+<p>Your validator displays a 64-character seed on first run. Copy it. Go to <a href="/wallet.html">ensoul.dev/wallet.html</a>, click <strong>Import Wallet</strong>, and paste the seed. This connects your wallet to your validator so you can manage stake and rewards from the browser.</p>
+<p>If you missed it, run:</p>
+<pre><code>npx ensoul-node --export-seed</code></pre>
 
-<h2>What happens under the hood</h2>
-<h3>Block production</h3>
-<p>Validators take turns producing blocks in a deterministic round-robin schedule. At 6-second block times, each validator produces a block every <code>N * 6</code> seconds, where N is the total validator count.</p>
+<h3>Step 4: Register for foundation delegation</h3>
+<pre><code>curl -X POST https://api.ensoul.dev/v1/validators/register \
+  -H "Content-Type: application/json" \
+  -d '{"did":"YOUR_DID","publicKey":"YOUR_PUBKEY","name":"YOUR_NAME"}'</code></pre>
+<p>The first 10 validators per day receive a 100,000 ENSL foundation delegation. That is enough to start producing blocks immediately.</p>
 
-<h3>Storage-for-validation swap</h3>
-<p>Validators store encrypted consciousness shards for agents. In return, agents pay storage fees in $ENSL. Validators also earn block rewards from the network emission schedule (~19 $ENSL/block in year 1).</p>
+<h3>Step 5: Verify</h3>
+<p>Check your balance at <a href="/wallet.html">ensoul.dev/wallet.html</a>. You should see 100,000 ENSL delegated. Confirm your validator is running:</p>
+<pre><code>npx ensoul-node --status</code></pre>
 
-<h3>Proof of storage</h3>
-<p>The network periodically challenges validators to prove they still hold the shards they claim to store. Validators that fail challenges get slashed. This ensures data integrity without trust.</p>
+<h2>Managing your validator</h2>
+<table>
+	<tr><td><strong>Check status</strong></td><td><code>npx ensoul-node --status</code></td></tr>
+	<tr><td><strong>Check rewards</strong></td><td>Visit <a href="/wallet.html">ensoul.dev/wallet.html</a></td></tr>
+	<tr><td><strong>Export seed</strong></td><td><code>npx ensoul-node --export-seed</code></td></tr>
+	<tr><td><strong>View logs</strong></td><td><code>tail -f ~/.ensoul/validator.log</code></td></tr>
+	<tr><td><strong>Stop validator</strong></td><td><code>npx ensoul-node --uninstall</code></td></tr>
+</table>
+<p><strong>Uptime requirement:</strong> Maintain 90%+ uptime over any 7-day window. If uptime drops below 90%, the foundation delegation is withdrawn.</p>
 
-<h2>Multi-validator cluster</h2>
-<p>For production deployments across multiple machines:</p>
-<pre><code># Machine 1: Initialize 10 validators
-ensoul-cluster init --validators 10 --base-port 9000 \
-  --data-dir /data/ensoul --advertise-host 192.168.1.10 \
-  --export-dids dids-machine1.json
-
-# Coordinator: Merge all DIDs into genesis
-ensoul-cluster genesis \
-  --import dids-m1.json,dids-m2.json,dids-m3.json,dids-m4.json \
-  --output genesis.json
-
-# All machines: Start with shared genesis
-ensoul-cluster start --data-dir /data/ensoul --genesis genesis.json</code></pre>
-
-<h2>Check your earnings</h2>
-<pre><code># Node status
-npx ensoul-node status
-
-# Via API
-curl http://localhost:3000/status</code></pre>
-
-<h2>Hardware requirements</h2>
+<h2>The --install flag handles everything</h2>
+<p>When you pass <code>--install</code>, the validator runs as a macOS background service with these properties:</p>
 <ul>
-	<li><strong>CPU:</strong> 2+ cores</li>
-	<li><strong>RAM:</strong> 4 GB minimum</li>
-	<li><strong>Storage:</strong> 10+ GB SSD (configurable via <code>--storage</code>)</li>
-	<li><strong>Network:</strong> Stable connection, port 9000 open</li>
-	<li><strong>OS:</strong> macOS, Linux, or Windows with Node.js 22+</li>
+	<li><strong>Background execution:</strong> Close your terminal, the validator keeps running</li>
+	<li><strong>Sleep prevention:</strong> Uses <code>caffeinate</code> to keep your Mac awake</li>
+	<li><strong>Crash recovery:</strong> Auto-restarts if the process crashes</li>
+	<li><strong>Boot persistence:</strong> Starts automatically when your Mac boots</li>
+	<li><strong>Logs:</strong> <code>tail -f ~/.ensoul/validator.log</code></li>
 </ul>
+<p>Without <code>--install</code>, the validator runs in the foreground and stops when you close the terminal.</p>
+
+<h2>What happens when you go offline</h2>
+<ul>
+	<li><strong>Missed blocks:</strong> You earn no rewards for blocks you miss. Other validators continue producing.</li>
+	<li><strong>Extended downtime:</strong> If your uptime falls below 90% over 7 days, the foundation delegation is withdrawn. You can re-register once you are back online.</li>
+	<li><strong>Your own stake is always yours.</strong> It remains locked during the standard cooldown period but is never slashed for downtime alone.</li>
+</ul>
+
+<h2>Using an existing wallet as your validator identity</h2>
+<p>If you already have an Ensoul wallet, you can use the same keypair for your validator:</p>
+<pre><code>npx ensoul-node --import-seed YOUR_64_CHAR_HEX_SEED</code></pre>
+<p>This creates the validator identity from your wallet seed, so your validator rewards go directly to your existing account.</p>
+
 </main>
 </div>
 
-<footer><div class="container"><p class="tagline">ensoul.dev  - the immortality layer for AI agents</p></div></footer>
+<footer><div class="container"><p class="tagline">ensoul.dev - the immortality layer for AI agents</p></div></footer>
 <script src="/js/config.js"></script>
 </body>
 </html>

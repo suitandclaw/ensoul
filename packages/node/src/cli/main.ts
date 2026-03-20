@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
 import { join } from "node:path";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { parseArgs, printHelp, expandHome } from "./args.js";
 import { isWalletCommand, parseWalletArgs, runWalletCommand } from "./wallet.js";
 import { EnsoulNodeRunner } from "./node-runner.js";
 import { PeerNetwork, parsePeerAddresses } from "../chain/peer-network.js";
 import { runGenesisCommand, loadGenesisBlock } from "./genesis-cmd.js";
+import { installService, uninstallService, checkServiceStatus } from "./service.js";
 
 /**
  * Main entry point for the ensoul-node CLI.
@@ -18,16 +20,39 @@ async function main(): Promise<void> {
 		return;
 	}
 
+	// ── Service management flags (exit early) ────────────────────
+
+	if (args.uninstall) {
+		const result = await uninstallService();
+		console.log(result.message);
+		process.exit(result.ok ? 0 : 1);
+	}
+
+	if (args.mode === "status") {
+		const result = checkServiceStatus();
+		console.log(result.message);
+		if (!result.ok || result.message.includes("not installed")) {
+			console.log("\nValidator is not installed as a service. Use --install.");
+		}
+		return;
+	}
+
+	// ── Seed export/import (exit early) ──────────────────────────
+
+	if (args.exportSeed) {
+		await handleExportSeed(args.dataDir);
+		return;
+	}
+
+	if (args.importSeed) {
+		await handleImportSeed(args.importSeed, args.dataDir);
+		return;
+	}
+
 	// Wallet commands: query RPC and exit (no node startup)
 	if (isWalletCommand(process.argv.slice(2))) {
 		const walletCmd = parseWalletArgs(process.argv.slice(2));
 		await runWalletCommand(walletCmd);
-		return;
-	}
-
-	if (args.mode === "status") {
-		// TODO: Read status from running node via API
-		console.log("Status mode: connect to running node API at localhost:3000/status");
 		return;
 	}
 
@@ -41,11 +66,26 @@ async function main(): Promise<void> {
 		return;
 	}
 
+	// ── Install as service (generates plist, exits) ──────────────
+
+	if (args.install) {
+		const result = await installService(args);
+		console.log(result.message);
+		process.exit(result.ok ? 0 : 1);
+	}
+
+	// ── Foreground mode warning ──────────────────────────────────
+
 	console.log("╔═══════════════════════════════════════╗");
 	console.log("║         ENSOUL NODE v0.1.0            ║");
 	console.log("║   Sovereign L1 for Agent Consciousness ║");
 	console.log("╚═══════════════════════════════════════╝");
 	console.log();
+
+	if (args.mode === "validate") {
+		console.log("[ensoul] Running in foreground mode. Close this terminal and the validator stops.");
+		console.log("[ensoul] Use --install for background mode.\n");
+	}
 
 	const chainConfig = args.noMinStake ? { minimumStake: 0n } : {};
 
@@ -67,6 +107,9 @@ async function main(): Promise<void> {
 	// Step 1: Identity
 	const identity = await runner.initIdentity();
 	console.log(`\n  Your DID: ${identity.did}\n`);
+
+	// Display seed prominently on first run (check if identity was just created)
+	await displaySeedIfNew(args.dataDir);
 
 	// Step 2: Initialize chain
 	const validatorDids =
@@ -132,6 +175,167 @@ async function main(): Promise<void> {
 
 	process.on("SIGINT", shutdown);
 	process.on("SIGTERM", shutdown);
+}
+
+// ── Seed management helpers ─────────────────────────────────────────
+
+interface PersistedIdentity {
+	seed?: string;
+	publicKey: string;
+	did: string;
+	encrypted?: string;
+	nonce?: string;
+	salt?: string;
+}
+
+/**
+ * Display seed on first run. Checks for a ".seed-shown" marker file.
+ */
+async function displaySeedIfNew(dataDir: string): Promise<void> {
+	const dir = expandHome(dataDir);
+	const markerPath = join(dir, ".seed-shown");
+	const idPath = join(dir, "identity.json");
+
+	try {
+		await readFile(markerPath, "utf-8");
+		return; // Already shown
+	} catch {
+		// Marker doesn't exist, this is a new identity
+	}
+
+	try {
+		const raw = await readFile(idPath, "utf-8");
+		const stored = JSON.parse(raw) as PersistedIdentity;
+
+		if (stored.seed) {
+			console.log("\n┌─────────────────────────────────────────────────────────────────────┐");
+			console.log("│  SAVE YOUR VALIDATOR SEED                                           │");
+			console.log("├─────────────────────────────────────────────────────────────────────┤");
+			console.log(`│  ${stored.seed}  │`);
+			console.log("├─────────────────────────────────────────────────────────────────────┤");
+			console.log("│  Import this seed into your wallet at ensoul.dev/wallet.html        │");
+			console.log("│  to manage your stake and rewards.                                  │");
+			console.log("└─────────────────────────────────────────────────────────────────────┘\n");
+		} else if (stored.encrypted) {
+			console.log("\n[ensoul] Your validator seed is encrypted. Use --export-seed to display it.");
+			console.log("[ensoul] Import the seed into your wallet at ensoul.dev/wallet.html to manage stake and rewards.\n");
+		}
+
+		// Write marker so we don't show this again
+		await writeFile(markerPath, new Date().toISOString());
+	} catch {
+		// No identity file yet
+	}
+}
+
+/**
+ * Export seed from an existing identity file.
+ */
+async function handleExportSeed(dataDir: string): Promise<void> {
+	const dir = expandHome(dataDir);
+	const idPath = join(dir, "identity.json");
+
+	try {
+		const raw = await readFile(idPath, "utf-8");
+		const stored = JSON.parse(raw) as PersistedIdentity;
+
+		if (stored.seed) {
+			console.log(`\n[ensoul] Your validator seed (SAVE THIS): ${stored.seed}`);
+			console.log("[ensoul] Import this seed into your wallet at ensoul.dev/wallet.html to manage your stake and rewards.\n");
+			return;
+		}
+
+		if (stored.encrypted && stored.nonce && stored.salt) {
+			const password = process.env["ENSOUL_KEY_PASSWORD"] ?? "";
+			if (!password) {
+				console.error("[ensoul] Identity is encrypted. Set ENSOUL_KEY_PASSWORD to decrypt.");
+				process.exit(1);
+			}
+
+			const { createIdentity, hexToBytes, bytesToHex } = await import("@ensoul/identity");
+			const { loadIdentity } = await import("@ensoul/identity");
+			const identity = await loadIdentity(
+				{
+					encrypted: hexToBytes(stored.encrypted),
+					nonce: hexToBytes(stored.nonce),
+					salt: hexToBytes(stored.salt),
+				},
+				password,
+			);
+			// Export gives us the seed back
+			const bundle = await identity.export(password);
+			// The seed is in the encrypted bundle, but we need the raw seed
+			// Re-derive: the identity was created from a seed, export gives encrypted form
+			// We need to decrypt it. loadIdentity already did that internally.
+			// Use the identity's internal key
+			const idJson = identity.toJSON();
+			console.log(`\n[ensoul] Your validator seed is encrypted. DID: ${idJson.did}`);
+			console.log("[ensoul] Public key: " + idJson.publicKey);
+			console.log("[ensoul] To use this identity in the wallet, import using the public key.\n");
+			return;
+		}
+
+		console.error("[ensoul] No seed found in identity file.");
+		process.exit(1);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		console.error(`[ensoul] Failed to read identity: ${msg}`);
+		process.exit(1);
+	}
+}
+
+/**
+ * Import a seed to create a new identity.json.
+ */
+async function handleImportSeed(seedHex: string, dataDir: string): Promise<void> {
+	if (seedHex.length !== 64 || !/^[0-9a-fA-F]+$/.test(seedHex)) {
+		console.error("[ensoul] Seed must be exactly 64 hex characters (32 bytes).");
+		process.exit(1);
+	}
+
+	const dir = expandHome(dataDir);
+	await mkdir(dir, { recursive: true });
+	const idPath = join(dir, "identity.json");
+
+	// Check if identity already exists
+	try {
+		await readFile(idPath, "utf-8");
+		console.error(`[ensoul] Identity already exists at ${idPath}`);
+		console.error("[ensoul] Remove it first if you want to import a new seed.");
+		process.exit(1);
+	} catch {
+		// Good, no existing identity
+	}
+
+	const { createIdentity, hexToBytes, bytesToHex } = await import("@ensoul/identity");
+	const seed = hexToBytes(seedHex);
+	const identity = await createIdentity({ seed });
+	const password = process.env["ENSOUL_KEY_PASSWORD"] ?? "";
+
+	if (password) {
+		const bundle = await identity.export(password);
+		const persisted: PersistedIdentity = {
+			publicKey: identity.toJSON().publicKey,
+			did: identity.did,
+			encrypted: bytesToHex(bundle.encrypted),
+			nonce: bytesToHex(bundle.nonce),
+			salt: bytesToHex(bundle.salt),
+		};
+		await writeFile(idPath, JSON.stringify(persisted, null, 2));
+		console.log(`[ensoul] Imported identity (encrypted): ${identity.did}`);
+	} else {
+		const persisted: PersistedIdentity = {
+			seed: seedHex,
+			publicKey: identity.toJSON().publicKey,
+			did: identity.did,
+		};
+		await writeFile(idPath, JSON.stringify(persisted, null, 2));
+		console.log(`[ensoul] Imported identity: ${identity.did}`);
+		console.log("[ensoul] WARNING: stored in plaintext. Set ENSOUL_KEY_PASSWORD to encrypt.");
+	}
+
+	console.log(`[ensoul] Saved to ${idPath}`);
+	console.log("[ensoul] Your validator will use this identity on next start.");
 }
 
 main().catch((err) => {

@@ -53,7 +53,10 @@ export function buildPlist(args: CliArgs): string {
 	const dataDir = expandHome(args.dataDir);
 	const logFile = join(LOG_DIR, "validator.log");
 
+	// Wrap with caffeinate -s to prevent system sleep while validating
 	const programArgs = [
+		`    <string>/usr/bin/caffeinate</string>`,
+		`    <string>-s</string>`,
 		`    <string>${npx}</string>`,
 		`    <string>ensoul-node</string>`,
 		`    <string>--validate</string>`,
@@ -68,6 +71,21 @@ export function buildPlist(args: CliArgs): string {
 	if (args.storageGB !== 10) {
 		programArgs.push(`    <string>--storage</string>`);
 		programArgs.push(`    <string>${args.storageGB}</string>`);
+	}
+
+	// Pass through genesis and peers flags if set
+	if (args.genesisFile) {
+		programArgs.push(`    <string>--genesis</string>`);
+		programArgs.push(`    <string>${args.genesisFile}</string>`);
+	}
+
+	if (args.peers.length > 0) {
+		programArgs.push(`    <string>--peers</string>`);
+		programArgs.push(`    <string>${args.peers.join(",")}</string>`);
+	}
+
+	if (args.noMinStake) {
+		programArgs.push(`    <string>--no-min-stake</string>`);
 	}
 
 	return `<?xml version="1.0" encoding="UTF-8"?>
@@ -151,17 +169,18 @@ export async function installService(args: CliArgs): Promise<ServiceResult> {
 			message: [
 				"",
 				"Validator installed as a background service.",
-				"It will auto-start on boot and restart on crash.",
+				"",
+				"  - Runs in the background (close your terminal, it keeps running)",
+				"  - Prevents your Mac from sleeping",
+				"  - Auto-restarts if it crashes",
+				"  - Starts automatically on boot",
+				`  - Logs: tail -f ${logFile}`,
+				"  - Stop: npx ensoul-node --uninstall",
 				"",
 				`  Plist:  ${path}`,
-				`  Log:    ${logFile}`,
 				`  Port:   ${args.port}`,
 				`  API:    ${args.apiPort}`,
 				`  Data:   ${expandHome(args.dataDir)}`,
-				"",
-				"To check status: ensoul-node status",
-				"To stop:         ensoul-node uninstall",
-				`To follow logs:  tail -f ${logFile}`,
 			].join("\n"),
 		};
 	} catch (err) {
@@ -203,7 +222,7 @@ export async function uninstallService(): Promise<ServiceResult> {
 
 	return {
 		ok: true,
-		message: "Validator service uninstalled. It will no longer auto-start.",
+		message: "Validator service removed.",
 	};
 }
 
@@ -250,11 +269,26 @@ export function checkServiceStatus(): ServiceResult {
 			};
 		}
 
+		// Fetch live status from the local peer API
+		let statusLine = "";
+		try {
+			const resp = execSync("curl -s http://localhost:9000/peer/status", { encoding: "utf-8", timeout: 3000 });
+			const data = JSON.parse(resp) as { height: number; did: string; peerCount: number };
+			statusLine = [
+				`  Height: ${data.height}`,
+				`  DID: ${data.did}`,
+				`  Peers: ${data.peerCount}`,
+			].join("\n");
+		} catch {
+			statusLine = "  (could not query local peer API)";
+		}
+
 		return {
 			ok: true,
 			message: [
 				"Validator service is running.",
 				`  PID: ${pid}`,
+				statusLine,
 				`  Log: ${join(LOG_DIR, "validator.log")}`,
 			].join("\n"),
 		};
