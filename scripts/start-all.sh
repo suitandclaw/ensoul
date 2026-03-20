@@ -98,10 +98,12 @@ do_stop() {
 	kill_service "api"
 	kill_service "monitor"
 	kill_service "explorer"
-	kill_service "validator"
+	for i in 0 1 2 3 4; do
+		kill_service "validator-$i"
+	done
 	kill_service "tunnel"
 	# Also kill by port as fallback
-	for port in 9000 3000 4000 5050; do
+	for port in 9000 9001 9002 9003 9004 3000 4000 5050; do
 		lsof -ti ":$port" 2>/dev/null | xargs kill 2>/dev/null || true
 	done
 	log "All services stopped."
@@ -113,18 +115,26 @@ do_status() {
 	echo ""
 	echo "  Service          PID        Port    Status"
 	echo "  -------          ---        ----    ------"
-	for name in tunnel validator explorer monitor api agent; do
+
+	# Fixed services
+	for entry in "tunnel:443" "explorer:3000" "monitor:4000" "api:5050" "agent:-"; do
+		local name="${entry%%:*}"
+		local port="${entry##*:}"
 		local pid
 		pid=$(get_pid "$name")
-		local port="-"
-		case "$name" in
-			tunnel) port="443" ;;
-			validator) port="9000" ;;
-			explorer) port="3000" ;;
-			monitor) port="4000" ;;
-			api) port="5050" ;;
-			agent) port="-" ;;
-		esac
+		if is_alive "$pid"; then
+			echo "  $name$(printf '%*s' $((18 - ${#name})) '')$pid$(printf '%*s' $((11 - ${#pid})) '')$port$(printf '%*s' $((8 - ${#port})) '')running"
+		else
+			echo "  $name$(printf '%*s' $((18 - ${#name})) '')-$(printf '%*s' 10 '')$port$(printf '%*s' $((8 - ${#port})) '')stopped"
+		fi
+	done
+
+	# Validators
+	for i in 0 1 2 3 4; do
+		local name="validator-$i"
+		local port=$((9000 + i))
+		local pid
+		pid=$(get_pid "$name")
 		if is_alive "$pid"; then
 			echo "  $name$(printf '%*s' $((18 - ${#name})) '')$pid$(printf '%*s' $((11 - ${#pid})) '')$port$(printf '%*s' $((8 - ${#port})) '')running"
 		else
@@ -152,20 +162,41 @@ do_start() {
 		log "WARNING: cloudflared not installed, skipping tunnel"
 	fi
 
-	# 2. Validator
-	log "Starting validator on port 9000..."
-	npx tsx "$REPO_DIR/packages/node/src/cli/main.ts" \
-		--validate \
-		--no-min-stake \
-		--genesis "$LOG_DIR/genesis.json" \
-		--port 9000 \
-		--api-port 10000 \
-		--data-dir "$LOG_DIR/validator-0" \
-		--peers "$ENSOUL_PEERS" \
-		>"$LOG_DIR/validator-0.log" 2>&1 &
-	save_pid "validator" $!
-	log "Validator started (pid $!)"
-	wait_for_port 9000 15 "validator" || true
+	# 2. Validators (5 on ports 9000-9004)
+	for i in 0 1 2 3 4; do
+		local vport=$((9000 + i))
+		local aport=$((10000 + i))
+		local vdir="$LOG_DIR/validator-$i"
+		mkdir -p "$vdir"
+
+		# Validator 0 peers to remote tunnels + local validators
+		# Validators 1-4 peer to validator 0
+		local vpeers
+		if [ "$i" = "0" ]; then
+			vpeers="$ENSOUL_PEERS,localhost:9001,localhost:9002,localhost:9003,localhost:9004"
+		else
+			vpeers="localhost:9000"
+		fi
+
+		log "Starting validator-$i on port $vport..."
+		npx tsx "$REPO_DIR/packages/node/src/cli/main.ts" \
+			--validate \
+			--no-min-stake \
+			--genesis "$LOG_DIR/genesis.json" \
+			--port "$vport" \
+			--api-port "$aport" \
+			--data-dir "$vdir" \
+			--peers "$vpeers" \
+			>"$LOG_DIR/validator-$i.log" 2>&1 &
+		save_pid "validator-$i" $!
+		log "Validator-$i started (pid $!)"
+
+		# Wait for first validator before starting others
+		if [ "$i" = "0" ]; then
+			wait_for_port 9000 15 "validator-0" || true
+		fi
+	done
+	sleep 2
 
 	# 3. Explorer
 	log "Starting explorer on port 3000..."
@@ -214,7 +245,9 @@ do_start() {
 	do_status
 
 	echo "  Logs:"
-	echo "    tail -f $LOG_DIR/validator-0.log"
+	for i in 0 1 2 3 4; do
+		echo "    tail -f $LOG_DIR/validator-$i.log"
+	done
 	echo "    tail -f $LOG_DIR/explorer.log"
 	echo "    tail -f $LOG_DIR/monitor.log"
 	echo "    tail -f $LOG_DIR/api.log"
@@ -222,10 +255,10 @@ do_start() {
 	echo "    tail -f $LOG_DIR/agent.log"
 	echo ""
 	echo "  URLs:"
-	echo "    Explorer:  http://localhost:3000"
-	echo "    Monitor:   http://localhost:4000"
-	echo "    API:       http://localhost:5050"
-	echo "    Validator: http://localhost:9000/peer/status"
+	echo "    Explorer:   http://localhost:3000"
+	echo "    Monitor:    http://localhost:4000"
+	echo "    API:        http://localhost:5050"
+	echo "    Validators: http://localhost:9000-9004/peer/status"
 	echo ""
 }
 
