@@ -250,26 +250,30 @@ interface SocialEntry {
 
 let socialFeed: SocialEntry[] = [];
 
+let socialLogDepth = 50;
+
 async function parseSocialActivity(): Promise<void> {
 	const entries: SocialEntry[] = [];
 
 	// Parse Twitter agent log
 	try {
 		const raw = await readFile(AGENT_LOG, "utf-8");
-		const lines = raw.trim().split("\n").slice(-50);
+		const lines = raw.trim().split("\n").slice(-socialLogDepth);
 		for (const line of lines) {
 			const timeMatch = line.match(/^\[(\d{2}:\d{2}:\d{2})\]/);
 			const ts = timeMatch ? timeMatch[1]! : "";
 
 			if (line.includes("Posted:")) {
 				const content = line.split("Posted:")[1]?.trim() ?? "";
-				entries.push({ timestamp: ts, platform: "twitter", type: "post", content: content.slice(0, 100) });
+				entries.push({ timestamp: ts, platform: "twitter", type: "post", content: content.slice(0, 280) });
 			} else if (line.includes("Replied to @")) {
 				const match = line.match(/Replied to @(\S+)/);
 				entries.push({ timestamp: ts, platform: "twitter", type: "reply", content: `@${match?.[1] ?? "unknown"}` });
 			} else if (line.includes("Engaged with @")) {
-				const match = line.match(/Engaged with @(\S+)/);
-				entries.push({ timestamp: ts, platform: "twitter", type: "reply", content: `@${match?.[1] ?? "unknown"}` });
+				const match = line.match(/Engaged with @(\S+) on "(.*)"/);
+				const target = match?.[1] ?? "unknown";
+				const topic = match?.[2] ?? "";
+				entries.push({ timestamp: ts, platform: "twitter", type: "reply", content: topic ? `@${target}: ${topic}` : `@${target}` });
 			}
 		}
 	} catch { /* no twitter log */ }
@@ -277,7 +281,7 @@ async function parseSocialActivity(): Promise<void> {
 	// Parse Moltbook agent log
 	try {
 		const raw = await readFile(MOLTBOOK_LOG, "utf-8");
-		const lines = raw.trim().split("\n").slice(-50);
+		const lines = raw.trim().split("\n").slice(-socialLogDepth);
 		for (const line of lines) {
 			const timeMatch = line.match(/^\[(\d{2}:\d{2}:\d{2})\]/);
 			const ts = timeMatch ? timeMatch[1]! : "";
@@ -286,13 +290,18 @@ async function parseSocialActivity(): Promise<void> {
 				const match = line.match(/Posted in (m\/\S+): "(.+)"/);
 				entries.push({
 					timestamp: ts, platform: "moltbook", type: "post",
-					content: match ? `${match[1]}: ${match[2]?.slice(0, 80)}` : line.slice(0, 100),
+					content: match ? `${match[1]}: ${match[2]?.slice(0, 280)}` : line.slice(0, 280),
 				});
 			} else if (line.includes("Commented on")) {
-				const match = line.match(/Commented on "(.+)" by (\S+)/);
+				// Handle both "by username" and "by [object Object]" formats
+				const match = line.match(/Commented on "(.+?)" by (.+)/);
+				let author = match?.[2]?.trim() ?? "";
+				// Strip [object Object] from author
+				if (author.includes("[object")) author = "";
+				const title = match?.[1]?.slice(0, 120) ?? "";
 				entries.push({
 					timestamp: ts, platform: "moltbook", type: "comment",
-					content: match ? `re: "${match[1]?.slice(0, 60)}" by ${match[2]}` : line.slice(0, 100),
+					content: author ? `re: "${title}" by ${author}` : `re: "${title}"`,
 				});
 			}
 		}
@@ -300,7 +309,7 @@ async function parseSocialActivity(): Promise<void> {
 
 	// Sort by timestamp (reverse chronological, most recent first)
 	entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-	socialFeed = entries.slice(0, 20);
+	socialFeed = entries.slice(0, 40);
 }
 
 // ── Basic auth helper ────────────────────────────────────────────────
@@ -352,14 +361,18 @@ a{color:#7c3aed;text-decoration:none}
 .card-time{font-size:0.75em;color:#666;text-align:right;flex-shrink:0}
 h2{font-size:0.85em;color:#888;text-transform:uppercase;letter-spacing:1px;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid #1e1e2a}
 .footer{text-align:center;color:#666;font-size:0.75em;margin-top:24px;padding:12px 0;border-top:1px solid #1e1e2a}
-.social-entry{background:#12121a;border:1px solid #1e1e2a;border-radius:6px;padding:10px 12px;margin:4px 0;display:flex;gap:8px;align-items:flex-start;font-size:0.85em}
+.social-scroll{max-height:500px;overflow-y:auto;border:1px solid #1e1e2a;border-radius:8px;background:#0d0d14;padding:4px}
+.social-entry{background:#12121a;border:1px solid #1e1e2a;border-radius:6px;padding:10px 12px;margin:4px;display:flex;gap:8px;align-items:flex-start;font-size:0.85em;text-decoration:none;color:inherit;transition:border-color 0.2s}
+.social-entry:hover{border-color:#2d2d3f}
 .social-icon{font-size:1.1em;flex-shrink:0;width:20px;text-align:center}
 .social-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.7em;font-weight:600;text-transform:uppercase}
 .social-badge.post{background:#2d1e3f;color:#a78bfa}
 .social-badge.reply{background:#1e2a3f;color:#60a5fa}
 .social-badge.comment{background:#1e3a2f;color:#4ade80}
-.social-content{color:#888;margin-top:2px;word-break:break-word}
-.social-time{color:#666;font-size:0.75em;flex-shrink:0}
+.social-content{color:#aaa;margin-top:2px;word-break:break-word;line-height:1.4}
+.social-time{color:#7c3aed;font-size:0.8em;font-weight:600;flex-shrink:0;min-width:55px;text-align:right}
+.social-more{text-align:center;padding:10px;cursor:pointer;color:#7c3aed;font-size:0.85em;font-weight:600;border:1px solid #2d2d3f;border-radius:6px;margin:8px 4px;background:#12121a}
+.social-more:hover{background:#1a1a2a}
 @media(max-width:600px){.stats{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -410,21 +423,25 @@ s+='<div style="text-align:center;color:#666;font-size:0.75em;margin-top:12px">L
 document.getElementById("content").innerHTML=s;
 }
 function renderSocial(entries){
-if(!entries||entries.length===0)return;
 var el=document.getElementById("social");
 if(!el)return;
-var s='';
+if(!entries||entries.length===0){el.innerHTML='<h2>Social Activity</h2><div style="color:#666;font-size:0.85em;padding:12px">No recent activity detected in agent logs.</div>';return;}
+var s='<div class="social-scroll">';
 entries.forEach(function(e){
 var icon=e.platform==='twitter'?'&#x1F426;':'&#x1F99E;';
-s+='<div class="social-entry">';
+var link=e.platform==='twitter'?'https://twitter.com/ensoul_network':'https://www.moltbook.com/u/ensoulnetwork';
+s+='<a class="social-entry" href="'+link+'" target="_blank" rel="noopener">';
+s+='<span class="social-time">'+e.timestamp+'</span>';
 s+='<span class="social-icon">'+icon+'</span>';
 s+='<div style="flex:1;min-width:0"><span class="social-badge '+e.type+'">'+e.type+'</span> ';
 s+='<span class="social-content">'+e.content+'</span></div>';
-s+='<span class="social-time">'+e.timestamp+'</span>';
-s+='</div>';
+s+='</a>';
 });
+s+='</div>';
+s+='<div class="social-more" onclick="loadMore()">Load more</div>';
 el.innerHTML='<h2>Social Activity</h2>'+s;
 }
+function loadMore(){fetch("/api/social?depth=200").then(function(r){return r.json()}).then(renderSocial).catch(function(){});}
 function poll(){
 fetch("/api/health").then(function(r){return r.json()}).then(render).catch(function(){});
 fetch("/api/social").then(function(r){return r.json()}).then(renderSocial).catch(function(){});
@@ -469,7 +486,12 @@ async function main(): Promise<void> {
 		return health;
 	});
 
-	app.get("/api/social", async () => {
+	app.get<{ Querystring: { depth?: string } }>("/api/social", async (req) => {
+		const depth = Number(req.query.depth ?? 50);
+		if (depth > socialLogDepth) {
+			socialLogDepth = Math.min(depth, 500);
+			await parseSocialActivity();
+		}
 		return socialFeed;
 	});
 
