@@ -357,8 +357,8 @@ function showDashboard(){
   el("dash-did").textContent=currentDid;
   refreshBalance();
   refreshNetwork();
-  setInterval(refreshBalance,30000);
-  setInterval(refreshNetwork,30000);
+  setInterval(refreshBalance,10000);
+  setInterval(refreshNetwork,10000);
 }
 
 async function refreshBalance(){
@@ -406,6 +406,7 @@ window.registerAgent=async function(){
     var d=await r.json();
     if(d.registered&&d.welcomeBonus){
       showActionMsg("Agent registered! Welcome bonus: "+d.welcomeBonus,"success");
+      refreshBalance();
     }else if(d.registered){
       showActionMsg(d.message||"Agent already registered","info");
     }else{
