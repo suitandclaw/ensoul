@@ -364,18 +364,18 @@ function showDashboard(){
 async function refreshBalance(){
   if(!currentDid)return;
   try{
-    var r=await fetch(API+"/v1/consciousness/"+encodeURIComponent(currentDid)+"/verify");
-    // Also try peer API if available
+    var r=await fetch(API+"/v1/account/"+encodeURIComponent(currentDid));
+    if(!r.ok)return;
+    var d=await r.json();
+    el("b-available").textContent=d.available||"0.00 ENSL";
+    el("b-staked").textContent=d.staked||"0.00 ENSL";
+    el("b-delegated").textContent=d.delegated||"0.00 ENSL";
+    el("b-unstaking").textContent=d.unstaking||"0.00 ENSL";
+    el("b-rewards").textContent=d.pendingRewards||"0.00 ENSL";
+    var credits=d.raw?Number(d.raw.storageCredits||0):0;
+    el("b-storage").textContent=credits+" MB/month";
+    el("b-total").textContent=d.total||"0.00 ENSL";
   }catch(e){}
-
-  // Show zeros for now (API integration is best-effort on testnet)
-  el("b-available").textContent="0.00 ENSL";
-  el("b-staked").textContent="0.00 ENSL";
-  el("b-delegated").textContent="0.00 ENSL";
-  el("b-unstaking").textContent="0.00 ENSL";
-  el("b-rewards").textContent="0.00 ENSL";
-  el("b-storage").textContent="0 MB/month";
-  el("b-total").textContent="0.00 ENSL";
 }
 
 async function refreshNetwork(){
