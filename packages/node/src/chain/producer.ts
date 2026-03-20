@@ -186,14 +186,37 @@ export class NodeBlockProducer {
 
 	/**
 	 * Get the list of validators with totalStakeWeight >= minimumStake and not unstaking.
+	 * Derives the eligible set from account state (anyone with stake > 0), not from
+	 * this.validatorDids. This ensures a new node syncing historical blocks computes
+	 * the same proposer as the original network, since genesis populates account state
+	 * for all foundation validators regardless of validatorDids.
+	 * Falls back to this.validatorDids only when no accounts have stake (bootstrap
+	 * mode with --no-min-stake).
 	 */
 	getEligibleValidators(): string[] {
+		// Derive from on-chain state: all accounts with stakedBalance > 0.
+		// Sorted by DID for determinism across nodes. This ensures a new node
+		// syncing historical blocks computes the same proposer as the original
+		// network, since genesis populates account state for all foundation
+		// validators regardless of this.validatorDids.
+		const staked = this.state.getAllAccounts()
+			.filter((acc) => {
+				if (acc.stakedBalance <= 0n) return false;
+				if (acc.unstakingBalance > 0n) return false;
+				const totalWeight = this.delegations.getTotalStakeWeight(acc.did, acc.stakedBalance);
+				return totalWeight >= this.config.minimumStake;
+			})
+			.map((acc) => acc.did)
+			.sort();
+
+		if (staked.length > 0) return staked;
+
+		// Fallback: bootstrap mode (minimumStake=0, no accounts have stake).
+		// Use validatorDids in original order for backward compatibility.
 		return this.validatorDids.filter((did) => {
 			const account = this.state.getAccount(did);
-			// Exclude validators that are unstaking (in cooldown)
 			if (account.unstakingBalance > 0n) return false;
-			const totalWeight = this.delegations.getTotalStakeWeight(did, account.stakedBalance);
-			return totalWeight >= this.config.minimumStake;
+			return true;
 		});
 	}
 
@@ -256,7 +279,7 @@ export class NodeBlockProducer {
 	 * Returns null if myDid is not the selected proposer or lacks minimum stake.
 	 */
 	produceBlock(myDid: string): Block | null {
-		if (this.validatorDids.length === 0) return null;
+		if (this.getEligibleValidators().length === 0 && this.validatorDids.length === 0) return null;
 
 		const height = this.ledger.getHeight() + 1;
 
