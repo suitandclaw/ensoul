@@ -92,12 +92,14 @@ async function main(): Promise<void> {
 			console.log(`\n  Peers: ${connected}/${addresses.length} connected`);
 		}
 
-		// Register with seed node for automatic peer discovery
-		const publicUrl = args.publicUrl || `http://localhost:${args.port}`;
-		const seedConnected = await peerNet.registerWithSeed(args.seed, publicUrl);
-		console.log(`  Seed: ${args.seed}`);
-		console.log(`  Public URL: ${publicUrl}`);
-		console.log(`  Peers via seed: ${seedConnected}\n`);
+		// Register with seed node for automatic peer discovery (if configured)
+		if (args.seed) {
+			const publicUrl = args.publicUrl || `http://localhost:${args.port}`;
+			const seedConnected = await peerNet.registerWithSeed(args.seed, publicUrl);
+			console.log(`  Seed: ${args.seed}`);
+			console.log(`  Public URL: ${publicUrl}`);
+			console.log(`  Peers via seed: ${seedConnected}\n`);
+		}
 	} else {
 		await runner.syncFromPeers();
 	}

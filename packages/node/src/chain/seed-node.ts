@@ -29,7 +29,7 @@ const HEARTBEAT_TIMEOUT_MS = 65_000;
  * Other validators GET /peers to discover the network.
  * Validators that miss 2 heartbeats (>65 seconds) are removed.
  *
- * Intended to run at seed.ensoul.dev.
+ * Intended to run on a dedicated seed host, configured via --seed flag.
  */
 export class SeedNode {
 	private server: FastifyInstance;

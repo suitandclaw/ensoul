@@ -48,9 +48,9 @@ beforeEach(async () => {
 // ── parseArgs --seed and --public-url ────────────────────────────────
 
 describe("parseArgs seed flags", () => {
-	it("defaults seed to https://seed.ensoul.dev", () => {
+	it("defaults seed to empty string (disabled)", () => {
 		const args = parseArgs(["--validate"]);
-		expect(args.seed).toBe("https://seed.ensoul.dev");
+		expect(args.seed).toBe("");
 	});
 
 	it("parses --seed flag", () => {

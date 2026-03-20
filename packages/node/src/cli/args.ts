@@ -21,8 +21,8 @@ export interface CliArgs {
 	noMinStake: boolean;
 }
 
-/** Default seed node URL. */
-export const DEFAULT_SEED_URL = "https://seed.ensoul.dev";
+/** Default seed node URL. Empty means no seed unless --seed is provided. */
+export const DEFAULT_SEED_URL = "";
 
 const DEFAULT_DATA_DIR = "~/.ensoul";
 const DEFAULT_STORAGE_GB = 10;
@@ -145,7 +145,7 @@ OPTIONS:
   --data-dir <path>         Data directory (default: ~/.ensoul)
   --storage <GB>            Storage allocation in GB (default: 10)
   --peers <addrs>           Comma-separated peer addresses (host:port)
-  --seed <url>              Seed node URL (default: https://seed.ensoul.dev)
+  --seed <url>              Seed node URL (no default, disabled unless set)
   --public-url <url>        This validator's public URL for seed registration
   --bootstrap <multiaddr>   Bootstrap peer (can specify multiple)
   --store-consciousness <path>  Store local consciousness while validating

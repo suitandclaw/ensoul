@@ -6,6 +6,18 @@ import { deserializeTx } from "./types.js";
 import { SeedClient } from "./seed-node.js";
 
 /**
+ * Extract blocks array from a sync response.
+ * Handles both `{ blocks: [...] }` (object wrapper) and raw `[...]` formats.
+ */
+function extractBlocks(data: unknown): SerializedBlock[] {
+	if (Array.isArray(data)) return data as SerializedBlock[];
+	if (data && typeof data === "object" && "blocks" in data) {
+		return (data as { blocks: SerializedBlock[] }).blocks;
+	}
+	return [];
+}
+
+/**
  * HTTP-based peer network for validator-to-validator communication.
  *
  * Each validator runs a small HTTP API for peers to query:
@@ -378,13 +390,14 @@ export class PeerNetwork {
 				`${bestAddr}/peer/sync/${myHeight + 1}`,
 			);
 			if (!resp.ok) return;
-			const data = (await resp.json()) as {
-				blocks: SerializedBlock[];
-			};
-			const result = this.gossip.applySyncBlocks(data.blocks);
+			const blocks = extractBlocks(await resp.json());
+			const result = this.gossip.applySyncBlocks(blocks);
 			this.log(
 				`Synced ${result.applied} blocks (${result.errors.length} errors)`,
 			);
+			for (const e of result.errors) {
+				this.log(`Sync block error: ${e}`);
+			}
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			this.log(`Sync failed: ${msg}`);
@@ -449,10 +462,13 @@ export class PeerNetwork {
 						`${addr}/peer/sync/${myHeight + 1}`,
 					);
 					if (syncResp.ok) {
-						const data = (await syncResp.json()) as {
-							blocks: SerializedBlock[];
-						};
-						this.gossip.applySyncBlocks(data.blocks);
+						const blocks = extractBlocks(await syncResp.json());
+						const result = this.gossip.applySyncBlocks(blocks);
+						if (result.errors.length > 0) {
+							for (const e of result.errors) {
+								this.log(`Sync block error: ${e}`);
+							}
+						}
 					}
 				}
 			} catch {
