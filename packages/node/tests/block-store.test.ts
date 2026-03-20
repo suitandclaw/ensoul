@@ -407,10 +407,12 @@ describe("NodeBlockProducer with BlockStore", () => {
 		const storePath = join(tmpDir, "chain");
 		const dids = [v1.did, v2.did];
 
-		// Node 1: produce a block
+		// Node 1: produce a block (use NodeBlockProducer so delegation registry matches)
 		const producer1 = new NodeBlockProducer(testGenesis(), { minimumStake: 0n });
 		producer1.initGenesis(dids);
-		const block = producer1.produceBlock(v2.did)!;
+		// Select the correct proposer for height 1
+		const proposer = producer1.selectProposer(1);
+		const block = producer1.produceBlock(proposer!)!;
 
 		// Node 2: apply the block from node 1
 		const store = new BlockStore(storePath);

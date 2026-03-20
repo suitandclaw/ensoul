@@ -116,10 +116,11 @@ export class BlockProducer {
 			applyTransaction(tx, this.state, 0);
 		}
 
+		const genDelRoot = this.delegations?.computeRoot();
 		const genesisBlock: Block = {
 			height: 0,
 			previousHash: "0".repeat(64),
-			stateRoot: this.state.computeStateRoot(),
+			stateRoot: this.state.computeStateRoot(genDelRoot),
 			transactionsRoot: computeTransactionsRoot(genesisTxs),
 			timestamp: this.config.timestamp,
 			proposer: "genesis",
@@ -215,10 +216,11 @@ export class BlockProducer {
 			}
 		}
 
+		const delegationRoot = this.delegations?.computeRoot();
 		const block: Block = {
 			height,
 			previousHash,
-			stateRoot: this.state.computeStateRoot(),
+			stateRoot: this.state.computeStateRoot(delegationRoot),
 			transactionsRoot: computeTransactionsRoot(validTxs),
 			timestamp: Date.now(),
 			proposer,
@@ -280,8 +282,9 @@ export class BlockProducer {
 			);
 		}
 
-		// Check state root
-		const expectedStateRoot = stateCopy.computeStateRoot();
+		// Check state root (includes delegation registry root if available)
+		const delRoot = this.delegations?.computeRoot();
+		const expectedStateRoot = stateCopy.computeStateRoot(delRoot);
 		if (block.stateRoot !== expectedStateRoot) {
 			return { valid: false, error: "Invalid state root" };
 		}

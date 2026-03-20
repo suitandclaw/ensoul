@@ -259,6 +259,25 @@ async function queryValidatorStatus(): Promise<{ height: number; validatorCount:
 	return { height: maxHeight, validatorCount: dids.size, alive };
 }
 
+// ── Daily bonus cap ──────────────────────────────────────────────────
+
+const DAILY_BONUS_CAP = 100;
+let dailyBonusCount = 0;
+let dailyBonusDate = new Date().toISOString().slice(0, 10);
+
+function checkDailyBonusCap(): boolean {
+	const today = new Date().toISOString().slice(0, 10);
+	if (today !== dailyBonusDate) {
+		dailyBonusDate = today;
+		dailyBonusCount = 0;
+	}
+	return dailyBonusCount < DAILY_BONUS_CAP;
+}
+
+function incrementDailyBonus(): void {
+	dailyBonusCount++;
+}
+
 // ── Server ───────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -266,7 +285,7 @@ async function main(): Promise<void> {
 	await loadRegisteredAgents();
 	await loadOnboardingKey();
 
-	const app = Fastify({ logger: false });
+	const app = Fastify({ logger: false, bodyLimit: 1048576 }); // 1MB default
 
 	// CORS for all origins
 	await app.register(cors, { origin: true });
@@ -289,6 +308,30 @@ async function main(): Promise<void> {
 	app.get("/health", async () => {
 		const net = await queryValidatorStatus();
 		return { status: "ok", validators: net.alive, blockHeight: net.height };
+	});
+
+	// ── DID Verification ─────────────────────────────────────────
+
+	app.get<{ Querystring: { publicKey?: string } }>("/v1/verify-did", async (req, reply) => {
+		const pubKeyHex = req.query.publicKey;
+		if (!pubKeyHex || pubKeyHex.length !== 64) {
+			return reply.status(400).send({ error: "publicKey query parameter required (64 hex chars)" });
+		}
+		// Derive the canonical DID using the same multicodec encoding as @ensoul/identity
+		const pubKeyBytes = hexToBytes(pubKeyHex);
+		// Multicodec ed25519-pub: 0xed01
+		const mc = new Uint8Array(2 + pubKeyBytes.length);
+		mc[0] = 0xed; mc[1] = 0x01;
+		mc.set(pubKeyBytes, 2);
+		// Base58btc encode
+		const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+		let num = 0n;
+		for (const byte of mc) num = num * 256n + BigInt(byte);
+		let encoded = "";
+		while (num > 0n) { encoded = B58[Number(num % 58n)] + encoded; num = num / 58n; }
+		for (const byte of mc) { if (byte === 0) encoded = "1" + encoded; else break; }
+		const did = `did:key:z${encoded}`;
+		return { did, publicKey: pubKeyHex };
 	});
 
 	// ── Account Balance ──────────────────────────────────────────
@@ -451,7 +494,7 @@ async function main(): Promise<void> {
 
 	// ── Handshake Verify ─────────────────────────────────────────
 
-	app.post<{ Body: HandshakeVerifyRequest }>("/v1/handshake/verify", async (req, reply) => {
+	app.post<{ Body: HandshakeVerifyRequest }>("/v1/handshake/verify", { bodyLimit: 10240 }, async (req, reply) => {
 		const body = req.body;
 		if (!body.identity || !body.proof || !body.since) {
 			return reply.status(400).send({ error: "identity, proof, and since are required" });
@@ -518,7 +561,7 @@ async function main(): Promise<void> {
 
 	// ── Agent Registration ───────────────────────────────────────
 
-	app.post<{ Body: AgentRegisterRequest }>("/v1/agents/register", async (req, reply) => {
+	app.post<{ Body: AgentRegisterRequest }>("/v1/agents/register", { bodyLimit: 10240 }, async (req, reply) => {
 		const body = req.body;
 		if (!body.did || !body.publicKey) {
 			return reply.status(400).send({ error: "did and publicKey are required" });
@@ -543,10 +586,13 @@ async function main(): Promise<void> {
 
 		await log(`Agent registered: ${body.did}`);
 
-		// Submit welcome bonus transaction on-chain
+		// Submit welcome bonus transaction on-chain (daily cap enforced)
 		let bonusSubmitted = false;
-		if (onboardingDid) {
+		if (onboardingDid && checkDailyBonusCap()) {
 			bonusSubmitted = await signAndSubmitWelcomeBonus(body.did);
+			if (bonusSubmitted) incrementDailyBonus();
+		} else if (onboardingDid) {
+			await log(`Daily welcome bonus cap reached (${dailyBonusCount}/${DAILY_BONUS_CAP}). Agent registered without bonus.`);
 		}
 
 		return {
@@ -568,6 +614,7 @@ async function main(): Promise<void> {
 	process.stdout.write(`\nEnsoul API Gateway running on http://localhost:${port}\n`);
 	process.stdout.write(`\n  Endpoints:\n`);
 	process.stdout.write(`    GET  /health\n`);
+	process.stdout.write(`    GET  /v1/verify-did?publicKey=<hex>\n`);
 	process.stdout.write(`    GET  /v1/account/:did\n`);
 	process.stdout.write(`    GET  /v1/network/status\n`);
 	process.stdout.write(`    POST /v1/consciousness/store\n`);

@@ -71,7 +71,7 @@ export class PeerNetwork {
 	 * Start the peer API server on the given port.
 	 */
 	async startServer(port: number): Promise<void> {
-		this.server = Fastify({ logger: false });
+		this.server = Fastify({ logger: false, bodyLimit: 5242880 }); // 5MB for peer routes
 
 		// Peer authentication: if ENSOUL_PEER_KEY is set, require it on
 		// mutating endpoints (POST /peer/blocks, POST /peer/tx).

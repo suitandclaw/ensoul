@@ -262,25 +262,27 @@ export class AccountState {
 
 	/**
 	 * Compute a state root from all account data.
+	 * If delegationRoot is provided, it is included in the hash to ensure
+	 * all validators agree on delegation state via consensus.
 	 */
-	computeStateRoot(): string {
+	computeStateRoot(delegationRoot?: string): string {
 		const sorted = [...this.accounts.entries()].sort(([a], [b]) =>
 			a.localeCompare(b),
 		);
-		const data = new TextEncoder().encode(
-			JSON.stringify(
-				sorted.map(([, acc]) => [
-					acc.did,
-					acc.balance.toString(),
-					acc.stakedBalance.toString(),
-					acc.unstakingBalance.toString(),
-					acc.delegatedBalance.toString(),
-					acc.pendingRewards.toString(),
-					acc.nonce,
-					acc.storageCredits.toString(),
-				]),
-			),
-		);
+		const payload: unknown[] = sorted.map(([, acc]) => [
+			acc.did,
+			acc.balance.toString(),
+			acc.stakedBalance.toString(),
+			acc.unstakingBalance.toString(),
+			acc.delegatedBalance.toString(),
+			acc.pendingRewards.toString(),
+			acc.nonce,
+			acc.storageCredits.toString(),
+		]);
+		if (delegationRoot) {
+			payload.push(["__delegationRoot__", delegationRoot]);
+		}
+		const data = new TextEncoder().encode(JSON.stringify(payload));
 		return bytesToHex(blake3(data));
 	}
 

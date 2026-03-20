@@ -152,6 +152,7 @@ export class NodeBlockProducer {
 		}
 
 		// Fresh genesis
+		this.ledger.setDelegationRegistry(this.delegations);
 		const block = this.ledger.initGenesis();
 
 		if (this.store) {
