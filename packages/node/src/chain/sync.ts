@@ -85,7 +85,10 @@ export class BlockSync {
 				continue;
 			}
 
-			const result = this.producer.applyBlock(block);
+			// Skip proposer check for bulk sync. Historical blocks are
+			// trusted via prior network consensus. State root validation
+			// still runs on every block.
+			const result = this.producer.applyBlock(block, true);
 			if (result.valid) {
 				applied++;
 			} else {

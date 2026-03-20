@@ -346,21 +346,33 @@ export class NodeBlockProducer {
 	/**
 	 * Apply an externally received block (from a peer).
 	 * Validates then applies to local state.
+	 *
+	 * When skipProposerCheck is true (bulk sync of historical blocks),
+	 * proposer validation is skipped. During sync, stake weights,
+	 * delegation state, and validator ordering can drift from the
+	 * original network's state at each height. We trust prior network
+	 * consensus for historical blocks. State root and block structure
+	 * validation still runs on every block.
 	 */
-	applyBlock(block: Block): { valid: boolean; error?: string } {
+	applyBlock(
+		block: Block,
+		skipProposerCheck = false,
+	): { valid: boolean; error?: string } {
 		const result = this.ledger.validateBlock(block);
 		if (!result.valid) return result;
 
-		// Validate that the block's proposer is the expected proposer for this height
-		const expectedProposer = this.selectProposer(block.height);
-		if (expectedProposer !== null && expectedProposer !== block.proposer) {
-			this.log(
-				`Rejected block ${block.height}: proposer ${block.proposer} is not the expected proposer ${expectedProposer}`,
-			);
-			return {
-				valid: false,
-				error: `Wrong proposer: expected ${expectedProposer}, got ${block.proposer}`,
-			};
+		// Validate proposer unless syncing historical blocks
+		if (!skipProposerCheck) {
+			const expectedProposer = this.selectProposer(block.height);
+			if (expectedProposer !== null && expectedProposer !== block.proposer) {
+				this.log(
+					`Rejected block ${block.height}: proposer ${block.proposer} is not the expected proposer ${expectedProposer}`,
+				);
+				return {
+					valid: false,
+					error: `Wrong proposer: expected ${expectedProposer}, got ${block.proposer}`,
+				};
+			}
 		}
 
 		// Push the block into our chain
