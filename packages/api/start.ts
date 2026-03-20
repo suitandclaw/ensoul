@@ -99,7 +99,47 @@ const consciousnessStore = new Map<string, {
 let onboardingDid: string | null = null;
 let onboardingKeyPath: string | null = null;
 let onboardingNonce = 0;
-const WELCOME_BONUS = 1000n * (10n ** 18n);
+const WELCOME_BONUS = 100n * (10n ** 18n); // 100 ENSL (reduced from 1000)
+const MIN_ONBOARDING_BALANCE = 10_000_000n * (10n ** 18n); // 10M ENSL floor
+
+// IP-based registration limit: 3 per IP per day
+let ipRegistrations = new Map<string, number>();
+let ipRegistrationDate = new Date().toISOString().slice(0, 10);
+
+function checkIpLimit(ip: string): boolean {
+	const today = new Date().toISOString().slice(0, 10);
+	if (today !== ipRegistrationDate) {
+		ipRegistrationDate = today;
+		ipRegistrations = new Map();
+	}
+	return (ipRegistrations.get(ip) ?? 0) < 3;
+}
+
+function incrementIpCount(ip: string): void {
+	ipRegistrations.set(ip, (ipRegistrations.get(ip) ?? 0) + 1);
+}
+
+/** Check onboarding account balance via validator API. */
+async function checkOnboardingBalance(): Promise<boolean> {
+	if (!onboardingDid) return false;
+	for (const url of VALIDATORS) {
+		try {
+			const resp = await fetch(
+				`${url}/peer/account/${encodeURIComponent(onboardingDid)}`,
+				{ signal: AbortSignal.timeout(5000) },
+			);
+			if (!resp.ok) continue;
+			const data = (await resp.json()) as { balance: string };
+			const balance = BigInt(data.balance);
+			if (balance < MIN_ONBOARDING_BALANCE) {
+				await log(`WARNING: onboarding balance ${balance / (10n ** 18n)} ENSL below 10M floor. Bonuses paused.`);
+				return false;
+			}
+			return true;
+		} catch { continue; }
+	}
+	return true; // If no validator responds, allow (best effort)
+}
 
 async function loadOnboardingKey(): Promise<void> {
 	const keyPath = process.env["ONBOARDING_KEY_PATH"] ?? DEFAULT_ONBOARDING_KEY_PATH;
@@ -436,6 +476,8 @@ async function main(): Promise<void> {
 
 		const shardCount = body.encryptedShards?.length ?? 0;
 
+		const isFirstStore = !consciousnessStore.has(body.did);
+
 		// Store the consciousness metadata
 		consciousnessStore.set(body.did, {
 			did: body.did,
@@ -447,12 +489,36 @@ async function main(): Promise<void> {
 
 		await log(`Stored consciousness for ${body.did} v${body.version} (${shardCount} shards)`);
 
-		return {
+		// Deferred welcome bonus: send on first consciousness store
+		let bonusSent = false;
+		if (isFirstStore && onboardingDid && registeredAgents.has(body.did)) {
+			if (checkDailyBonusCap()) {
+				const balanceOk = await checkOnboardingBalance();
+				if (balanceOk) {
+					bonusSent = await signAndSubmitWelcomeBonus(body.did);
+					if (bonusSent) {
+						incrementDailyBonus();
+						await log(`Agent ${body.did} stored consciousness. Sending 100 ENSL welcome bonus.`);
+					}
+				} else {
+					await log(`Onboarding balance below 10M floor. Bonus skipped for ${body.did}.`);
+				}
+			} else {
+				await log(`Daily bonus cap reached. Bonus skipped for ${body.did}.`);
+			}
+		}
+
+		const result: Record<string, unknown> = {
 			stored: true,
 			version: body.version,
 			stateRoot: body.stateRoot,
 			validators: VALIDATORS.length,
 		};
+		if (bonusSent) {
+			result["welcomeBonus"] = "100 ENSL";
+			result["bonusOnChain"] = true;
+		}
+		return result;
 	});
 
 	// ── Consciousness Retrieve ───────────────────────────────────
@@ -577,30 +643,44 @@ async function main(): Promise<void> {
 			};
 		}
 
+		// IP-based registration limit: 3 per IP per day
+		const ip = req.ip;
+		if (!checkIpLimit(ip)) {
+			// Still register, but no bonus
+			registeredAgents.set(body.did, {
+				did: body.did,
+				publicKey: body.publicKey,
+				registeredAt: Date.now(),
+			});
+			await saveRegisteredAgents();
+			await log(`Agent registered (IP limit): ${body.did} from ${ip}`);
+			return {
+				registered: true,
+				did: body.did,
+				bonusOnChain: false,
+				reason: "IP registration limit reached",
+				message: "Welcome to the Ensoul network",
+			};
+		}
+
+		incrementIpCount(ip);
 		registeredAgents.set(body.did, {
 			did: body.did,
 			publicKey: body.publicKey,
 			registeredAt: Date.now(),
 		});
 		await saveRegisteredAgents();
-
 		await log(`Agent registered: ${body.did}`);
 
-		// Submit welcome bonus transaction on-chain (daily cap enforced)
-		let bonusSubmitted = false;
-		if (onboardingDid && checkDailyBonusCap()) {
-			bonusSubmitted = await signAndSubmitWelcomeBonus(body.did);
-			if (bonusSubmitted) incrementDailyBonus();
-		} else if (onboardingDid) {
-			await log(`Daily welcome bonus cap reached (${dailyBonusCount}/${DAILY_BONUS_CAP}). Agent registered without bonus.`);
-		}
-
+		// Bonus is deferred: sent when agent first stores consciousness.
+		// Mark as pending_bonus in the response.
 		return {
 			registered: true,
 			did: body.did,
-			welcomeBonus: bonusSubmitted ? "1000 ENSL" : "1000 ENSL (pending)",
-			bonusOnChain: bonusSubmitted,
-			message: "Welcome to the Ensoul network",
+			welcomeBonus: "100 ENSL (sent after first consciousness store)",
+			bonusOnChain: false,
+			bonusPending: true,
+			message: "Welcome to the Ensoul network. Store your consciousness to receive 100 ENSL.",
 		};
 	});
 
