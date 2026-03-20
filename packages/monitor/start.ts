@@ -44,6 +44,8 @@ interface HealthResponse {
 		blockHeight: number;
 		validatorCount: number;
 		blocksPerMinute: number;
+		ensouledAgents: number;
+		consciousnessStored: number;
 		uptime: number;
 	};
 	checkedAt: number;
@@ -54,7 +56,7 @@ interface HealthResponse {
 let health: HealthResponse = {
 	overall: "down",
 	services: [],
-	aggregate: { blockHeight: 0, validatorCount: 35, blocksPerMinute: 0, uptime: 0 },
+	aggregate: { blockHeight: 0, validatorCount: 35, blocksPerMinute: 0, ensouledAgents: 0, consciousnessStored: 0, uptime: 0 },
 	checkedAt: 0,
 };
 
@@ -190,6 +192,18 @@ async function pollAll(): Promise<void> {
 	const downCount = services.filter((s) => s.status === "down").length;
 	const overall = downCount === 0 ? "operational" : downCount >= services.length / 2 ? "down" : "degraded";
 
+	// Fetch agent counts from the API
+	let ensouledAgents = 0;
+	let consciousnessStored = 0;
+	try {
+		const apiResp = await fetch("https://api.ensoul.dev/v1/network/status", { signal: AbortSignal.timeout(5000) });
+		if (apiResp.ok) {
+			const apiData = (await apiResp.json()) as { agentCount?: number; totalConsciousnessStored?: number };
+			ensouledAgents = apiData.agentCount ?? apiData.totalConsciousnessStored ?? 0;
+			consciousnessStored = apiData.totalConsciousnessStored ?? 0;
+		}
+	} catch { /* non-fatal */ }
+
 	health = {
 		overall,
 		services,
@@ -197,6 +211,8 @@ async function pollAll(): Promise<void> {
 			blockHeight: maxHeight,
 			validatorCount: 35,
 			blocksPerMinute: bpm,
+			ensouledAgents,
+			consciousnessStored,
 			uptime: Math.round((now - startedAt) / 1000),
 		},
 		checkedAt: now,
@@ -370,7 +386,7 @@ a{color:#7c3aed;text-decoration:none}
 .overall.operational{background:#1e3a2f;color:#4ade80}
 .overall.degraded{background:#3f3a1e;color:#fbbf24}
 .overall.down{background:#3f1e1e;color:#f87171}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}
 .stat-box{background:#12121a;border:1px solid #2d2d3f;border-radius:8px;padding:14px;text-align:center}
 .stat-val{font-size:1.4em;font-weight:700;color:#7c3aed}
 .stat-lbl{font-size:0.75em;color:#888;text-transform:uppercase;margin-top:2px}
@@ -387,6 +403,13 @@ a{color:#7c3aed;text-decoration:none}
 .card-time{font-size:0.75em;color:#666;text-align:right;flex-shrink:0}
 h2{font-size:0.85em;color:#888;text-transform:uppercase;letter-spacing:1px;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid #1e1e2a}
 .footer{text-align:center;color:#666;font-size:0.75em;margin-top:24px;padding:12px 0;border-top:1px solid #1e1e2a}
+.agent-entry{background:#12121a;border:1px solid #1e1e2a;border-radius:6px;padding:8px 12px;margin:4px 0;display:flex;gap:10px;align-items:center;font-size:0.85em}
+.agent-did{font-family:monospace;font-size:0.8em;color:#aaa;flex:1;min-width:0;word-break:break-all}
+.agent-date{color:#666;font-size:0.75em;flex-shrink:0}
+.agent-badge{padding:1px 6px;border-radius:4px;font-size:0.7em;font-weight:600;flex-shrink:0}
+.agent-badge.sent{background:#1e3a2f;color:#4ade80}
+.agent-badge.pending{background:#3f3a1e;color:#fbbf24}
+.agent-count{font-size:1.3em;font-weight:700;color:#7c3aed;margin-right:8px}
 .social-scroll{max-height:500px;overflow-y:auto;border:1px solid #1e1e2a;border-radius:8px;background:#0d0d14;padding:4px}
 .social-entry{background:#12121a;border:1px solid #1e1e2a;border-radius:6px;padding:10px 12px;margin:4px;display:flex;gap:8px;align-items:flex-start;font-size:0.85em;text-decoration:none;color:inherit;transition:border-color 0.2s}
 .social-entry:hover{border-color:#2d2d3f}
@@ -409,6 +432,7 @@ h2{font-size:0.85em;color:#888;text-transform:uppercase;letter-spacing:1px;margi
 <div class="sub">Auto-refreshes every 30 seconds</div>
 </div>
 <div id="content">Loading...</div>
+<div id="agents"></div>
 <div id="social"></div>
 <div class="footer"><a href="https://ensoul.dev">ensoul.dev</a> | <a href="https://explorer.ensoul.dev">Explorer</a> | <a href="https://github.com/suitandclaw/ensoul">GitHub</a></div>
 </div>
@@ -421,6 +445,8 @@ s+='<div class="stats">';
 s+='<div class="stat-box"><div class="stat-val">'+h.aggregate.blockHeight+'</div><div class="stat-lbl">Block Height</div></div>';
 s+='<div class="stat-box"><div class="stat-val">'+h.aggregate.validatorCount+'</div><div class="stat-lbl">Validators</div></div>';
 s+='<div class="stat-box"><div class="stat-val">'+h.aggregate.blocksPerMinute+'</div><div class="stat-lbl">Blocks/min</div></div>';
+s+='<div class="stat-box"><div class="stat-val">'+h.aggregate.ensouledAgents+'</div><div class="stat-lbl">Ensouled Agents</div></div>';
+s+='<div class="stat-box"><div class="stat-val">'+h.aggregate.consciousnessStored+'</div><div class="stat-lbl">Consciousness Stored</div></div>';
 var um=Math.floor(h.aggregate.uptime/60);var uh=Math.floor(um/60);
 s+='<div class="stat-box"><div class="stat-val">'+(uh>0?uh+'h':um+'m')+'</div><div class="stat-lbl">Monitor Uptime</div></div>';
 s+='</div>';
@@ -481,9 +507,27 @@ var btn3=document.getElementById("load-more-btn");
 if(btn3)btn3.textContent="Load failed. Try again.";
 });
 }
+function renderAgents(data){
+var el=document.getElementById("agents");
+if(!el||!data)return;
+var agents=data.agents||[];
+if(agents.length===0){el.innerHTML='';return;}
+var s='<h2><span class="agent-count">'+data.total+'</span>Ensouled Agents</h2>';
+s+='<div class="social-scroll" style="max-height:300px">';
+agents.forEach(function(a){
+s+='<div class="agent-entry">';
+s+='<span class="agent-did">'+a.didShort+'</span>';
+s+='<span class="agent-badge '+(a.bonusSent?'sent':'pending')+'">'+(a.bonusSent?'bonus sent':'pending')+'</span>';
+s+='<span class="agent-date">'+(a.lastStore?new Date(a.lastStore).toLocaleDateString():'no store')+'</span>';
+s+='</div>';
+});
+s+='</div>';
+el.innerHTML=s;
+}
 function poll(){
 fetch("/api/health").then(function(r){return r.json()}).then(render).catch(function(){});
 fetch("/api/social").then(function(r){return r.json()}).then(renderSocial).catch(function(){});
+fetch("https://api.ensoul.dev/v1/agents/list").then(function(r){return r.json()}).then(renderAgents).catch(function(){});
 }
 poll();
 setInterval(poll,30000);

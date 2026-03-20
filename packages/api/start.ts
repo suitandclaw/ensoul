@@ -684,6 +684,35 @@ async function main(): Promise<void> {
 		};
 	});
 
+	// ── Agent List (protected) ───────────────────────────────────
+
+	app.get("/v1/agents/list", async (req, reply) => {
+		// Require API key or basic auth
+		const authKey = process.env["ENSOUL_AGENTS_LIST_KEY"] ?? "";
+		const providedKey = req.headers["x-api-key"];
+		if (authKey && providedKey !== authKey) {
+			return reply.status(403).send({ error: "Forbidden" });
+		}
+
+		const agents = [...registeredAgents.values()].map((a) => {
+			const consciousness = consciousnessStore.get(a.did);
+			return {
+				did: a.did,
+				didShort: a.did.length > 24
+					? `${a.did.slice(0, 16)}...${a.did.slice(-6)}`
+					: a.did,
+				registeredAt: new Date(a.registeredAt).toISOString(),
+				bonusSent: consciousness !== undefined,
+				lastStore: consciousness?.storedAt
+					? new Date(consciousness.storedAt).toISOString()
+					: null,
+				version: consciousness?.version ?? 0,
+			};
+		});
+
+		return { total: agents.length, agents };
+	});
+
 	// ── Start ────────────────────────────────────────────────────
 
 	await app.listen({ port, host: "0.0.0.0" });
@@ -702,6 +731,7 @@ async function main(): Promise<void> {
 	process.stdout.write(`    GET  /v1/consciousness/:did/verify\n`);
 	process.stdout.write(`    POST /v1/handshake/verify\n`);
 	process.stdout.write(`    POST /v1/agents/register\n`);
+	process.stdout.write(`    GET  /v1/agents/list\n`);
 	process.stdout.write(`\n  Backend validators: ${VALIDATORS.length} (${net.alive} alive)\n`);
 	process.stdout.write(`  Block height: ${net.height}\n\n`);
 
