@@ -1,5 +1,6 @@
 import { writeFile, unlink, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir, platform } from "node:os";
 import { execSync } from "node:child_process";
 import type { CliArgs } from "./args.js";
@@ -8,6 +9,15 @@ import { expandHome } from "./args.js";
 const LABEL = "dev.ensoul.validator";
 const LAUNCH_DIR = join(homedir(), "Library", "LaunchAgents");
 const LOG_DIR = join(homedir(), ".ensoul");
+
+/** Absolute path to this file's directory (packages/node/src/cli/). */
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+
+/** Absolute path to main.ts (the CLI entry point). */
+const MAIN_TS = resolve(SCRIPT_DIR, "main.ts");
+
+/** Absolute path to the repo root (four levels up from packages/node/src/cli/). */
+const REPO_DIR = resolve(SCRIPT_DIR, "..", "..", "..", "..");
 
 /** Result of a service operation. */
 export interface ServiceResult {
@@ -23,13 +33,13 @@ function plistPath(): string {
 }
 
 /**
- * Resolve the npx binary path.
+ * Resolve a binary by name using "which". Returns the absolute path.
  */
-function findNpx(): string {
+function findBin(name: string, fallback: string): string {
 	try {
-		return execSync("which npx", { encoding: "utf-8" }).trim();
+		return execSync(`which ${name}`, { encoding: "utf-8" }).trim();
 	} catch {
-		return "/usr/local/bin/npx";
+		return fallback;
 	}
 }
 
@@ -37,55 +47,85 @@ function findNpx(): string {
  * Resolve the node bin directory for PATH.
  */
 function nodeBinDir(): string {
-	const npx = findNpx();
-	const parts = npx.split("/");
+	const nodePath = process.execPath; // e.g. /usr/local/bin/node
+	const parts = nodePath.split("/");
 	parts.pop();
 	return parts.join("/");
 }
 
 /**
  * Build the launchd plist XML for a validator service.
+ *
+ * Uses absolute paths throughout because launchd runs with a minimal
+ * environment. The command chain is:
+ *   caffeinate -s npx tsx /absolute/path/to/main.ts --validate [flags]
  */
 export function buildPlist(args: CliArgs): string {
-	const npx = findNpx();
+	const npx = findBin("npx", "/usr/local/bin/npx");
 	const nodeDir = nodeBinDir();
 	const home = homedir();
 	const dataDir = expandHome(args.dataDir);
 	const logFile = join(LOG_DIR, "validator.log");
 
-	// Wrap with caffeinate -s to prevent system sleep while validating
+	// Helper: add a plist <string> element
+	const s = (val: string): string => `    <string>${val}</string>`;
+
+	// caffeinate -s prevents sleep, then npx tsx runs the local TS entry point
 	const programArgs = [
-		`    <string>/usr/bin/caffeinate</string>`,
-		`    <string>-s</string>`,
-		`    <string>${npx}</string>`,
-		`    <string>ensoul-node</string>`,
-		`    <string>--validate</string>`,
-		`    <string>--port</string>`,
-		`    <string>${args.port}</string>`,
-		`    <string>--api-port</string>`,
-		`    <string>${args.apiPort}</string>`,
-		`    <string>--data-dir</string>`,
-		`    <string>${dataDir}</string>`,
+		s("/usr/bin/caffeinate"),
+		s("-s"),
+		s(npx),
+		s("tsx"),
+		s(MAIN_TS),
+		s("--validate"),
+		s("--port"),
+		s(String(args.port)),
+		s("--api-port"),
+		s(String(args.apiPort)),
+		s("--data-dir"),
+		s(dataDir),
 	];
 
 	if (args.storageGB !== 10) {
-		programArgs.push(`    <string>--storage</string>`);
-		programArgs.push(`    <string>${args.storageGB}</string>`);
+		programArgs.push(s("--storage"));
+		programArgs.push(s(String(args.storageGB)));
 	}
 
-	// Pass through genesis and peers flags if set
 	if (args.genesisFile) {
-		programArgs.push(`    <string>--genesis</string>`);
-		programArgs.push(`    <string>${args.genesisFile}</string>`);
+		programArgs.push(s("--genesis"));
+		programArgs.push(s(args.genesisFile));
 	}
 
 	if (args.peers.length > 0) {
-		programArgs.push(`    <string>--peers</string>`);
-		programArgs.push(`    <string>${args.peers.join(",")}</string>`);
+		programArgs.push(s("--peers"));
+		programArgs.push(s(args.peers.join(",")));
 	}
 
 	if (args.noMinStake) {
-		programArgs.push(`    <string>--no-min-stake</string>`);
+		programArgs.push(s("--no-min-stake"));
+	}
+
+	if (args.seed) {
+		programArgs.push(s("--seed"));
+		programArgs.push(s(args.seed));
+	}
+
+	if (args.publicUrl) {
+		programArgs.push(s("--public-url"));
+		programArgs.push(s(args.publicUrl));
+	}
+
+	// Pass through ENSOUL_KEY_PASSWORD if set (for encrypted identities)
+	const keyPassword = process.env["ENSOUL_KEY_PASSWORD"] ?? "";
+	const envEntries = [
+		`    <key>PATH</key>`,
+		`    <string>${nodeDir}:/usr/local/bin:/usr/bin:/bin</string>`,
+		`    <key>HOME</key>`,
+		`    <string>${home}</string>`,
+	];
+	if (keyPassword) {
+		envEntries.push(`    <key>ENSOUL_KEY_PASSWORD</key>`);
+		envEntries.push(`    <string>${keyPassword}</string>`);
 	}
 
 	return `<?xml version="1.0" encoding="UTF-8"?>
@@ -101,6 +141,9 @@ export function buildPlist(args: CliArgs): string {
 ${programArgs.join("\n")}
   </array>
 
+  <key>WorkingDirectory</key>
+  <string>${REPO_DIR}</string>
+
   <key>RunAtLoad</key>
   <true/>
 
@@ -115,10 +158,7 @@ ${programArgs.join("\n")}
 
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key>
-    <string>${nodeDir}:/usr/local/bin:/usr/bin:/bin</string>
-    <key>HOME</key>
-    <string>${home}</string>
+${envEntries.join("\n")}
   </dict>
 
   <key>ThrottleInterval</key>
