@@ -246,6 +246,8 @@ interface SocialEntry {
 	platform: "twitter" | "moltbook";
 	type: "post" | "reply" | "comment";
 	content: string;
+	detail: string;
+	link: string;
 }
 
 let socialFeed: SocialEntry[] = [];
@@ -255,6 +257,16 @@ let socialLogDepth = 50;
 async function parseSocialActivity(): Promise<void> {
 	const entries: SocialEntry[] = [];
 
+	const twitterLink = "https://twitter.com/ensoul_network";
+	const moltbookBase = "https://www.moltbook.com";
+
+	// Helper: split on " | " to get title and detail from new log format
+	function splitContent(raw: string): { title: string; detail: string } {
+		const idx = raw.indexOf(" | ");
+		if (idx === -1) return { title: raw.slice(0, 280), detail: "" };
+		return { title: raw.slice(0, idx), detail: raw.slice(idx + 3).slice(0, 280) };
+	}
+
 	// Parse Twitter agent log
 	try {
 		const raw = await readFile(AGENT_LOG, "utf-8");
@@ -263,17 +275,21 @@ async function parseSocialActivity(): Promise<void> {
 			const timeMatch = line.match(/^\[(\d{2}:\d{2}:\d{2})\]/);
 			const ts = timeMatch ? timeMatch[1]! : "";
 
-			if (line.includes("Posted:")) {
+			if (line.includes("[agent] Posted:")) {
 				const content = line.split("Posted:")[1]?.trim() ?? "";
-				entries.push({ timestamp: ts, platform: "twitter", type: "post", content: content.slice(0, 280) });
-			} else if (line.includes("Replied to @")) {
-				const match = line.match(/Replied to @(\S+)/);
-				entries.push({ timestamp: ts, platform: "twitter", type: "reply", content: `@${match?.[1] ?? "unknown"}` });
-			} else if (line.includes("Engaged with @")) {
-				const match = line.match(/Engaged with @(\S+) on "(.*)"/);
-				const target = match?.[1] ?? "unknown";
-				const topic = match?.[2] ?? "";
-				entries.push({ timestamp: ts, platform: "twitter", type: "reply", content: topic ? `@${target}: ${topic}` : `@${target}` });
+				entries.push({ timestamp: ts, platform: "twitter", type: "post", content: content.slice(0, 280), detail: "", link: twitterLink });
+			} else if (line.includes("[agent] Replied to @")) {
+				// Format: Replied to @user: <full reply>
+				const match = line.match(/Replied to @(\S+?):\s*(.*)/);
+				const user = match?.[1] ?? "unknown";
+				const text = match?.[2] ?? "";
+				entries.push({ timestamp: ts, platform: "twitter", type: "reply", content: `@${user}`, detail: text.slice(0, 280), link: twitterLink });
+			} else if (line.includes("[agent] Engaged with @")) {
+				// Format: Engaged with @user: <full reply>
+				const match = line.match(/Engaged with @(\S+?):\s*(.*)/);
+				const user = match?.[1] ?? "unknown";
+				const text = match?.[2] ?? "";
+				entries.push({ timestamp: ts, platform: "twitter", type: "reply", content: `@${user}`, detail: text.slice(0, 280), link: twitterLink });
 			}
 		}
 	} catch { /* no twitter log */ }
@@ -286,23 +302,33 @@ async function parseSocialActivity(): Promise<void> {
 			const timeMatch = line.match(/^\[(\d{2}:\d{2}:\d{2})\]/);
 			const ts = timeMatch ? timeMatch[1]! : "";
 
-			if (line.includes("Posted in m/")) {
-				const match = line.match(/Posted in (m\/\S+): "(.+)"/);
-				entries.push({
-					timestamp: ts, platform: "moltbook", type: "post",
-					content: match ? `${match[1]}: ${match[2]?.slice(0, 280)}` : line.slice(0, 280),
-				});
-			} else if (line.includes("Commented on")) {
-				// Handle both "by username" and "by [object Object]" formats
-				const match = line.match(/Commented on "(.+?)" by (.+)/);
-				let author = match?.[2]?.trim() ?? "";
-				// Strip [object Object] from author
-				if (author.includes("[object")) author = "";
-				const title = match?.[1]?.slice(0, 120) ?? "";
-				entries.push({
-					timestamp: ts, platform: "moltbook", type: "comment",
-					content: author ? `re: "${title}" by ${author}` : `re: "${title}"`,
-				});
+			if (line.includes("[agent] Posted in m/")) {
+				// Format: Posted in m/<submolt>: <title> | <content>
+				const match = line.match(/Posted in (m\/\S+?):\s*(.*)/);
+				const submolt = match?.[1] ?? "m/general";
+				const rest = match?.[2] ?? "";
+				const { title, detail } = splitContent(rest);
+				const link = `${moltbookBase}/${submolt}`;
+				entries.push({ timestamp: ts, platform: "moltbook", type: "post", content: title, detail, link });
+			} else if (line.includes("[agent] Commented on")) {
+				// Format: Commented on "<title>" | <comment content>
+				const match = line.match(/Commented on "(.+?)"\s*\|\s*(.*)/);
+				const postTitle = match?.[1] ?? "";
+				const commentText = match?.[2]?.slice(0, 280) ?? "";
+				entries.push({ timestamp: ts, platform: "moltbook", type: "comment", content: `re: "${postTitle}"`, detail: commentText, link: `${moltbookBase}/u/ensoulnetwork` });
+			} else if (line.includes("[agent] Replied to")) {
+				// Format: Replied to <author> on "<title>" | <reply content>
+				const match = line.match(/Replied to (\S+) on "(.+?)"\s*\|\s*(.*)/);
+				const author = match?.[1] ?? "";
+				const postTitle = match?.[2] ?? "";
+				const replyText = match?.[3]?.slice(0, 280) ?? "";
+				entries.push({ timestamp: ts, platform: "moltbook", type: "reply", content: `@${author} re: "${postTitle}"`, detail: replyText, link: `${moltbookBase}/u/ensoulnetwork` });
+			} else if (line.includes("[agent] Responded to mention")) {
+				// Format: Responded to mention "<title>" | <comment content>
+				const match = line.match(/Responded to mention "(.+?)"\s*\|\s*(.*)/);
+				const postTitle = match?.[1] ?? "";
+				const commentText = match?.[2]?.slice(0, 280) ?? "";
+				entries.push({ timestamp: ts, platform: "moltbook", type: "comment", content: `mention: "${postTitle}"`, detail: commentText, link: `${moltbookBase}/u/ensoulnetwork` });
 			}
 		}
 	} catch { /* no moltbook log */ }
@@ -429,19 +455,32 @@ if(!entries||entries.length===0){el.innerHTML='<h2>Social Activity</h2><div styl
 var s='<div class="social-scroll">';
 entries.forEach(function(e){
 var icon=e.platform==='twitter'?'&#x1F426;':'&#x1F99E;';
-var link=e.platform==='twitter'?'https://twitter.com/ensoul_network':'https://www.moltbook.com/u/ensoulnetwork';
+var link=e.link||(e.platform==='twitter'?'https://twitter.com/ensoul_network':'https://www.moltbook.com/u/ensoulnetwork');
 s+='<a class="social-entry" href="'+link+'" target="_blank" rel="noopener">';
 s+='<span class="social-time">'+e.timestamp+'</span>';
 s+='<span class="social-icon">'+icon+'</span>';
 s+='<div style="flex:1;min-width:0"><span class="social-badge '+e.type+'">'+e.type+'</span> ';
-s+='<span class="social-content">'+e.content+'</span></div>';
+s+='<span class="social-content">'+e.content+'</span>';
+if(e.detail)s+='<div style="color:#777;font-size:0.85em;margin-top:3px;line-height:1.3">'+e.detail+'</div>';
+s+='</div>';
 s+='</a>';
 });
 s+='</div>';
-s+='<div class="social-more" onclick="loadMore()">Load more</div>';
+s+='<div class="social-more" id="load-more-btn" onclick="loadMore()">Load more</div>';
 el.innerHTML='<h2>Social Activity</h2>'+s;
 }
-function loadMore(){fetch("/api/social?depth=200").then(function(r){return r.json()}).then(renderSocial).catch(function(){});}
+function loadMore(){
+var btn=document.getElementById("load-more-btn");
+if(btn)btn.textContent="Loading...";
+fetch("/api/social?depth=200").then(function(r){return r.json()}).then(function(d){
+renderSocial(d);
+var btn2=document.getElementById("load-more-btn");
+if(btn2)btn2.style.display="none";
+}).catch(function(){
+var btn3=document.getElementById("load-more-btn");
+if(btn3)btn3.textContent="Load failed. Try again.";
+});
+}
 function poll(){
 fetch("/api/health").then(function(r){return r.json()}).then(render).catch(function(){});
 fetch("/api/social").then(function(r){return r.json()}).then(renderSocial).catch(function(){});
