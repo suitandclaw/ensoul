@@ -484,3 +484,77 @@ footer .tagline { color: var(--text-dim); }
 @media (max-width: 680px) {
 	.flywheel-steps { grid-template-columns: 1fr; }
 }
+
+/* ── Comprehensive mobile fixes ───────────────────────── */
+
+/* Prevent horizontal overflow globally */
+html, body { overflow-x: hidden; max-width: 100vw; }
+
+/* Tables scroll horizontally on mobile */
+table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* Code blocks scroll horizontally */
+pre { max-width: 100%; overflow-x: auto; word-break: break-word; }
+code { word-break: break-word; }
+
+/* Touch targets minimum 44px */
+.btn, .wallet-btn, nav .links a { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+
+/* Small phone (320px) */
+@media (max-width: 480px) {
+	.container, .wide { padding: 0 16px; }
+	section { padding: 48px 0; }
+
+	/* Hero */
+	.hero { padding: 60px 0 40px; }
+	.hero h1 { font-size: 1.8em; }
+	.hero .subline { font-size: 0.95em; }
+	.hero .ctas { flex-direction: column; gap: 10px; }
+	.hero .ctas .btn { width: 100%; }
+	.live-stats { grid-template-columns: 1fr 1fr; gap: 8px; }
+	.stat-card { padding: 14px 8px; }
+	.stat-value { font-size: 1.3em; }
+
+	/* Section titles */
+	.section-title { font-size: 1.3em; }
+	.section-sub { font-size: 0.9em; }
+
+	/* Grids to single column */
+	.problem-grid, .steps, .flywheel-steps { grid-template-columns: 1fr; }
+	.steps[style] { grid-template-columns: 1fr !important; }
+
+	/* Trust list */
+	.trust-item { flex-direction: row; gap: 10px; padding: 12px; }
+	.trust-num { font-size: 1.3em; min-width: 30px; }
+
+	/* Validator CTA */
+	.validator-cta pre { font-size: 0.85em; padding: 14px 16px; }
+
+	/* Footer */
+	footer .links { flex-direction: column; gap: 10px; align-items: center; }
+
+	/* Docs layout */
+	.docs-layout { padding: 16px; gap: 20px; }
+	.docs-content h1 { font-size: 1.5em; }
+	.docs-content h2 { font-size: 1.2em; }
+	.docs-content pre { font-size: 0.8em; padding: 12px; }
+
+	/* Alloc bars */
+	.alloc-bar { flex-wrap: wrap; }
+	.alloc-label { min-width: 140px; font-size: 0.8em; }
+
+	/* Endpoint cards */
+	.endpoint .path { font-size: 0.85em; word-break: break-all; }
+
+	/* Nav */
+	nav .inner { padding: 0 16px; gap: 16px; }
+}
+
+/* Tablet */
+@media (max-width: 768px) and (min-width: 481px) {
+	.hero h1 { font-size: 2.2em; }
+	.hero .ctas { flex-direction: row; flex-wrap: wrap; }
+	.steps { grid-template-columns: 1fr; }
+	.steps[style] { grid-template-columns: 1fr !important; }
+	.problem-grid { grid-template-columns: 1fr 1fr; }
+}

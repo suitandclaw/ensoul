@@ -39,7 +39,21 @@
 .msg.error{background:#3f1e1e;color:#f87171;border:1px solid #4f2d2d}
 .msg.info{background:#1e2a3f;color:#60a5fa;border:1px solid #2d3f5f}
 .hidden{display:none}
-@media(max-width:600px){.wallet-actions{grid-template-columns:1fr}.network-stats{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){
+.wallet-actions{grid-template-columns:1fr}
+.network-stats{grid-template-columns:repeat(2,1fr)}
+.wallet-wrap{padding:12px 16px}
+.wallet-card{padding:14px}
+.wallet-card h2{font-size:1em}
+.did-box{font-size:0.7em;padding:8px}
+.seed-display{font-size:0.75em;padding:10px}
+.wallet-row{flex-wrap:wrap;gap:4px}
+.wallet-row .value{font-size:0.8em;max-width:100%;word-break:break-all}
+.wallet-input{font-size:0.9em}
+.wallet-btn{min-height:44px;font-size:0.9em}
+.net-stat .val{font-size:1em}
+.net-stat .lbl{font-size:0.65em}
+}
 </style>
 </head>
 <body>
