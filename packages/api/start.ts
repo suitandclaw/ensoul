@@ -13,11 +13,15 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
-import { appendFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 const port = Number(process.argv.find((_, i, a) => a[i - 1] === "--port") ?? 5000);
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_DIR = join(SCRIPT_DIR, "..", "..");
+const DEFAULT_ONBOARDING_KEY_PATH = join(REPO_DIR, "genesis-keys", "onboarding.json");
 const LOG_DIR = join(homedir(), ".ensoul");
 const LOG_FILE = join(LOG_DIR, "api.log");
 
@@ -69,6 +73,112 @@ const consciousnessStore = new Map<string, {
 	storedAt: number;
 }>();
 
+// ── Onboarding key ───────────────────────────────────────────────────
+
+interface OnboardingKey {
+	seed: string;
+	did: string;
+}
+
+let onboardingKey: OnboardingKey | null = null;
+let onboardingNonce = 0;
+const WELCOME_BONUS = 1000n * (10n ** 18n);
+
+async function loadOnboardingKey(): Promise<void> {
+	const keyPath = process.env["ONBOARDING_KEY_PATH"] ?? DEFAULT_ONBOARDING_KEY_PATH;
+	try {
+		const raw = await readFile(keyPath, "utf-8");
+		const data = JSON.parse(raw) as { seed: string; did: string; role: string };
+		onboardingKey = { seed: data.seed, did: data.did };
+		await log(`Loaded onboarding key: ${data.did} (role: ${data.role})`);
+	} catch {
+		await log(`Warning: onboarding key not found at ${keyPath}. Welcome bonus disabled.`);
+	}
+}
+
+function hexToBytes(hex: string): Uint8Array {
+	const bytes = new Uint8Array(hex.length / 2);
+	for (let i = 0; i < hex.length; i += 2) {
+		bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+	}
+	return bytes;
+}
+
+function bytesToHexLocal(buf: Uint8Array): string {
+	return Array.from(buf).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Sign a transfer transaction from the onboarding account.
+ * Uses Ed25519 via dynamic import of @noble/ed25519 (available in @ensoul/node deps).
+ */
+async function signAndSubmitWelcomeBonus(agentDid: string): Promise<boolean> {
+	if (!onboardingKey) return false;
+
+	try {
+		// Build the transaction payload (same format as @ensoul/ledger encodeTxPayload)
+		const txPayload = JSON.stringify({
+			type: "transfer",
+			from: onboardingKey.did,
+			to: agentDid,
+			amount: WELCOME_BONUS.toString(),
+			nonce: onboardingNonce,
+			timestamp: Date.now(),
+		});
+
+		// Sign with Ed25519
+		const ed = await import("@noble/ed25519");
+		const { sha512 } = await import("@noble/hashes/sha2.js");
+		(ed as unknown as { hashes: { sha512: ((m: Uint8Array) => Uint8Array) | undefined } }).hashes.sha512 = (m: Uint8Array) => sha512(m);
+
+		const seed = hexToBytes(onboardingKey.seed);
+		const signature = await ed.signAsync(
+			new TextEncoder().encode(txPayload),
+			seed,
+		);
+
+		// Build serialized transaction for the peer API
+		const serializedTx = {
+			type: "transfer",
+			from: onboardingKey.did,
+			to: agentDid,
+			amount: WELCOME_BONUS.toString(),
+			nonce: onboardingNonce,
+			timestamp: Date.now(),
+			signature: bytesToHexLocal(signature),
+		};
+
+		// Submit to the first available validator
+		for (const url of VALIDATORS) {
+			try {
+				const resp = await fetch(`${url}/peer/tx`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(serializedTx),
+					signal: AbortSignal.timeout(5000),
+				});
+				if (resp.ok) {
+					const result = (await resp.json()) as { accepted: boolean };
+					if (result.accepted) {
+						onboardingNonce++;
+						await log(`Welcome bonus submitted: 1000 ENSL to ${agentDid} (nonce ${onboardingNonce - 1})`);
+						return true;
+					}
+				}
+			} catch {
+				continue;
+			}
+		}
+
+		await log(`Welcome bonus failed: no validator accepted the transaction for ${agentDid}`);
+		return false;
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		await log(`Welcome bonus error: ${msg}`);
+		return false;
+	}
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 async function log(msg: string): Promise<void> {
@@ -118,6 +228,7 @@ async function queryValidatorStatus(): Promise<{ height: number; validatorCount:
 
 async function main(): Promise<void> {
 	await mkdir(LOG_DIR, { recursive: true });
+	await loadOnboardingKey();
 
 	const app = Fastify({ logger: false });
 
@@ -372,17 +483,19 @@ async function main(): Promise<void> {
 			registeredAt: Date.now(),
 		});
 
-		// TODO: Submit a TRANSFER transaction from the onboarding incentives
-		// account to body.did for 1000 ENSL. This requires the onboarding
-		// account's private key to sign the transaction, and a connected
-		// validator to submit it. For now the welcome bonus is tracked in
-		// the API gateway's in-memory state only.
-		await log(`Agent registered: ${body.did} (welcome bonus: 1000 ENSL pending on-chain credit)`);
+		await log(`Agent registered: ${body.did}`);
+
+		// Submit welcome bonus transaction on-chain
+		let bonusSubmitted = false;
+		if (onboardingKey) {
+			bonusSubmitted = await signAndSubmitWelcomeBonus(body.did);
+		}
 
 		return {
 			registered: true,
 			did: body.did,
-			welcomeBonus: "1000 ENSL",
+			welcomeBonus: bonusSubmitted ? "1000 ENSL" : "1000 ENSL (pending)",
+			bonusOnChain: bonusSubmitted,
 			message: "Welcome to the Ensoul network",
 		};
 	});

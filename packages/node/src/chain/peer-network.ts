@@ -1,7 +1,8 @@
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import type { GossipNetwork } from "./gossip.js";
-import type { SerializedBlock } from "./types.js";
+import type { SerializedBlock, SerializedTx } from "./types.js";
+import { deserializeTx } from "./types.js";
 import { SeedClient } from "./seed-node.js";
 
 /**
@@ -115,6 +116,21 @@ export class PeerNetwork {
 				const block = req.body;
 				const result = this.gossip.handleGossipBlock(block);
 				return result;
+			},
+		);
+
+		// POST /peer/tx - accept a signed transaction into the mempool
+		this.server.post<{ Body: SerializedTx }>(
+			"/peer/tx",
+			async (req) => {
+				try {
+					const tx = deserializeTx(req.body);
+					const hash = this.gossip.submitTransaction(tx);
+					return { accepted: hash !== null, hash };
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					return { accepted: false, error: msg };
+				}
 			},
 		);
 
