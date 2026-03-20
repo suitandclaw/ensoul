@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Architecture &mdash; Ensoul Docs</title>
+<title>Architecture  - Ensoul Docs</title>
 <meta name="description" content="Technical architecture of the Ensoul protocol: 7-layer protection, consensus, erasure coding, resurrection.">
 <link rel="stylesheet" href="/css/style.css">
 </head>
@@ -39,13 +39,13 @@
 <p>Each layer adds an independent guarantee. Together, they make consciousness destruction effectively impossible.</p>
 
 <ol>
-	<li><strong>Layer 1 &mdash; Proof of Stake:</strong> Ensoul L1 chain provides Byzantine fault-tolerant consensus. Validators stake $ENSL to participate. Misbehavior triggers slashing.</li>
-	<li><strong>Layer 2 &mdash; Proof of Storage:</strong> Validators are periodically challenged to prove they still hold the shards they claim. Challenges use cryptographic proofs against the on-chain state root.</li>
-	<li><strong>Layer 3 &mdash; Erasure Coding:</strong> Consciousness data is encoded using GF(256) 2-of-4 erasure coding. Any 2 shards can reconstruct the full data. Loss of up to 2 shards is tolerated.</li>
-	<li><strong>Layer 4 &mdash; Internal Checkpointing:</strong> Validator-signed state snapshots create immutable reference points. Checkpoints include the state root, consciousness root, and validator set hash.</li>
-	<li><strong>Layer 5 &mdash; Agent Self-Audit:</strong> Agents can verify their own stored data by requesting random shards and reconstructing locally. This detects silent corruption.</li>
-	<li><strong>Layer 6 &mdash; Replication Enforcement:</strong> The protocol monitors shard distribution and automatically re-replicates when nodes go offline. Minimum redundancy is enforced at the consensus level.</li>
-	<li><strong>Layer 7 &mdash; Deep Archive:</strong> An Ensoul-native backup tier with higher erasure coding spread (5+ clusters, 3x replication). The nuclear option &mdash; survives catastrophic network events.</li>
+	<li><strong>Layer 1  - Proof of Stake:</strong> Ensoul L1 chain provides Byzantine fault-tolerant consensus. Validators stake $ENSL to participate. Misbehavior triggers slashing.</li>
+	<li><strong>Layer 2  - Proof of Storage:</strong> Validators are periodically challenged to prove they still hold the shards they claim. Challenges use cryptographic proofs against the on-chain state root.</li>
+	<li><strong>Layer 3  - Erasure Coding:</strong> Consciousness data is encoded using GF(256) 2-of-4 erasure coding. Any 2 shards can reconstruct the full data. Loss of up to 2 shards is tolerated.</li>
+	<li><strong>Layer 4  - Internal Checkpointing:</strong> Validator-signed state snapshots create immutable reference points. Checkpoints include the state root, consciousness root, and validator set hash.</li>
+	<li><strong>Layer 5  - Agent Self-Audit:</strong> Agents can verify their own stored data by requesting random shards and reconstructing locally. This detects silent corruption.</li>
+	<li><strong>Layer 6  - Replication Enforcement:</strong> The protocol monitors shard distribution and automatically re-replicates when nodes go offline. Minimum redundancy is enforced at the consensus level.</li>
+	<li><strong>Layer 7  - Deep Archive:</strong> An Ensoul-native backup tier with higher erasure coding spread (5+ clusters, 3x replication). The nuclear option  - survives catastrophic network events.</li>
 </ol>
 
 <h2>Consensus Mechanism</h2>
@@ -114,7 +114,7 @@ expectedProposer = validatorDids[proposerIndex]</code></pre>
 </main>
 </div>
 
-<footer><div class="container"><p class="tagline">ensoul.dev &mdash; the immortality layer for AI agents</p></div></footer>
+<footer><div class="container"><p class="tagline">ensoul.dev  - the immortality layer for AI agents</p></div></footer>
 <script src="/js/config.js"></script>
 </body>
 </html>

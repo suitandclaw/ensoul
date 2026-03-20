@@ -13,7 +13,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -62,8 +62,26 @@ interface PeerStatus {
 
 // ── State ────────────────────────────────────────────────────────────
 
-// In-memory registry of known agents (persisted to disk later)
+const AGENTS_FILE = join(LOG_DIR, "registered-agents.json");
 const registeredAgents = new Map<string, { did: string; publicKey: string; registeredAt: number }>();
+
+async function loadRegisteredAgents(): Promise<void> {
+	try {
+		const raw = await readFile(AGENTS_FILE, "utf-8");
+		const entries = JSON.parse(raw) as Array<{ did: string; publicKey: string; registeredAt: number }>;
+		for (const e of entries) {
+			registeredAgents.set(e.did, e);
+		}
+		await log(`Loaded ${registeredAgents.size} registered agents from disk`);
+	} catch {
+		// File does not exist yet, start fresh
+	}
+}
+
+async function saveRegisteredAgents(): Promise<void> {
+	const entries = [...registeredAgents.values()];
+	await writeFile(AGENTS_FILE, JSON.stringify(entries, null, 2));
+}
 // In-memory consciousness store (indexed by DID)
 const consciousnessStore = new Map<string, {
 	did: string;
@@ -228,6 +246,7 @@ async function queryValidatorStatus(): Promise<{ height: number; validatorCount:
 
 async function main(): Promise<void> {
 	await mkdir(LOG_DIR, { recursive: true });
+	await loadRegisteredAgents();
 	await loadOnboardingKey();
 
 	const app = Fastify({ logger: false });
@@ -482,6 +501,7 @@ async function main(): Promise<void> {
 			publicKey: body.publicKey,
 			registeredAt: Date.now(),
 		});
+		await saveRegisteredAgents();
 
 		await log(`Agent registered: ${body.did}`);
 
