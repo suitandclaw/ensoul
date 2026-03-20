@@ -56,6 +56,44 @@ export async function verifyTxSignature(
 	}
 }
 
+/** Transaction types that are protocol-generated and skip signature checks. */
+const PROTOCOL_TX_TYPES: Set<string> = new Set([
+	"block_reward",
+	"genesis_allocation",
+]);
+
+/**
+ * Validate a transaction with full Ed25519 signature verification.
+ * Use this at mempool entry and peer tx submission.
+ * Returns { valid, error } asynchronously.
+ */
+export async function validateTransactionWithSignature(
+	tx: Transaction,
+	state: AccountState,
+	publicKey?: Uint8Array,
+): Promise<{ valid: boolean; error?: string }> {
+	// Protocol-generated txs skip signature verification
+	if (PROTOCOL_TX_TYPES.has(tx.type)) {
+		return validateTransaction(tx, state);
+	}
+
+	// Run structural validation first
+	const structural = validateTransaction(tx, state);
+	if (!structural.valid) return structural;
+
+	// Verify Ed25519 signature
+	if (!publicKey) {
+		return { valid: false, error: "Public key required for signature verification" };
+	}
+
+	const sigValid = await verifyTxSignature(tx, publicKey);
+	if (!sigValid) {
+		return { valid: false, error: "Invalid signature" };
+	}
+
+	return { valid: true };
+}
+
 /** Protocol treasury DID for fee collection. */
 export const PROTOCOL_TREASURY = "did:ensoul:protocol:treasury";
 /** Burn address DID. */

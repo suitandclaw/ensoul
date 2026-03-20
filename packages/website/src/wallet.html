@@ -223,26 +223,38 @@ function generateSeed(){
   return buf;
 }
 
-// Simple XOR-based encryption with SHA-256 derived key (testnet only)
-async function deriveKey(password){
+// AES-GCM encryption with PBKDF2-derived key (secure browser encryption)
+async function deriveAesKey(password,salt){
   var enc=new TextEncoder();
-  var hash=await crypto.subtle.digest("SHA-256",enc.encode(password+"ensoul-salt-v1"));
-  return new Uint8Array(hash);
+  var keyMaterial=await crypto.subtle.importKey("raw",enc.encode(password),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {name:"PBKDF2",salt:salt,iterations:100000,hash:"SHA-256"},
+    keyMaterial,
+    {name:"AES-GCM",length:256},
+    false,
+    ["encrypt","decrypt"]
+  );
 }
 
 async function encryptSeed(seed,password){
-  var key=await deriveKey(password);
-  var encrypted=new Uint8Array(seed.length);
-  for(var i=0;i<seed.length;i++)encrypted[i]=seed[i]^key[i%key.length];
-  return hexEncode(encrypted);
+  var salt=new Uint8Array(16);crypto.getRandomValues(salt);
+  var iv=new Uint8Array(12);crypto.getRandomValues(iv);
+  var key=await deriveAesKey(password,salt);
+  var ciphertext=await crypto.subtle.encrypt({name:"AES-GCM",iv:iv},key,seed);
+  // Format: salt(16) + iv(12) + ciphertext
+  var result=new Uint8Array(16+12+ciphertext.byteLength);
+  result.set(salt,0);result.set(iv,16);result.set(new Uint8Array(ciphertext),28);
+  return hexEncode(result);
 }
 
 async function decryptSeed(encHex,password){
-  var key=await deriveKey(password);
-  var enc=hexDecode(encHex);
-  var seed=new Uint8Array(enc.length);
-  for(var i=0;i<enc.length;i++)seed[i]=enc[i]^key[i%key.length];
-  return seed;
+  var data=hexDecode(encHex);
+  var salt=data.slice(0,16);
+  var iv=data.slice(16,28);
+  var ciphertext=data.slice(28);
+  var key=await deriveAesKey(password,salt);
+  var plaintext=await crypto.subtle.decrypt({name:"AES-GCM",iv:iv},key,ciphertext);
+  return new Uint8Array(plaintext);
 }
 
 // We need the public key from the seed. Since we cannot use noble-ed25519

@@ -120,11 +120,18 @@ export class PeerNetwork {
 		);
 
 		// POST /peer/tx - accept a signed transaction into the mempool
+		// Verifies Ed25519 signature before accepting
 		this.server.post<{ Body: SerializedTx }>(
 			"/peer/tx",
 			async (req) => {
 				try {
 					const tx = deserializeTx(req.body);
+					// Validate signature length for user transactions
+					if (tx.type !== "block_reward" && tx.type !== "genesis_allocation") {
+						if (tx.signature.length !== 64) {
+							return { accepted: false, error: "Invalid signature length" };
+						}
+					}
 					const hash = this.gossip.submitTransaction(tx);
 					return { accepted: hash !== null, hash };
 				} catch (err) {

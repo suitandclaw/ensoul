@@ -457,11 +457,32 @@ async function main(): Promise<void> {
 			return { valid: false, did: agentDid, error: "Proof expired" };
 		}
 
-		// Check if agent is registered
+		// Look up agent's public key from registration database
 		const agent = registeredAgents.get(agentDid);
-		const ageDays = agent
-			? Math.floor((Date.now() - agent.registeredAt) / 86400000)
-			: 0;
+		if (!agent) {
+			return { valid: false, did: agentDid, error: "Agent not registered (public key unknown)" };
+		}
+
+		// Verify Ed25519 signature
+		const proofPayload = `${stateRoot}:${version}:${timestamp}`;
+		try {
+			const ed = await import("@noble/ed25519");
+			const { sha512 } = await import("@noble/hashes/sha2.js");
+			(ed as unknown as { hashes: { sha512: ((m: Uint8Array) => Uint8Array) | undefined } }).hashes.sha512 = (m: Uint8Array) => sha512(m);
+
+			const sigBytes = hexToBytes(sigHex);
+			const pubKeyBytes = hexToBytes(agent.publicKey);
+			const payloadBytes = new TextEncoder().encode(proofPayload);
+			const sigValid = ed.verify(sigBytes, payloadBytes, pubKeyBytes);
+
+			if (!sigValid) {
+				return { valid: false, did: agentDid, error: "Invalid signature" };
+			}
+		} catch {
+			return { valid: false, did: agentDid, error: "Signature verification failed" };
+		}
+
+		const ageDays = Math.floor((Date.now() - agent.registeredAt) / 86400000);
 
 		// Determine trust level based on consciousness state
 		const consciousness = consciousnessStore.get(agentDid);

@@ -15,6 +15,7 @@ export { AccountState } from "./accounts.js";
 export {
 	computeTxHash,
 	encodeTxPayload,
+	validateTransactionWithSignature,
 	verifyTxSignature,
 	validateTransaction,
 	applyTransaction,

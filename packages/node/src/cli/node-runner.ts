@@ -10,11 +10,14 @@ import { expandHome } from "./args.js";
 import type { CliArgs } from "./args.js";
 import type { ChainNodeConfig } from "../chain/types.js";
 
-/** Persisted identity file format. */
+/** Persisted identity file format (encrypted or legacy plaintext). */
 interface PersistedIdentity {
-	seed: string;
+	seed?: string;
 	publicKey: string;
 	did: string;
+	encrypted?: string;
+	nonce?: string;
+	salt?: string;
 }
 
 /**
@@ -67,40 +70,108 @@ export class EnsoulNodeRunner {
 	/**
 	 * Step 1: Load identity from disk or generate a new one.
 	 * Identity is persisted to {dataDir}/identity.json.
+	 * If ENSOUL_KEY_PASSWORD is set, the seed is encrypted at rest using
+	 * scrypt + NaCl secretbox. If not set, seed is stored in plaintext
+	 * with a warning (for automated/testnet use).
 	 */
 	async initIdentity(): Promise<AgentIdentity> {
 		const dataDir = expandHome(this.args.dataDir);
 		await mkdir(dataDir, { recursive: true });
 		const idPath = join(dataDir, "identity.json");
+		const password = process.env["ENSOUL_KEY_PASSWORD"] ?? "";
 
 		try {
 			const raw = await readFile(idPath, "utf-8");
 			const stored = JSON.parse(raw) as PersistedIdentity;
-			const seed = hexToBytes(stored.seed);
-			this.identity = await createIdentity({ seed });
-			this.log(
-				`Loaded identity from disk: ${this.identity.did}`,
-			);
-			return this.identity;
+
+			if (stored.encrypted && stored.nonce && stored.salt) {
+				// Encrypted format: decrypt with password
+				if (!password) {
+					this.log(
+						"WARNING: identity.json is encrypted but ENSOUL_KEY_PASSWORD is not set",
+					);
+					throw new Error("Password required");
+				}
+				const { loadIdentity: loadId } = await import("@ensoul/identity");
+				this.identity = await loadId(
+					{
+						encrypted: hexToBytes(stored.encrypted),
+						nonce: hexToBytes(stored.nonce),
+						salt: hexToBytes(stored.salt),
+					},
+					password,
+				);
+				this.log(`Loaded encrypted identity: ${this.identity.did}`);
+				return this.identity;
+			}
+
+			if (stored.seed) {
+				// Legacy plaintext format: load and migrate if password available
+				const seed = hexToBytes(stored.seed);
+				this.identity = await createIdentity({ seed });
+				this.log(`Loaded identity from disk: ${this.identity.did}`);
+
+				if (password) {
+					// Migrate: encrypt the plaintext seed
+					const bundle = await this.identity.export(password);
+					const encrypted: PersistedIdentity = {
+						publicKey: this.identity.toJSON().publicKey,
+						did: this.identity.did,
+						encrypted: bytesToHex(bundle.encrypted),
+						nonce: bytesToHex(bundle.nonce),
+						salt: bytesToHex(bundle.salt),
+					};
+					await writeFile(idPath, JSON.stringify(encrypted, null, 2));
+					this.log("Migrated identity to encrypted storage");
+				} else {
+					this.log(
+						"WARNING: identity stored in plaintext. Set ENSOUL_KEY_PASSWORD to encrypt.",
+					);
+				}
+
+				return this.identity;
+			}
+
+			throw new Error("Invalid identity file");
 		} catch {
 			// File does not exist or is invalid, generate new
 		}
 
-		// Generate new identity with a known seed so we can persist it
+		// Generate new identity
 		const { randomBytes } = await import("node:crypto");
 		const seed = new Uint8Array(randomBytes(32));
 		this.identity = await createIdentity({ seed });
 
-		const persisted: PersistedIdentity = {
-			seed: bytesToHex(seed),
-			publicKey: this.identity.toJSON().publicKey,
-			did: this.identity.did,
-		};
+		if (password) {
+			// Save encrypted
+			const bundle = await this.identity.export(password);
+			const persisted: PersistedIdentity = {
+				publicKey: this.identity.toJSON().publicKey,
+				did: this.identity.did,
+				encrypted: bytesToHex(bundle.encrypted),
+				nonce: bytesToHex(bundle.nonce),
+				salt: bytesToHex(bundle.salt),
+			};
+			await writeFile(idPath, JSON.stringify(persisted, null, 2));
+			this.log(
+				`Created new identity: ${this.identity.did} (encrypted, saved to ${idPath})`,
+			);
+		} else {
+			// Save plaintext with warning
+			const persisted: PersistedIdentity = {
+				seed: bytesToHex(seed),
+				publicKey: this.identity.toJSON().publicKey,
+				did: this.identity.did,
+			};
+			await writeFile(idPath, JSON.stringify(persisted, null, 2));
+			this.log(
+				`Created new identity: ${this.identity.did} (saved to ${idPath})`,
+			);
+			this.log(
+				"WARNING: identity stored in plaintext. Set ENSOUL_KEY_PASSWORD to encrypt.",
+			);
+		}
 
-		await writeFile(idPath, JSON.stringify(persisted, null, 2));
-		this.log(
-			`Created new identity: ${this.identity.did} (saved to ${idPath})`,
-		);
 		return this.identity;
 	}
 
