@@ -159,7 +159,7 @@
 <h2>Actions</h2>
 <div id="action-msg"></div>
 <div class="wallet-actions">
-<button class="wallet-btn primary" style="width:100%" onclick="registerAgent()">Register Agent (100 ENSL bonus)</button>
+<button class="wallet-btn primary" style="width:100%" onclick="registerAgent()">Register Agent (100 ENSL after first store)</button>
 <button class="wallet-btn secondary" style="width:100%" onclick="showActionMsg('Coming soon: send via web wallet','info')">Send ENSL</button>
 </div>
 <div style="height:8px"></div>
@@ -430,8 +430,11 @@ window.registerAgent=async function(){
     });
     if(!r.ok){showActionMsg("Registration failed: "+r.status,"error");return;}
     var d=await r.json();
-    if(d.registered&&d.welcomeBonus){
-      showActionMsg("Agent registered! Welcome bonus: "+d.welcomeBonus,"success");
+    if(d.registered&&d.bonusPending){
+      showActionMsg("Agent registered! 100 ENSL bonus will be sent after your first consciousness store.","success");
+      refreshBalance();
+    }else if(d.registered&&d.welcomeBonus){
+      showActionMsg("Agent registered! Bonus: "+d.welcomeBonus,"success");
       refreshBalance();
     }else if(d.registered){
       showActionMsg(d.message||"Agent already registered","info");
