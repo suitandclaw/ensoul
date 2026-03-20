@@ -437,7 +437,8 @@ h2{font-size:0.85em;color:#888;text-transform:uppercase;letter-spacing:1px;margi
 <div class="footer"><a href="https://ensoul.dev">ensoul.dev</a> | <a href="https://explorer.ensoul.dev">Explorer</a> | <a href="https://github.com/suitandclaw/ensoul">GitHub</a></div>
 </div>
 <script>
-function shortTime(ts){if(!ts)return"never";var d=new Date(ts);return d.toLocaleTimeString()}
+function shortTime(ts){if(!ts)return"never";var d=new Date(ts);return d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}
+function utcToLocal(hms){if(!hms)return"";var p=hms.split(":");var d=new Date();d.setUTCHours(+p[0],+p[1],+p[2]||0,0);return d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}
 function render(h){
 var o=h.overall==="operational"?"All systems operational":h.overall==="degraded"?"Some services degraded":"Network issues detected";
 var s='<div class="overall '+h.overall+'">'+o+'</div>';
@@ -483,7 +484,7 @@ entries.forEach(function(e){
 var icon=e.platform==='twitter'?'&#x1F426;':'&#x1F99E;';
 var link=e.link||(e.platform==='twitter'?'https://twitter.com/ensoul_network':'https://www.moltbook.com/u/ensoulnetwork');
 s+='<a class="social-entry" href="'+link+'" target="_blank" rel="noopener">';
-s+='<span class="social-time">'+e.timestamp+'</span>';
+s+='<span class="social-time">'+utcToLocal(e.timestamp)+'</span>';
 s+='<span class="social-icon">'+icon+'</span>';
 s+='<div style="flex:1;min-width:0"><span class="social-badge '+e.type+'">'+e.type+'</span> ';
 s+='<span class="social-content">'+e.content+'</span>';
