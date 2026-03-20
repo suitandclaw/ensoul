@@ -252,8 +252,7 @@ async function handleExportSeed(dataDir: string): Promise<void> {
 				process.exit(1);
 			}
 
-			const { createIdentity, hexToBytes, bytesToHex } = await import("@ensoul/identity");
-			const { loadIdentity } = await import("@ensoul/identity");
+			const { loadIdentity, hexToBytes } = await import("@ensoul/identity");
 			const identity = await loadIdentity(
 				{
 					encrypted: hexToBytes(stored.encrypted),
