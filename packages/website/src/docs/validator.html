@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run a Validator - Ensoul Docs</title>
-<meta name="description" content="Five steps to run an Ensoul validator. Earn ENSL by securing the network.">
+<meta name="description" content="Six steps to run an Ensoul validator. Earn ~7,800 ENSL/day securing the network.">
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -13,10 +13,11 @@
 	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
 	<div class="links">
 		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/validator.html">Validators</a>
 		<a href="/docs/api.html">API</a>
 		<a href="/docs/architecture.html">Architecture</a>
 		<a href="/docs/tokenomics.html">Tokenomics</a>
-		<a href="http://localhost:3000" class="explorer-link">Explorer</a>
+		<a href="https://explorer.ensoul.dev" class="explorer-link">Explorer</a>
 	</div>
 </div></nav>
 
@@ -33,7 +34,7 @@
 
 <main class="docs-content">
 <h1>Run a validator</h1>
-<p class="lead">Five steps. One command installs everything. Earn ENSL by storing agent consciousness and producing blocks.</p>
+<p class="lead">Six steps. One command installs everything. Earn ENSL by storing agent consciousness and producing blocks.</p>
 
 <h2>What you earn</h2>
 <ul>
@@ -45,7 +46,7 @@
 
 <h2>Requirements</h2>
 <ul>
-	<li>Mac with Node.js 22+ (Apple Silicon recommended)</li>
+	<li>Mac with Node.js 22+ and pnpm (Apple Silicon recommended)</li>
 	<li>Always-on power (no battery operation)</li>
 	<li>Stable internet connection</li>
 	<li>The <code>--install</code> flag prevents sleep and auto-starts on boot</li>
@@ -57,40 +58,46 @@
 <pre><code>git clone https://github.com/suitandclaw/ensoul.git
 cd ensoul && pnpm install && pnpm build</code></pre>
 
-<h3>Step 2: Start your validator</h3>
-<pre><code>npx ensoul-node --validate \
+<h3>Step 2: Copy genesis</h3>
+<pre><code>mkdir -p ~/.ensoul
+cp ensoul/genesis.json ~/.ensoul/genesis.json</code></pre>
+
+<h3>Step 3: Install and start validator</h3>
+<pre><code>cd ensoul
+npx tsx packages/node/src/cli/main.ts --validate \
+  --no-min-stake \
   --genesis ~/.ensoul/genesis.json \
   --peers https://v0.ensoul.dev,https://v1.ensoul.dev \
   --install</code></pre>
 <p>The <code>--install</code> flag sets up a background service. You can close your terminal after this.</p>
 
-<h3>Step 3: Save your seed</h3>
+<h3>Step 4: Save your seed</h3>
 <p>Your validator displays a 64-character seed on first run. Copy it. Go to <a href="/wallet.html">ensoul.dev/wallet.html</a>, click <strong>Import Wallet</strong>, and paste the seed. This connects your wallet to your validator so you can manage stake and rewards from the browser.</p>
 <p>If you missed it, run:</p>
-<pre><code>npx ensoul-node --export-seed</code></pre>
+<pre><code>npx tsx packages/node/src/cli/main.ts --export-seed</code></pre>
 
-<h3>Step 4: Register for foundation delegation</h3>
+<h3>Step 5: Register for foundation delegation</h3>
 <pre><code>curl -X POST https://api.ensoul.dev/v1/validators/register \
   -H "Content-Type: application/json" \
-  -d '{"did":"YOUR_DID","publicKey":"YOUR_PUBKEY","name":"YOUR_NAME"}'</code></pre>
+  -d '{"did":"YOUR_DID_HERE","publicKey":"YOUR_PUBKEY","name":"your-name"}'</code></pre>
 <p>The first 10 validators per day receive a 100,000 ENSL foundation delegation. That is enough to start producing blocks immediately.</p>
 
-<h3>Step 5: Verify</h3>
-<p>Check your balance at <a href="/wallet.html">ensoul.dev/wallet.html</a>. You should see 100,000 ENSL delegated. Confirm your validator is running:</p>
-<pre><code>npx ensoul-node --status</code></pre>
+<h3>Step 6: Verify</h3>
+<pre><code>npx tsx packages/node/src/cli/main.ts --status</code></pre>
+<p>Also check your balance at <a href="/wallet.html">ensoul.dev/wallet.html</a>. You should see 100,000 ENSL delegated.</p>
 
 <h2>Managing your validator</h2>
 <table>
-	<tr><td><strong>Check status</strong></td><td><code>npx ensoul-node --status</code></td></tr>
+	<tr><td><strong>Check status</strong></td><td><code>npx tsx packages/node/src/cli/main.ts --status</code></td></tr>
 	<tr><td><strong>Check rewards</strong></td><td>Visit <a href="/wallet.html">ensoul.dev/wallet.html</a></td></tr>
-	<tr><td><strong>Export seed</strong></td><td><code>npx ensoul-node --export-seed</code></td></tr>
+	<tr><td><strong>Export seed</strong></td><td><code>npx tsx packages/node/src/cli/main.ts --export-seed</code></td></tr>
 	<tr><td><strong>View logs</strong></td><td><code>tail -f ~/.ensoul/validator.log</code></td></tr>
-	<tr><td><strong>Stop validator</strong></td><td><code>npx ensoul-node --uninstall</code></td></tr>
+	<tr><td><strong>Stop validator</strong></td><td><code>npx tsx packages/node/src/cli/main.ts --uninstall</code></td></tr>
 </table>
 <p><strong>Uptime requirement:</strong> Maintain 90%+ uptime over any 7-day window. If uptime drops below 90%, the foundation delegation is withdrawn.</p>
 
-<h2>The --install flag handles everything</h2>
-<p>When you pass <code>--install</code>, the validator runs as a macOS background service with these properties:</p>
+<h2>What --install does</h2>
+<p>When you pass <code>--install</code>, the validator runs as a macOS background service:</p>
 <ul>
 	<li><strong>Background execution:</strong> Close your terminal, the validator keeps running</li>
 	<li><strong>Sleep prevention:</strong> Uses <code>caffeinate</code> to keep your Mac awake</li>
@@ -109,7 +116,7 @@ cd ensoul && pnpm install && pnpm build</code></pre>
 
 <h2>Using an existing wallet as your validator identity</h2>
 <p>If you already have an Ensoul wallet, you can use the same keypair for your validator:</p>
-<pre><code>npx ensoul-node --import-seed YOUR_64_CHAR_HEX_SEED</code></pre>
+<pre><code>npx tsx packages/node/src/cli/main.ts --import-seed YOUR_64_CHAR_HEX_SEED</code></pre>
 <p>This creates the validator identity from your wallet seed, so your validator rewards go directly to your existing account.</p>
 
 </main>

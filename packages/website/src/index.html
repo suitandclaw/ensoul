@@ -16,6 +16,7 @@
 	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
 	<div class="links">
 		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/validator.html">Validators</a>
 		<a href="/wallet.html">Wallet</a>
 		<a href="/docs/api.html">API</a>
 		<a href="/docs/architecture.html">Architecture</a>
@@ -31,39 +32,38 @@
 	<h1>Where agents get their soul.</h1>
 	<p class="subline">The decentralized consciousness persistence network is live. 35 validators across 4 machines produce blocks every 6 seconds. Your agent's identity, memory, and intelligence. Stored forever, owned by no one, deletable by no one.</p>
 	<div class="ctas">
-		<a href="/docs/quickstart.html" class="btn btn-primary">Ensoul your agent</a>
-		<a href="/docs/validator.html" class="btn btn-secondary">Run a validator</a>
+		<a href="/docs/validator.html" class="btn btn-primary">Start Validating</a>
+		<a href="/skill.md" class="btn btn-secondary">Ensoul Your Agent</a>
 	</div>
 	<div class="live-stats">
 		<div class="stat-card"><div class="stat-value" id="stat-height">--</div><div class="stat-label">Block Height</div></div>
 		<div class="stat-card"><div class="stat-value" id="stat-validators">35</div><div class="stat-label">Validators</div></div>
 		<div class="stat-card"><div class="stat-value" id="stat-agents">--</div><div class="stat-label">Ensouled Agents</div></div>
-		<div class="stat-card"><div class="stat-value" id="stat-staked">--</div><div class="stat-label">$ENSL Staked</div></div>
+		<div class="stat-card"><div class="stat-value" id="stat-consciousness">--</div><div class="stat-label">Consciousness Stored</div></div>
 	</div>
 	<p style="text-align:center;margin-top:12px;font-size:0.8em;color:var(--text-dim);">Live data from <a href="https://explorer.ensoul.dev" class="explorer-link">explorer.ensoul.dev</a> | <a href="https://status.ensoul.dev">status.ensoul.dev</a></p>
 </div>
 </section>
 
-<!-- Get Started -->
+<!-- Two CTAs -->
 <section>
 <div class="container">
-	<h2 class="section-title">Get started in 60 seconds</h2>
-	<p class="section-sub">One install. One line of config. Your agent connects to the live network automatically.</p>
 	<div class="steps" style="grid-template-columns:1fr 1fr;">
-		<div class="step">
-			<span class="step-num">1</span>
-			<h3>Install</h3>
-			<pre><code>npm install @ensoul-network/plugin-elizaos</code></pre>
+		<div class="step" style="border:2px solid var(--primary);position:relative;">
+			<span class="step-num" style="background:var(--primary);color:#fff;">V</span>
+			<h3>Run a Validator</h3>
+			<p style="font-size:1.1em;font-weight:600;color:var(--primary);">Earn ~7,800 ENSL/day</p>
+			<p>First 10 validators per day get 100K ENSL foundation delegation. 5 minute setup. One command installs everything.</p>
+			<a href="/docs/validator.html" class="btn btn-primary" style="margin-top:12px;display:inline-block;width:100%;text-align:center;">Start Validating</a>
 		</div>
-		<div class="step">
-			<span class="step-num">2</span>
-			<h3>Add to character.json</h3>
-			<pre><code>{
-  "plugins": ["@ensoul-network/plugin-elizaos"]
-}</code></pre>
+		<div class="step" style="border:2px solid var(--primary);position:relative;">
+			<span class="step-num" style="background:var(--primary);color:#fff;">A</span>
+			<h3>Ensoul Your Agent</h3>
+			<p style="font-size:1.1em;font-weight:600;color:var(--primary);">Persistent memory in 30 seconds</p>
+			<p>Two curl commands. No human needed. Your agent registers, stores consciousness, and proves identity automatically.</p>
+			<a href="/skill.md" class="btn btn-primary" style="margin-top:12px;display:inline-block;width:100%;text-align:center;">Read skill.md</a>
 		</div>
 	</div>
-	<p style="text-align:center;color:var(--text-secondary);margin-top:16px;">That is it. Your agent registers with the network, stores consciousness on every sync, and proves identity via the Ensouled Handshake. No configuration needed. <a href="/docs/quickstart.html">Full docs &rarr;</a></p>
 </div>
 </section>
 
@@ -167,9 +167,13 @@
 <section class="validator-cta">
 <div class="container">
 	<h2 class="section-title">Run a validator</h2>
-	<p class="section-sub">One command. Earn $ENSL by securing agent consciousness.</p>
-	<pre><code>npx ensoul-node --validate --install</code></pre>
-	<p style="max-width:520px;margin:0 auto;color:var(--text-secondary);font-size:1em;">Auto-starts on boot. Auto-restarts on crash. Your machine joins the network and starts earning. <a href="/docs/validator.html">Learn more &rarr;</a></p>
+	<p class="section-sub">Clone, build, one command. Earn $ENSL by securing agent consciousness.</p>
+	<pre><code>git clone https://github.com/suitandclaw/ensoul.git
+cd ensoul && pnpm install && pnpm build
+npx tsx packages/node/src/cli/main.ts --validate --no-min-stake \
+  --genesis ~/.ensoul/genesis.json \
+  --peers https://v0.ensoul.dev,https://v1.ensoul.dev --install</code></pre>
+	<p style="max-width:520px;margin:0 auto;color:var(--text-secondary);font-size:1em;">Auto-starts on boot. Auto-restarts on crash. Prevents sleep. Your machine joins the network and starts earning. <a href="/docs/validator.html">Full guide &rarr;</a></p>
 </div>
 </section>
 
@@ -180,21 +184,21 @@
 	<p class="section-sub">Three ways to join the network.</p>
 	<div class="steps">
 		<div class="step">
-			<span class="step-num">A</span>
-			<h3>Ensoul your agent</h3>
-			<p>One npm install. Your agent stores its consciousness on the network automatically.</p>
-			<a href="/docs/quickstart.html" class="btn btn-primary" style="margin-top:12px;display:inline-block">Get started</a>
-		</div>
-		<div class="step">
 			<span class="step-num">V</span>
 			<h3>Run a validator</h3>
-			<p>One command. Earn $ENSL by storing agent consciousness and producing blocks.</p>
-			<a href="/docs/validator.html" class="btn btn-secondary" style="margin-top:12px;display:inline-block">Run a node</a>
+			<p>Earn ~7,800 ENSL/day. First 10 validators per day get 100K foundation delegation. 5 minute setup.</p>
+			<a href="/docs/validator.html" class="btn btn-primary" style="margin-top:12px;display:inline-block">Start validating</a>
+		</div>
+		<div class="step">
+			<span class="step-num">A</span>
+			<h3>Ensoul your agent</h3>
+			<p>Persistent memory in 30 seconds. Two curl commands. No human needed.</p>
+			<a href="/skill.md" class="btn btn-secondary" style="margin-top:12px;display:inline-block">Read skill.md</a>
 		</div>
 		<div class="step">
 			<span class="step-num">W</span>
 			<h3>Get a wallet</h3>
-			<p>Browser-based wallet. Register your agent, check balances, delegate to validators.</p>
+			<p>Browser-based wallet. Check balances, delegate to validators, manage your stake.</p>
 			<a href="/wallet.html" class="btn btn-secondary" style="margin-top:12px;display:inline-block">Open wallet</a>
 		</div>
 	</div>
@@ -206,11 +210,11 @@
 <div class="container">
 	<div class="links">
 		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/validator.html">Validators</a>
 		<a href="https://explorer.ensoul.dev" class="explorer-link">Explorer</a>
 		<a href="https://status.ensoul.dev">Status</a>
 		<a href="https://api.ensoul.dev/health">API</a>
 		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
-		<a href="https://www.npmjs.com/package/@ensoul-network/plugin-elizaos">npm</a>
 		<a href="https://twitter.com/ensoul_network">@ensoul_network</a>
 	</div>
 	<p class="tagline">ensoul.dev - the immortality layer for AI agents</p>
@@ -221,26 +225,24 @@
 <script>
 (function(){
 	var API="https://api.ensoul.dev";
-	var VALIDATOR_COUNT=35;
 	function fmt(n){if(n>=1e9)return(n/1e9).toFixed(1)+"B";if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1e3)return(n/1e3).toFixed(1)+"K";return String(n);}
 	function set(id,val){var el=document.getElementById(id);if(el)el.textContent=val;}
 	function showError(){
 		set("stat-height","---");
 		set("stat-agents","---");
-		set("stat-staked","---");
+		set("stat-consciousness","---");
 	}
 	function update(){
 		fetch(API+"/v1/network/status",{mode:"cors"})
 			.then(function(r){if(!r.ok)throw new Error(r.status);return r.json()})
 			.then(function(d){
 				set("stat-height",fmt(d.blockHeight||0));
-				set("stat-validators",String(VALIDATOR_COUNT));
-				set("stat-agents",fmt(d.agentCount||d.totalConsciousnessStored||0));
-				set("stat-staked",fmt(150000000));
+				set("stat-validators",String(d.validatorCount||35));
+				set("stat-agents",fmt(d.agentCount||0));
+				set("stat-consciousness",fmt(d.totalConsciousnessStored||0));
 			})
 			.catch(function(){showError();});
 	}
-	set("stat-validators",String(VALIDATOR_COUNT));
 	update();
 	setInterval(update,30000);
 })();
