@@ -94,6 +94,7 @@ wait_for_port() {
 
 do_stop() {
 	log "Stopping all services..."
+	kill_service "moltbook"
 	kill_service "agent"
 	kill_service "api"
 	kill_service "monitor"
@@ -117,7 +118,7 @@ do_status() {
 	echo "  -------          ---        ----    ------"
 
 	# Fixed services
-	for entry in "tunnel:443" "explorer:3000" "monitor:4000" "api:5050" "agent:-"; do
+	for entry in "tunnel:443" "explorer:3000" "monitor:4000" "api:5050" "agent:-" "moltbook:-"; do
 		local name="${entry%%:*}"
 		local port="${entry##*:}"
 		local pid
@@ -238,7 +239,20 @@ do_start() {
 		cd "$REPO_DIR"
 		log "Agent started (pid $!)"
 	else
-		log "Skipping agent ($AGENT_DIR/.env not found)"
+		log "Skipping Twitter agent ($AGENT_DIR/.env not found)"
+	fi
+
+	# 8. Moltbook Agent
+	MOLTBOOK_DIR="$HOME/ensoul-moltbook-agent"
+	if [ -d "$MOLTBOOK_DIR/src" ] && [ -f "$MOLTBOOK_DIR/.env" ]; then
+		log "Starting Moltbook agent..."
+		cd "$MOLTBOOK_DIR" && npx tsx src/agent.ts \
+			>"$LOG_DIR/moltbook-agent.log" 2>&1 &
+		save_pid "moltbook" $!
+		cd "$REPO_DIR"
+		log "Moltbook agent started (pid $!)"
+	else
+		log "Skipping Moltbook agent ($MOLTBOOK_DIR/.env not found)"
 	fi
 
 	echo ""
