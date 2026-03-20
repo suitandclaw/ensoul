@@ -212,7 +212,10 @@ do_start() {
 	wait_for_port 3000 15 "explorer" || true
 
 	# 4. Monitor
+	# Monitor dashboard password (change this for production)
+	local monitor_pw="${ENSOUL_STATUS_PASSWORD:-ensoul-status-2026}"
 	log "Starting monitor on port 4000..."
+	ENSOUL_STATUS_PASSWORD="$monitor_pw" \
 	npx tsx "$REPO_DIR/packages/monitor/start.ts" \
 		--port 4000 \
 		>"$LOG_DIR/monitor.log" 2>&1 &

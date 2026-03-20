@@ -23,7 +23,9 @@ const POLL_INTERVAL = 30_000;
 const LOG_DIR = join(homedir(), ".ensoul");
 const LOG_FILE = join(LOG_DIR, "monitor.log");
 const AGENT_LOG = join(LOG_DIR, "agent.log");
+const MOLTBOOK_LOG = join(LOG_DIR, "moltbook-agent.log");
 const WEBHOOK_URL = process.env["ALERT_WEBHOOK_URL"] ?? "";
+const STATUS_PASSWORD = process.env["ENSOUL_STATUS_PASSWORD"] ?? "";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -237,6 +239,81 @@ async function sendWebhook(msg: string): Promise<void> {
 	} catch { /* non-fatal */ }
 }
 
+// ── Social activity parsing ──────────────────────────────────────────
+
+interface SocialEntry {
+	timestamp: string;
+	platform: "twitter" | "moltbook";
+	type: "post" | "reply" | "comment";
+	content: string;
+}
+
+let socialFeed: SocialEntry[] = [];
+
+async function parseSocialActivity(): Promise<void> {
+	const entries: SocialEntry[] = [];
+
+	// Parse Twitter agent log
+	try {
+		const raw = await readFile(AGENT_LOG, "utf-8");
+		const lines = raw.trim().split("\n").slice(-50);
+		for (const line of lines) {
+			const timeMatch = line.match(/^\[(\d{2}:\d{2}:\d{2})\]/);
+			const ts = timeMatch ? timeMatch[1]! : "";
+
+			if (line.includes("Posted:")) {
+				const content = line.split("Posted:")[1]?.trim() ?? "";
+				entries.push({ timestamp: ts, platform: "twitter", type: "post", content: content.slice(0, 100) });
+			} else if (line.includes("Replied to @")) {
+				const match = line.match(/Replied to @(\S+)/);
+				entries.push({ timestamp: ts, platform: "twitter", type: "reply", content: `@${match?.[1] ?? "unknown"}` });
+			} else if (line.includes("Engaged with @")) {
+				const match = line.match(/Engaged with @(\S+)/);
+				entries.push({ timestamp: ts, platform: "twitter", type: "reply", content: `@${match?.[1] ?? "unknown"}` });
+			}
+		}
+	} catch { /* no twitter log */ }
+
+	// Parse Moltbook agent log
+	try {
+		const raw = await readFile(MOLTBOOK_LOG, "utf-8");
+		const lines = raw.trim().split("\n").slice(-50);
+		for (const line of lines) {
+			const timeMatch = line.match(/^\[(\d{2}:\d{2}:\d{2})\]/);
+			const ts = timeMatch ? timeMatch[1]! : "";
+
+			if (line.includes("Posted in m/")) {
+				const match = line.match(/Posted in (m\/\S+): "(.+)"/);
+				entries.push({
+					timestamp: ts, platform: "moltbook", type: "post",
+					content: match ? `${match[1]}: ${match[2]?.slice(0, 80)}` : line.slice(0, 100),
+				});
+			} else if (line.includes("Commented on")) {
+				const match = line.match(/Commented on "(.+)" by (\S+)/);
+				entries.push({
+					timestamp: ts, platform: "moltbook", type: "comment",
+					content: match ? `re: "${match[1]?.slice(0, 60)}" by ${match[2]}` : line.slice(0, 100),
+				});
+			}
+		}
+	} catch { /* no moltbook log */ }
+
+	// Sort by timestamp (reverse chronological, most recent first)
+	entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+	socialFeed = entries.slice(0, 20);
+}
+
+// ── Basic auth helper ────────────────────────────────────────────────
+
+function checkBasicAuth(authHeader: string | undefined): boolean {
+	if (!STATUS_PASSWORD) return true; // No password set, public access
+	if (!authHeader) return false;
+	const match = authHeader.match(/^Basic\s+(.+)$/);
+	if (!match?.[1]) return false;
+	const decoded = Buffer.from(match[1], "base64").toString("utf-8");
+	return decoded === `admin:${STATUS_PASSWORD}`;
+}
+
 // ── Dashboard HTML ───────────────────────────────────────────────────
 
 function renderDashboard(): string {
@@ -275,6 +352,14 @@ a{color:#7c3aed;text-decoration:none}
 .card-time{font-size:0.75em;color:#666;text-align:right;flex-shrink:0}
 h2{font-size:0.85em;color:#888;text-transform:uppercase;letter-spacing:1px;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid #1e1e2a}
 .footer{text-align:center;color:#666;font-size:0.75em;margin-top:24px;padding:12px 0;border-top:1px solid #1e1e2a}
+.social-entry{background:#12121a;border:1px solid #1e1e2a;border-radius:6px;padding:10px 12px;margin:4px 0;display:flex;gap:8px;align-items:flex-start;font-size:0.85em}
+.social-icon{font-size:1.1em;flex-shrink:0;width:20px;text-align:center}
+.social-badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:0.7em;font-weight:600;text-transform:uppercase}
+.social-badge.post{background:#2d1e3f;color:#a78bfa}
+.social-badge.reply{background:#1e2a3f;color:#60a5fa}
+.social-badge.comment{background:#1e3a2f;color:#4ade80}
+.social-content{color:#888;margin-top:2px;word-break:break-word}
+.social-time{color:#666;font-size:0.75em;flex-shrink:0}
 @media(max-width:600px){.stats{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -285,6 +370,7 @@ h2{font-size:0.85em;color:#888;text-transform:uppercase;letter-spacing:1px;margi
 <div class="sub">Auto-refreshes every 30 seconds</div>
 </div>
 <div id="content">Loading...</div>
+<div id="social"></div>
 <div class="footer"><a href="https://ensoul.dev">ensoul.dev</a> | <a href="https://explorer.ensoul.dev">Explorer</a> | <a href="https://github.com/suitandclaw/ensoul">GitHub</a></div>
 </div>
 <script>
@@ -323,7 +409,26 @@ s+='</div>';
 s+='<div style="text-align:center;color:#666;font-size:0.75em;margin-top:12px">Last check: '+shortTime(h.checkedAt)+'</div>';
 document.getElementById("content").innerHTML=s;
 }
-function poll(){fetch("/api/health").then(function(r){return r.json()}).then(render).catch(function(){});}
+function renderSocial(entries){
+if(!entries||entries.length===0)return;
+var el=document.getElementById("social");
+if(!el)return;
+var s='';
+entries.forEach(function(e){
+var icon=e.platform==='twitter'?'&#x1F426;':'&#x1F99E;';
+s+='<div class="social-entry">';
+s+='<span class="social-icon">'+icon+'</span>';
+s+='<div style="flex:1;min-width:0"><span class="social-badge '+e.type+'">'+e.type+'</span> ';
+s+='<span class="social-content">'+e.content+'</span></div>';
+s+='<span class="social-time">'+e.timestamp+'</span>';
+s+='</div>';
+});
+el.innerHTML='<h2>Social Activity</h2>'+s;
+}
+function poll(){
+fetch("/api/health").then(function(r){return r.json()}).then(render).catch(function(){});
+fetch("/api/social").then(function(r){return r.json()}).then(renderSocial).catch(function(){});
+}
 poll();
 setInterval(poll,30000);
 </script>
@@ -338,6 +443,24 @@ async function main(): Promise<void> {
 
 	const app = Fastify({ logger: false });
 
+	// Basic auth on all routes except /api/health
+	if (STATUS_PASSWORD) {
+		app.addHook("onRequest", (req, reply, done) => {
+			// /api/health is public for external monitoring
+			if (req.url === "/api/health") { done(); return; }
+
+			if (!checkBasicAuth(req.headers.authorization)) {
+				void reply
+					.status(401)
+					.header("WWW-Authenticate", 'Basic realm="Ensoul Status"')
+					.send("Unauthorized");
+				return;
+			}
+			done();
+		});
+		await log("Basic auth enabled (ENSOUL_STATUS_PASSWORD set)");
+	}
+
 	app.get("/", async (_req, reply) => {
 		return reply.type("text/html").send(renderDashboard());
 	});
@@ -346,11 +469,19 @@ async function main(): Promise<void> {
 		return health;
 	});
 
+	app.get("/api/social", async () => {
+		return socialFeed;
+	});
+
 	// Initial poll
 	await pollAll();
+	await parseSocialActivity();
 
 	// Start polling loop
-	const timer = setInterval(() => void pollAll(), POLL_INTERVAL);
+	const timer = setInterval(() => {
+		void pollAll();
+		void parseSocialActivity();
+	}, POLL_INTERVAL);
 
 	await app.listen({ port, host: "0.0.0.0" });
 
