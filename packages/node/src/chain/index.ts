@@ -5,6 +5,8 @@ export { GossipNetwork } from "./gossip.js";
 export { PeerNetwork, parsePeerAddresses } from "./peer-network.js";
 export type { PeerInfo, PeerStatus } from "./peer-network.js";
 export { SeedNode, SeedClient } from "./seed-node.js";
+export { TendermintConsensus } from "./tendermint.js";
+export type { ConsensusMessage, ConsensusStep, SerializedConsensusMessage } from "./tendermint.js";
 export type { RegisteredValidator, RegisterRequest } from "./seed-node.js";
 export {
 	serializeBlock,

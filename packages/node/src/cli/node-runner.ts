@@ -6,6 +6,7 @@ import { createDefaultGenesis } from "@ensoul/ledger";
 import type { GenesisConfig, Block, Transaction } from "@ensoul/ledger";
 import { NodeBlockProducer } from "../chain/producer.js";
 import { GossipNetwork } from "../chain/gossip.js";
+import { TendermintConsensus } from "../chain/tendermint.js";
 import { expandHome } from "./args.js";
 import type { CliArgs } from "./args.js";
 import type { ChainNodeConfig } from "../chain/types.js";
@@ -44,6 +45,7 @@ export class EnsoulNodeRunner {
 	private identity: AgentIdentity | null = null;
 	private gossip: GossipNetwork | null = null;
 	private producer: NodeBlockProducer | null = null;
+	private consensus: TendermintConsensus | null = null;
 	private genesisConfig: GenesisConfig;
 	private chainConfig: Partial<ChainNodeConfig>;
 	private args: CliArgs;
@@ -237,7 +239,9 @@ export class EnsoulNodeRunner {
 	tryProduceBlock(): Block | null {
 		if (!this.gossip || !this.identity || !this.producer) return null;
 
-		// Normal proposer-selected production
+		// With Tendermint consensus, block production is driven by the
+		// consensus state machine, not by this method. This is kept for
+		// backward compatibility with tests that call it directly.
 		const block = this.gossip.tryProduceBlock(this.identity.did);
 		if (block) {
 			this.blocksProduced++;
@@ -247,55 +251,53 @@ export class EnsoulNodeRunner {
 			if (this.onBlock) this.onBlock(block);
 			return block;
 		}
-
-		// Priority-based fallback: each validator waits based on its
-		// distance from the expected proposer in the roster.
-		// Distance 0 (expected proposer) = 6s, distance 1 = 12s, etc.
-		const nextHeight = this.producer.getHeight() + 1;
-		if (this.producer.canProduceFallback(nextHeight, this.identity.did)) {
-			const delay = this.producer.getFallbackDelay(nextHeight, this.identity.did);
-			this.log(`Fallback production at priority distance ${Math.round(delay / 6000) - 1} for height ${nextHeight}`);
-			const fallback = this.producer.produceBlock(this.identity.did, true);
-			if (fallback) {
-				this.blocksProduced++;
-				this.log(
-					`Fallback block ${fallback.height} with ${fallback.transactions.length} txs`,
-				);
-				this.gossip.broadcastBlock(fallback);
-				if (this.onBlock) this.onBlock(fallback);
-				return fallback;
-			}
-		}
-
 		return null;
 	}
 
 	/**
-	 * Start the block production loop.
-	 * Checks every 6 seconds whether this node is the selected proposer.
-	 * If yes, produces immediately. If not, waits for the block from the
-	 * actual proposer. Fallback fires only after 30s with no block.
+	 * Start the Tendermint consensus engine.
+	 * Replaces the old timer-based block production loop.
+	 * Blocks are proposed, voted on, and committed through explicit rounds.
 	 */
 	startBlockLoop(): void {
 		if (this.running) return;
+		if (!this.producer || !this.identity) return;
 		this.running = true;
 		this.startedAt = Date.now();
 
-		const scheduleNext = (): void => {
-			if (!this.running) return;
-			// Always check every 6s (one block interval). This ensures
-			// the selected proposer produces immediately on its turn,
-			// rather than waiting for an adaptive delay.
-			this.blockTimer = setTimeout(() => {
-				this.tryProduceBlock();
-				scheduleNext();
-			}, 6000);
+		this.consensus = new TendermintConsensus(
+			this.producer,
+			this.identity.did,
+			{
+				proposeTimeoutMs: 10_000,
+				prevoteTimeoutMs: 10_000,
+				precommitTimeoutMs: 10_000,
+				roundTimeoutIncrement: 2_000,
+				thresholdFraction: this.args.consensusThreshold,
+			},
+		);
+
+		this.consensus.onLog = (msg) => this.log(`[consensus] ${msg}`);
+		this.consensus.onCommit = (block) => {
+			this.blocksProduced++;
+			this.log(`Committed block ${block.height}`);
+			if (this.onBlock) this.onBlock(block);
 		};
 
-		scheduleNext();
+		// Broadcast callback will be wired by main.ts after PeerNetwork is set up
+		// (via setConsensusBroadcast)
+
+		this.consensus.start();
 		this.log(
-			`Block production loop started (mode: ${this.args.mode})`,
+			`Tendermint consensus started (threshold=${this.consensus.getThreshold()})`,
 		);
+	}
+
+	/**
+	 * Get the consensus engine (for wiring to PeerNetwork).
+	 */
+	getConsensus(): TendermintConsensus | null {
+		return this.consensus;
 	}
 
 	/**
@@ -303,11 +305,14 @@ export class EnsoulNodeRunner {
 	 */
 	stopBlockLoop(): void {
 		this.running = false;
+		if (this.consensus) {
+			this.consensus.stop();
+		}
 		if (this.blockTimer) {
 			clearTimeout(this.blockTimer);
 			this.blockTimer = null;
 		}
-		this.log("Block production loop stopped");
+		this.log("Consensus stopped");
 	}
 
 	/**

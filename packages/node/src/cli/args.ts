@@ -24,6 +24,7 @@ export interface CliArgs {
 	autoUpdate: boolean;
 	snapshot: boolean;
 	rollback: boolean;
+	consensusThreshold: number;
 }
 
 /** Default seed node URL. Empty means no seed unless --seed is provided. */
@@ -71,6 +72,7 @@ export function parseArgs(argv: string[]): CliArgs {
 		autoUpdate: false,
 		snapshot: false,
 		rollback: false,
+		consensusThreshold: 0.67,
 	};
 
 	for (let i = 0; i < argv.length; i++) {
@@ -120,6 +122,8 @@ export function parseArgs(argv: string[]): CliArgs {
 			args.importSeed = argv[++i]!;
 		} else if (arg === "--auto-update") {
 			args.autoUpdate = true;
+		} else if (arg === "--consensus-threshold" && argv[i + 1]) {
+			args.consensusThreshold = Number(argv[++i]);
 		} else if (arg === "--snapshot") {
 			args.snapshot = true;
 		} else if (arg === "--rollback") {

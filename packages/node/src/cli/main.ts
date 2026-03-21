@@ -181,10 +181,22 @@ async function main(): Promise<void> {
 		await checkPeerVersions(peerNet, args.peers);
 	}
 
-	// Step 4: Start block loop
+	// Step 4: Start consensus engine
 	if (args.mode === "validate") {
-		console.log(`\n  Mode: VALIDATOR (producing blocks) v${VERSION}\n`);
+		console.log(`\n  Mode: VALIDATOR (Tendermint consensus) v${VERSION}\n`);
 		runner.startBlockLoop();
+
+		// Wire consensus to peer network for message broadcasting
+		const consensus = runner.getConsensus();
+		if (consensus && peerNet) {
+			consensus.onBroadcast = (msg) => {
+				void peerNet!.broadcastConsensus(msg);
+			};
+			peerNet.onConsensusMessage = (msg) => {
+				consensus.handleMessage(msg);
+			};
+			console.log(`  Consensus: Tendermint (threshold=${consensus.getThreshold()})`);
+		}
 	} else {
 		console.log("\n  Mode: FULL NODE (syncing only)\n");
 	}

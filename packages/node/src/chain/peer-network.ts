@@ -5,6 +5,7 @@ import type { SerializedBlock, SerializedTx } from "./types.js";
 import { deserializeTx } from "./types.js";
 import { SeedClient } from "./seed-node.js";
 import { VERSION } from "../version.js";
+import type { ConsensusMessage, SerializedConsensusMessage } from "./tendermint.js";
 
 /**
  * Extract blocks array from a sync response.
@@ -70,6 +71,9 @@ export class PeerNetwork {
 	private pollTimer: ReturnType<typeof setInterval> | null = null;
 	private seedClient: SeedClient | null = null;
 	private log: (msg: string) => void;
+
+	/** Callback for incoming consensus messages. Set by the consensus engine. */
+	onConsensusMessage: ((msg: ConsensusMessage) => void) | null = null;
 
 	constructor(
 		gossip: GossipNetwork,
@@ -234,6 +238,51 @@ export class PeerNetwork {
 				})),
 			};
 		});
+
+		// POST /peer/consensus - receive consensus messages
+		this.server.post<{ Body: SerializedConsensusMessage }>(
+			"/peer/consensus",
+			async (req) => {
+				const body = req.body;
+				if (!body || !body.type || !body.from) {
+					return { accepted: false, error: "Invalid message" };
+				}
+				const msg: ConsensusMessage = {
+					type: body.type as ConsensusMessage["type"],
+					height: body.height,
+					round: body.round,
+					blockHash: body.blockHash,
+					from: body.from,
+				};
+				// Deserialize block for propose messages
+				if (body.type === "propose" && body.block) {
+					const raw = body.block as Record<string, unknown>;
+					const txs = (raw["transactions"] as Array<Record<string, unknown>> ?? []).map((tx) => ({
+						type: tx["type"] as string,
+						from: tx["from"] as string,
+						to: tx["to"] as string,
+						amount: BigInt(tx["amount"] as string),
+						nonce: tx["nonce"] as number,
+						timestamp: tx["timestamp"] as number,
+						signature: new Uint8Array(64),
+					}));
+					msg.block = {
+						height: raw["height"] as number,
+						previousHash: raw["previousHash"] as string,
+						stateRoot: raw["stateRoot"] as string,
+						transactionsRoot: raw["transactionsRoot"] as string,
+						timestamp: raw["timestamp"] as number,
+						proposer: raw["proposer"] as string,
+						transactions: txs,
+						attestations: [],
+					};
+				}
+				if (this.onConsensusMessage) {
+					this.onConsensusMessage(msg);
+				}
+				return { accepted: true };
+			},
+		);
 
 		// GET /peer/blocks/latest?count=20
 		this.server.get<{ Querystring: { count?: string } }>(
@@ -479,6 +528,52 @@ export class PeerNetwork {
 	 */
 	getServer(): FastifyInstance | null {
 		return this.server;
+	}
+
+	/**
+	 * Broadcast a consensus message to all connected peers.
+	 */
+	async broadcastConsensus(msg: ConsensusMessage): Promise<void> {
+		const serialized: SerializedConsensusMessage = {
+			type: msg.type,
+			height: msg.height,
+			round: msg.round,
+			blockHash: msg.blockHash,
+			from: msg.from,
+		};
+		if (msg.type === "propose" && msg.block) {
+			serialized.block = {
+				height: msg.block.height,
+				previousHash: msg.block.previousHash,
+				stateRoot: msg.block.stateRoot,
+				transactionsRoot: msg.block.transactionsRoot,
+				timestamp: msg.block.timestamp,
+				proposer: msg.block.proposer,
+				transactions: msg.block.transactions.map((tx) => ({
+					type: tx.type,
+					from: tx.from,
+					to: tx.to,
+					amount: tx.amount.toString(),
+					nonce: tx.nonce,
+					timestamp: tx.timestamp,
+				})),
+			};
+		}
+
+		const body = JSON.stringify(serialized);
+		const promises = [...this.peers.keys()].map(async (addr) => {
+			try {
+				await fetch(`${addr}/peer/consensus`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body,
+					signal: AbortSignal.timeout(3000),
+				});
+			} catch {
+				// Peer offline
+			}
+		});
+		await Promise.allSettled(promises);
 	}
 
 	// ── Internal ─────────────────────────────────────────────────
