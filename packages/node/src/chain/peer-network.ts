@@ -235,6 +235,108 @@ export class PeerNetwork {
 			};
 		});
 
+		// GET /peer/blocks/latest?count=20
+		this.server.get<{ Querystring: { count?: string } }>(
+			"/peer/blocks/latest",
+			async (req) => {
+				const count = Math.min(Number(req.query.count ?? 20), 100);
+				const producer = this.gossip.getProducer();
+				const tip = producer.getHeight();
+				const blocks: SerializedBlock[] = [];
+				for (let h = tip; h >= Math.max(0, tip - count + 1); h--) {
+					const b = producer.getBlock(h);
+					if (b) {
+						blocks.push({
+							height: b.height,
+							previousHash: b.previousHash,
+							stateRoot: b.stateRoot,
+							transactionsRoot: b.transactionsRoot,
+							timestamp: b.timestamp,
+							proposer: b.proposer,
+							transactions: b.transactions.map((tx) => ({
+								type: tx.type,
+								from: tx.from,
+								to: tx.to,
+								amount: tx.amount.toString(),
+								nonce: tx.nonce,
+								timestamp: tx.timestamp,
+								signature: "",
+							})),
+							attestations: [],
+						});
+					}
+				}
+				return { blocks };
+			},
+		);
+
+		// GET /peer/stats
+		this.server.get("/peer/stats", async () => {
+			const producer = this.gossip.getProducer();
+			const tip = producer.getHeight();
+			let totalTxs = 0;
+			let blockTimeSum = 0;
+			let blockTimeCount = 0;
+			let prevTimestamp = 0;
+			const scanFrom = Math.max(0, tip - 99);
+			for (let h = scanFrom; h <= tip; h++) {
+				const b = producer.getBlock(h);
+				if (b) {
+					totalTxs += b.transactions.length;
+					if (prevTimestamp > 0 && b.timestamp > prevTimestamp) {
+						blockTimeSum += b.timestamp - prevTimestamp;
+						blockTimeCount++;
+					}
+					prevTimestamp = b.timestamp;
+				}
+			}
+			const avgBlockTime = blockTimeCount > 0 ? Math.round(blockTimeSum / blockTimeCount) : 6000;
+			const accounts = producer.getState().getAllAccounts();
+			const validators = producer.getValidators();
+			return {
+				blockHeight: tip,
+				avgBlockTimeMs: avgBlockTime,
+				totalTransactions: totalTxs,
+				totalAccounts: accounts.length,
+				totalValidators: validators.length,
+				tps: avgBlockTime > 0 ? Math.round((totalTxs / Math.max(1, tip - scanFrom)) * (1000 / avgBlockTime) * 10) / 10 : 0,
+			};
+		});
+
+		// GET /peer/search?q=<query>
+		this.server.get<{ Querystring: { q?: string } }>(
+			"/peer/search",
+			async (req, reply) => {
+				const q = (req.query.q ?? "").trim();
+				if (!q) return reply.status(400).send({ error: "query required" });
+
+				const producer = this.gossip.getProducer();
+				const results: Array<{ type: string; value: string; label: string }> = [];
+
+				// Check if it's a block height (number)
+				if (/^\d+$/.test(q)) {
+					const h = Number(q);
+					if (producer.getBlock(h)) {
+						results.push({ type: "block", value: String(h), label: `Block #${h}` });
+					}
+				}
+
+				// Check if it's a DID or partial DID
+				if (q.startsWith("did:") || q.startsWith("z6Mk")) {
+					const fullQ = q.startsWith("z6Mk") ? `did:key:${q}` : q;
+					const accounts = producer.getState().getAllAccounts();
+					for (const acc of accounts) {
+						if (acc.did.includes(q) || acc.did.includes(fullQ)) {
+							results.push({ type: "account", value: acc.did, label: acc.did.length > 30 ? `${acc.did.slice(0, 20)}...${acc.did.slice(-8)}` : acc.did });
+							if (results.length >= 10) break;
+						}
+					}
+				}
+
+				return { results };
+			},
+		);
+
 		await this.server.listen({ port, host: "0.0.0.0" });
 		this.log(`Peer API listening on port ${port}`);
 	}

@@ -56,7 +56,7 @@ function siteNav(activePage: string): string {
 		const cls = id === activePage ? ' class="active"' : "";
 		return `<a href="${href}"${cls}>${label}</a>`;
 	};
-	return `<nav class="site-nav"><div class="inner"><a href="https://ensoul.dev" class="logo">ENSOUL</a><div class="links">${link("https://ensoul.dev", "Home", "home")}${link("https://ensoul.dev/docs/quickstart.html", "Docs", "docs")}${link("/", "Explorer", "explorer")}${link("https://github.com/suitandclaw/ensoul", "GitHub", "github")}</div></div></nav>`;
+	return `<nav class="site-nav"><div class="inner"><a href="https://ensoul.dev" class="logo">ENSOUL EXPLORER</a><div class="links">${link("/", "Explorer", "explorer")}${link("/validators", "Validators", "validators")}${link("https://ensoul.dev/validator-dashboard.html", "Dashboard", "dashboard")}${link("https://ensoul.dev/wallet.html", "Wallet", "wallet")}${link("https://ensoul.dev/docs/quickstart.html", "Docs", "docs")}${link("https://github.com/suitandclaw/ensoul", "GitHub", "github")}</div></div></nav>`;
 }
 
 function explorerNav(activeTab: string): string {
@@ -68,7 +68,7 @@ function explorerNav(activeTab: string): string {
 }
 
 function layout(title: string, tab: string, content: string): string {
-	return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - Ensoul Explorer</title><style>${CSS}</style></head><body>${siteNav("explorer")}${explorerNav(tab)}<div class="content">${content}</div><div class="footer">ensoul.dev &mdash; the immortality layer for AI agents</div></body></html>`;
+	return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - Ensoul Explorer</title><style>${CSS}</style></head><body>${siteNav("explorer")}${explorerNav(tab)}<div class="content">${content}</div><div class="footer">ensoul.dev - the immortality layer for AI agents</div></body></html>`;
 }
 
 /**
@@ -80,23 +80,34 @@ export function renderDashboard(
 ): string {
 	const blocks = latestBlocks
 		.map(
-			(b) =>
-				`<tr><td><a href="/block/${b.height}">${b.height}</a></td><td>${b.txCount} txs</td><td>${b.proposer.slice(0, 24)}...</td><td>${new Date(b.timestamp).toLocaleTimeString()}</td></tr>`,
+			(b) => {
+				const shortProposer = b.proposer === "genesis" ? "genesis" : `${b.proposer.slice(0, 16)}...${b.proposer.slice(-6)}`;
+				const ago = timeAgo(b.timestamp);
+				const rewardTx = b.transactions.find((t) => t.type === "block_reward");
+				const reward = rewardTx ? formatEnsl(rewardTx.amount) : "0";
+				return `<tr><td><a href="/block/${b.height}">${b.height}</a></td><td>${shortProposer}</td><td>${b.txCount}</td><td>${reward}</td><td>${ago}</td></tr>`;
+			},
 		)
 		.join("");
+
+	const avgBlockTime = stats.averageBlockTimeMs ? `${(stats.averageBlockTimeMs / 1000).toFixed(1)}s` : "6s";
 
 	return layout(
 		"Dashboard",
 		"dashboard",
-		`<h2>Network</h2>
-<div class="card">
+		`<form action="/agent" method="get" style="margin:16px 0">
+<input class="search" name="did" placeholder="Search by DID, block height, or transaction hash..." autofocus>
+</form>
+<div class="card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;text-align:center">
 <div class="stat"><div class="stat-value">${stats.blockHeight}</div><div class="stat-label">Block Height</div></div>
-<div class="stat"><div class="stat-value">${stats.totalAgents}</div><div class="stat-label">Ensouled Agents</div></div>
+<div class="stat"><div class="stat-value">${avgBlockTime}</div><div class="stat-label">Block Time</div></div>
 <div class="stat"><div class="stat-value">${stats.validatorCount}</div><div class="stat-label">Validators</div></div>
-<div class="stat"><div class="stat-value">${formatBytes(stats.totalConsciousnessBytes)}</div><div class="stat-label">Consciousness Stored</div></div>
+<div class="stat"><div class="stat-value">${stats.totalTransactions}</div><div class="stat-label">Transactions</div></div>
+<div class="stat"><div class="stat-value">${stats.totalAgents}</div><div class="stat-label">Ensouled Agents</div></div>
 </div>
 <h2>Latest Blocks</h2>
-<table><tr><th>Height</th><th>Txs</th><th>Proposer</th><th>Time</th></tr>${blocks}</table>`,
+<table><tr><th>Height</th><th>Proposer</th><th>Txs</th><th>Reward</th><th>Time</th></tr>${blocks}</table>
+<p style="text-align:center;margin:12px 0"><a href="/blocks">View all blocks &rarr;</a></p>`,
 	);
 }
 
@@ -146,26 +157,34 @@ export function renderAgentSearch(): string {
  * Render the block detail page.
  */
 export function renderBlock(block: BlockData): string {
+	const shortProposer = block.proposer === "genesis" ? "genesis" : block.proposer.length > 40 ? `${block.proposer.slice(0, 20)}...${block.proposer.slice(-8)}` : block.proposer;
 	const txRows = block.transactions
 		.map(
-			(tx) =>
-				`<tr><td>${tx.type}</td><td>${tx.from.slice(0, 20)}...</td><td>${tx.to.slice(0, 20)}...</td><td>${tx.amount}</td></tr>`,
+			(tx) => {
+				const typeLabel = tx.type.replace(/_/g, " ").toUpperCase();
+				const shortFrom = tx.from.length > 24 ? `${tx.from.slice(0, 16)}...${tx.from.slice(-6)}` : tx.from;
+				const shortTo = tx.to.length > 24 ? `${tx.to.slice(0, 16)}...${tx.to.slice(-6)}` : tx.to;
+				return `<tr><td><span class="badge badge-basic">${typeLabel}</span></td><td>${shortFrom}</td><td>${shortTo}</td><td>${formatEnsl(tx.amount)}</td></tr>`;
+			},
 		)
 		.join("");
 
 	return layout(
 		`Block ${block.height}`,
 		"blocks",
-		`<h2>Block ${block.height}</h2>
+		`<h2>Block #${block.height}</h2>
 <div class="card">
-<p><strong>Hash:</strong> <code>${block.hash}</code></p>
-<p><strong>Parent:</strong> <code>${block.parentHash}</code></p>
-<p><strong>Proposer:</strong> ${block.proposer}</p>
-<p><strong>Timestamp:</strong> ${new Date(block.timestamp).toISOString()}</p>
+<p><strong>Block Hash:</strong> <code>${block.hash}</code></p>
+<p><strong>Parent Hash:</strong> <code>${block.parentHash.slice(0, 20)}...${block.parentHash.slice(-8)}</code></p>
+<p><strong>Proposer:</strong> <a href="/agent?did=${encodeURIComponent(block.proposer)}">${shortProposer}</a></p>
+<p><strong>Timestamp:</strong> ${new Date(block.timestamp).toISOString()} (${timeAgo(block.timestamp)})</p>
 <p><strong>Transactions:</strong> ${block.txCount}</p>
 </div>
-${block.txCount > 0 ? `<h3>Transactions</h3><table><tr><th>Type</th><th>From</th><th>To</th><th>Amount</th></tr>${txRows}</table>` : "<p>Empty block (heartbeat)</p>"}
-<p><a href="/block/${block.height - 1}">&larr; Previous</a> | <a href="/block/${block.height + 1}">Next &rarr;</a></p>`,
+${block.txCount > 0 ? `<h3>Transactions (${block.txCount})</h3><table><tr><th>Type</th><th>From</th><th>To</th><th>Amount</th></tr>${txRows}</table>` : "<p>Empty block (heartbeat)</p>"}
+<div style="display:flex;justify-content:space-between;margin:16px 0">
+<a href="/block/${block.height - 1}">&larr; Block ${block.height - 1}</a>
+<a href="/block/${block.height + 1}">Block ${block.height + 1} &rarr;</a>
+</div>`,
 	);
 }
 
@@ -191,17 +210,26 @@ export function renderBlockList(blocks: BlockData[]): string {
  * Render the validators page.
  */
 export function renderValidators(validators: ValidatorData[]): string {
+	const online = validators.filter((v) => v.uptimePercent > 0).length;
 	const rows = validators
 		.map(
-			(v) =>
-				`<tr><td>${v.did.slice(0, 24)}...</td><td>${v.stake}</td><td>${v.blocksProduced}</td><td>${v.uptimePercent.toFixed(1)}%</td><td>${v.delegation}</td></tr>`,
+			(v, i) => {
+				const shortDid = v.did.length > 40 ? `${v.did.slice(0, 16)}...${v.did.slice(-6)}` : v.did;
+				const stakeEnsl = formatEnsl(v.stake);
+				return `<tr><td>${i + 1}</td><td><a href="/agent?did=${encodeURIComponent(v.did)}">${shortDid}</a></td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${v.uptimePercent.toFixed(1)}%</td><td>${v.delegation}</td></tr>`;
+			},
 		)
 		.join("");
 
 	return layout(
 		"Validators",
 		"validators",
-		`<h2>Validators</h2><table><tr><th>DID</th><th>Stake</th><th>Blocks</th><th>Uptime</th><th>Delegation</th></tr>${rows}</table>`,
+		`<h2>Network Validators</h2>
+<div class="card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;text-align:center">
+<div class="stat"><div class="stat-value">${validators.length}</div><div class="stat-label">Total</div></div>
+<div class="stat"><div class="stat-value">${online}</div><div class="stat-label">Online</div></div>
+</div>
+<table><tr><th>#</th><th>Validator</th><th>Stake</th><th>Blocks</th><th>Uptime</th><th>Type</th></tr>${rows}</table>`,
 	);
 }
 
@@ -211,4 +239,22 @@ function formatBytes(bytes: number): string {
 	if (bytes < 1024 * 1024 * 1024)
 		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function timeAgo(ts: number): string {
+	const diff = Math.floor((Date.now() - ts) / 1000);
+	if (diff < 60) return `${diff}s ago`;
+	if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+	if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+	return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function formatEnsl(amountStr: string): string {
+	try {
+		const wei = BigInt(amountStr);
+		const whole = wei / (10n ** 18n);
+		return `${whole.toLocaleString()} ENSL`;
+	} catch {
+		return amountStr;
+	}
 }
