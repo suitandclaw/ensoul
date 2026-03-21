@@ -235,8 +235,9 @@ export class EnsoulNodeRunner {
 	 * Step 5: Try to produce a block (if this node is the current proposer).
 	 */
 	tryProduceBlock(): Block | null {
-		if (!this.gossip || !this.identity) return null;
+		if (!this.gossip || !this.identity || !this.producer) return null;
 
+		// Normal proposer-selected production
 		const block = this.gossip.tryProduceBlock(this.identity.did);
 		if (block) {
 			this.blocksProduced++;
@@ -244,8 +245,26 @@ export class EnsoulNodeRunner {
 				`Produced block ${block.height} with ${block.transactions.length} txs`,
 			);
 			if (this.onBlock) this.onBlock(block);
+			return block;
 		}
-		return block;
+
+		// Fallback: if no block produced for 30s, produce regardless of proposer
+		if (this.producer.isProposerTimedOut()) {
+			this.log("Proposer timeout: producing block as fallback (expected proposer offline)");
+			const fallback = this.producer.produceBlock(this.identity.did, true);
+			if (fallback) {
+				this.blocksProduced++;
+				this.log(
+					`Fallback block ${fallback.height} with ${fallback.transactions.length} txs`,
+				);
+				// Broadcast via gossip
+				this.gossip.broadcastBlock(fallback);
+				if (this.onBlock) this.onBlock(fallback);
+				return fallback;
+			}
+		}
+
+		return null;
 	}
 
 	/**

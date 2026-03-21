@@ -59,6 +59,12 @@ export class NodeBlockProducer {
 	private store: BlockStore | null;
 	private delegations: DelegationRegistry;
 
+	/** Timestamp of the last block produced or applied. */
+	private lastBlockTime = Date.now();
+
+	/** Timeout before fallback block production (5x normal interval). */
+	private static readonly PROPOSER_TIMEOUT_MS = 30_000;
+
 	/** Callback invoked when a new block is produced. */
 	onBlock: ((block: Block) => void) | null = null;
 
@@ -275,10 +281,20 @@ export class NodeBlockProducer {
 	}
 
 	/**
+	 * Check if the proposer timeout has been exceeded (no block for 30s).
+	 * Returns true if a fallback block should be produced.
+	 */
+	isProposerTimedOut(): boolean {
+		return Date.now() - this.lastBlockTime > NodeBlockProducer.PROPOSER_TIMEOUT_MS;
+	}
+
+	/**
 	 * Produce a block for the current slot.
 	 * Returns null if myDid is not the selected proposer or lacks minimum stake.
+	 * If force is true, skips the proposer check (used for fallback production
+	 * when the expected proposer is offline).
 	 */
-	produceBlock(myDid: string): Block | null {
+	produceBlock(myDid: string, force = false): Block | null {
 		if (this.getEligibleValidators().length === 0 && this.validatorDids.length === 0) return null;
 
 		const height = this.ledger.getHeight() + 1;
@@ -294,9 +310,11 @@ export class NodeBlockProducer {
 			return null;
 		}
 
-		// Stake-weighted proposer selection
-		const expectedProposer = this.selectProposer(height);
-		if (expectedProposer !== myDid) return null;
+		// Stake-weighted proposer selection (skip if forced)
+		if (!force) {
+			const expectedProposer = this.selectProposer(height);
+			if (expectedProposer !== myDid) return null;
+		}
 
 		// Drain ready txs from enhanced mempool, enforce per-identity limit
 		const candidates = this.mempool.drain(this.config.maxTxPerBlock);
@@ -339,6 +357,7 @@ export class NodeBlockProducer {
 			void this.persistBlock(block);
 		}
 
+		this.lastBlockTime = Date.now();
 		if (this.onBlock) this.onBlock(block);
 		return block;
 	}
@@ -418,6 +437,7 @@ export class NodeBlockProducer {
 		}
 
 		this.watchdog.recordBlock();
+		this.lastBlockTime = Date.now();
 
 		// Persist to disk if store is available
 		if (this.store) {

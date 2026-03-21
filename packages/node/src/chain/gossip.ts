@@ -122,6 +122,18 @@ export class GossipNetwork {
 	}
 
 	/**
+	 * Broadcast an already-produced block to peers.
+	 * Used for fallback blocks produced outside normal rotation.
+	 */
+	broadcastBlock(block: Block): void {
+		this.markBlockSeen(block.height);
+		const serialized = serializeBlock(block);
+		if (this.onBroadcastBlock) {
+			this.onBroadcastBlock(serialized);
+		}
+	}
+
+	/**
 	 * Request chain sync from a peer.
 	 * Returns blocks from fromHeight to the peer's tip.
 	 */
