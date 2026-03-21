@@ -7,6 +7,7 @@ import { SeedClient } from "./seed-node.js";
 import { VERSION } from "../version.js";
 import type { ConsensusMessage, SerializedConsensusMessage } from "./tendermint.js";
 import { computeBlockHash } from "@ensoul/ledger";
+import type { Block } from "@ensoul/ledger";
 
 /**
  * Extract blocks array from a sync response.
@@ -124,7 +125,7 @@ export class PeerNetwork {
 				peerCount: this.peers.size,
 				did: this.myDid,
 				version: VERSION,
-				genesisHash: genesis ? computeBlockHash(genesis) : undefined,
+				genesisHash: genesis ? computeBlockHash(genesis) : "",
 			} satisfies PeerStatus;
 		});
 
@@ -263,7 +264,7 @@ export class PeerNetwork {
 				if (body.type === "propose" && body.block) {
 					const raw = body.block as Record<string, unknown>;
 					const txs = (raw["transactions"] as Array<Record<string, unknown>> ?? []).map((tx) => ({
-						type: tx["type"] as string,
+						type: tx["type"] as Block["transactions"][0]["type"],
 						from: tx["from"] as string,
 						to: tx["to"] as string,
 						amount: BigInt(tx["amount"] as string),

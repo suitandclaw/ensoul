@@ -172,13 +172,14 @@ export class TendermintConsensus {
 	}
 
 	/** Current state for debugging. */
-	getState(): { height: number; round: number; step: ConsensusStep; running: boolean; lockedRound: number } {
+	getState(): { height: number; round: number; step: ConsensusStep; running: boolean; lockedRound: number; validRound: number } {
 		return {
 			height: this.height,
 			round: this.round,
 			step: this.step,
 			running: this.running,
 			lockedRound: this.lockedRound,
+			validRound: this.validRound,
 		};
 	}
 

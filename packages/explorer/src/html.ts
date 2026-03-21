@@ -103,7 +103,7 @@ export function renderDashboard(
 	}
 	allTxs.sort((a, b) => b.tx.timestamp - a.tx.timestamp);
 	const txRows = allTxs.slice(0, 10)
-		.map(({ tx, blockHeight }) => {
+		.map(({ tx }) => {
 			const typeLabel = tx.type.replace(/_/g, " ").toUpperCase();
 			const shortFrom = tx.from.length > 24 ? `<a href="/account/${encodeURIComponent(tx.from)}">${tx.from.slice(0, 10)}...${tx.from.slice(-4)}</a>` : tx.from;
 			const shortTo = tx.to.length > 24 ? `<a href="/account/${encodeURIComponent(tx.to)}">${tx.to.slice(0, 10)}...${tx.to.slice(-4)}</a>` : tx.to;
@@ -425,6 +425,7 @@ export function renderAccount(
 <div class="stat"><div class="stat-value">${staked}</div><div class="stat-label">Staked</div></div>
 <div class="stat"><div class="stat-value">${delegated}</div><div class="stat-label">Delegated</div></div>
 <div class="stat"><div class="stat-value">${total}</div><div class="stat-label">Total</div></div>
+<div class="stat"><div class="stat-value">${credits}</div><div class="stat-label">Storage Credits</div></div>
 </div>
 ${validatorSection}
 <h2>Transactions (${totalTxs})</h2>
