@@ -8,6 +8,7 @@ import { EnsoulNodeRunner } from "./node-runner.js";
 import { PeerNetwork, parsePeerAddresses } from "../chain/peer-network.js";
 import { runGenesisCommand, loadGenesisBlock } from "./genesis-cmd.js";
 import { installService, uninstallService, checkServiceStatus } from "./service.js";
+import { VERSION } from "../version.js";
 
 /**
  * Main entry point for the ensoul-node CLI.
@@ -46,6 +47,12 @@ async function main(): Promise<void> {
 
 	if (args.importSeed) {
 		await handleImportSeed(args.importSeed, args.dataDir);
+		return;
+	}
+
+	// Auto-update install
+	if (args.autoUpdate) {
+		await installAutoUpdate();
 		return;
 	}
 
@@ -147,9 +154,14 @@ async function main(): Promise<void> {
 		await runner.syncFromPeers();
 	}
 
+	// Version check against peers
+	if (peerNet) {
+		await checkPeerVersions(peerNet, args.peers);
+	}
+
 	// Step 4: Start block loop
 	if (args.mode === "validate") {
-		console.log("\n  Mode: VALIDATOR (producing blocks)\n");
+		console.log(`\n  Mode: VALIDATOR (producing blocks) v${VERSION}\n`);
 		runner.startBlockLoop();
 	} else {
 		console.log("\n  Mode: FULL NODE (syncing only)\n");
@@ -335,6 +347,96 @@ async function handleImportSeed(seedHex: string, dataDir: string): Promise<void>
 
 	console.log(`[ensoul] Saved to ${idPath}`);
 	console.log("[ensoul] Your validator will use this identity on next start.");
+}
+
+// ── Version check ───────────────────────────────────────────────────
+
+/**
+ * Compare local version with connected peers. Warn if any peer is newer.
+ */
+async function checkPeerVersions(peerNet: PeerNetwork, peerAddrs: string[]): Promise<void> {
+	const peers = peerNet.getPeers();
+	for (const peer of peers) {
+		try {
+			const resp = await fetch(`${peer.address}/peer/status`, { signal: AbortSignal.timeout(3000) });
+			if (!resp.ok) continue;
+			const status = (await resp.json()) as { version?: string };
+			if (status.version && status.version !== VERSION && status.version > VERSION) {
+				console.log(`\n[ensoul] WARNING: Peer ${peer.address} is running v${status.version} but you are on v${VERSION}.`);
+				console.log("[ensoul] Run: cd ~/ensoul && git pull && pnpm build");
+				console.log("[ensoul] Then restart your validators.\n");
+			}
+		} catch { /* peer unreachable */ }
+	}
+}
+
+// ── Auto-update install ─────────────────────────────────────────────
+
+/**
+ * Install the auto-update launchd job.
+ */
+async function installAutoUpdate(): Promise<void> {
+	const { homedir, platform } = await import("node:os");
+	const { execSync } = await import("node:child_process");
+
+	if (platform() !== "darwin") {
+		console.error("[ensoul] Auto-update is only supported on macOS.");
+		process.exit(1);
+	}
+
+	const home = homedir();
+	const launchDir = join(home, "Library", "LaunchAgents");
+	const logDir = join(home, ".ensoul");
+	const scriptPath = join(process.cwd(), "scripts", "auto-update.sh");
+	const plistPath = join(launchDir, "dev.ensoul.auto-update.plist");
+	const logFile = join(logDir, "auto-update.log");
+
+	await mkdir(launchDir, { recursive: true });
+	await mkdir(logDir, { recursive: true });
+
+	const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.ensoul.auto-update</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${scriptPath}</string>
+  </array>
+
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>StandardOutPath</key>
+  <string>${logFile}</string>
+
+  <key>StandardErrorPath</key>
+  <string>${logFile}</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>${home}</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>`;
+
+	// Unload existing
+	try { execSync(`launchctl bootout gui/$(id -u) "${plistPath}" 2>/dev/null`, { stdio: "ignore" }); } catch { /* ok */ }
+
+	await writeFile(plistPath, plist);
+	execSync(`launchctl bootstrap gui/$(id -u) "${plistPath}"`, { stdio: "ignore" });
+
+	console.log("[ensoul] Auto-update installed. Your validator will check for updates every 15 minutes and restart automatically if needed.");
+	console.log(`[ensoul] Plist: ${plistPath}`);
+	console.log(`[ensoul] Log: ${logFile}`);
+	console.log(`[ensoul] Script: ${scriptPath}`);
 }
 
 main().catch((err) => {

@@ -4,6 +4,7 @@ import type { GossipNetwork } from "./gossip.js";
 import type { SerializedBlock, SerializedTx } from "./types.js";
 import { deserializeTx } from "./types.js";
 import { SeedClient } from "./seed-node.js";
+import { VERSION } from "../version.js";
 
 /**
  * Extract blocks array from a sync response.
@@ -42,6 +43,7 @@ export interface PeerStatus {
 	height: number;
 	peerCount: number;
 	did: string;
+	version?: string;
 }
 
 /**
@@ -113,6 +115,7 @@ export class PeerNetwork {
 				height: this.gossip.getProducer().getHeight(),
 				peerCount: this.peers.size,
 				did: this.myDid,
+				version: VERSION,
 			} satisfies PeerStatus;
 		});
 

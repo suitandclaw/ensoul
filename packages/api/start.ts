@@ -775,6 +775,12 @@ async function main(): Promise<void> {
 		};
 	});
 
+	// ── Network Version ─────────────────────────────────────────
+
+	app.get("/v1/network/version", async () => {
+		return { version: "0.2.0", minimumVersion: "0.2.0" };
+	});
+
 	// ── Consciousness Store ──────────────────────────────────────
 
 	app.post<{ Body: StoreRequest }>("/v1/consciousness/store", async (req, reply) => {
@@ -1347,6 +1353,7 @@ async function main(): Promise<void> {
 	process.stdout.write(`    POST /v1/agents/register\n`);
 	process.stdout.write(`    GET  /v1/agents/list\n`);
 	process.stdout.write(`    POST /v1/validators/register\n`);
+	process.stdout.write(`    GET  /v1/network/version\n`);
 	process.stdout.write(`    GET  /v1/validators/:did/stats\n`);
 	process.stdout.write(`    GET  /v1/validators/leaderboard\n`);
 	process.stdout.write(`\n  Backend validators: ${VALIDATORS.length} (${net.alive} alive)\n`);

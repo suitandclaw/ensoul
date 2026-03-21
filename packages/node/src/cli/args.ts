@@ -21,6 +21,7 @@ export interface CliArgs {
 	noMinStake: boolean;
 	exportSeed: boolean;
 	importSeed: string;
+	autoUpdate: boolean;
 }
 
 /** Default seed node URL. Empty means no seed unless --seed is provided. */
@@ -65,6 +66,7 @@ export function parseArgs(argv: string[]): CliArgs {
 		noMinStake: false,
 		exportSeed: false,
 		importSeed: "",
+		autoUpdate: false,
 	};
 
 	for (let i = 0; i < argv.length; i++) {
@@ -112,6 +114,8 @@ export function parseArgs(argv: string[]): CliArgs {
 			args.exportSeed = true;
 		} else if (arg === "--import-seed" && argv[i + 1]) {
 			args.importSeed = argv[++i]!;
+		} else if (arg === "--auto-update") {
+			args.autoUpdate = true;
 		}
 	}
 
@@ -165,6 +169,7 @@ OPTIONS:
   --no-min-stake            Disable minimum stake requirement (bootstrap phase)
   --export-seed             Display your validator seed (requires ENSOUL_KEY_PASSWORD if encrypted)
   --import-seed <hex>       Create identity from an existing 64-char hex seed
+  --auto-update             Install auto-update service (checks every 15 min)
   --help, -h                Show this help
 
 EXAMPLES:

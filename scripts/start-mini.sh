@@ -111,6 +111,22 @@ do_start() {
 	local tunnel_name="$1"
 	local peers="$2"
 
+	# Pull latest code and rebuild before starting
+	log "Checking for updates..."
+	if [ -f "$REPO_DIR/scripts/auto-update.sh" ]; then
+		cd "$REPO_DIR"
+		git fetch origin main --quiet 2>/dev/null || true
+		LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
+		REMOTE=$(git rev-parse origin/main 2>/dev/null || echo "")
+		if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
+			log "New commits found. Pulling and rebuilding..."
+			git pull origin main --quiet 2>/dev/null || true
+			pnpm build >> "$LOG_DIR/auto-update.log" 2>&1 || log "Build failed, continuing with current version"
+		else
+			log "Code is up to date."
+		fi
+	fi
+
 	log "Starting Ensoul Mac Mini: tunnel=$tunnel_name, validators=$NUM_VALIDATORS"
 	echo ""
 

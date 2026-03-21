@@ -71,6 +71,8 @@ npx tsx packages/node/src/cli/main.ts --validate \
   --peers https://v0.ensoul.dev,https://v1.ensoul.dev \
   --install</code></pre>
 <p>The <code>--install</code> flag sets up a background service. You can close your terminal after this.</p>
+<p>Enable auto-updates so your validator stays current:</p>
+<pre><code>npx tsx packages/node/src/cli/main.ts --auto-update</code></pre>
 
 <h3>Step 4: Save your seed</h3>
 <p>Your validator displays a 64-character seed on first run. Copy it. Go to <a href="/wallet.html">ensoul.dev/wallet.html</a>, click <strong>Import Wallet</strong>, and paste the seed. This connects your wallet to your validator so you can manage stake and rewards from the browser.</p>

@@ -122,6 +122,8 @@ function renderWelcome(){
     '</div>';
 }
 
+var networkVersion=null;
+
 function renderDashboard(){
   var validators=getValidators();
   var totalStake=0,totalEarned=0;
@@ -137,6 +139,15 @@ function renderDashboard(){
 
   if(validators.length>1){
     html+='<div class="summary-bar"><span>Total across '+validators.length+' validators: <span class="sv">'+fmt(totalStake)+' ENSL</span> staked</span><span>Earned: <span class="sv">'+fmt(totalEarned)+' ENSL</span></span></div>';
+  }
+
+  // Version warning
+  if(networkVersion){
+    var firstStats=statsData[validators[0]&&validators[0].did];
+    var validatorVersion=firstStats&&firstStats.version?firstStats.version:"0.2.0";
+    if(networkVersion.version&&networkVersion.version!==validatorVersion){
+      html+='<div class="warn-banner yellow">Your validator is running v'+esc(validatorVersion)+' but the network is on v'+esc(networkVersion.version)+'. Update required.<br><code style="font-size:0.85em;color:#e0e0e0">cd ~/ensoul && git pull && pnpm build</code></div>';
+    }
   }
 
   validators.forEach(function(v,i){
@@ -243,6 +254,12 @@ function render(){
 }
 
 function fetchAll(){
+  // Fetch network version
+  fetch(API+"/v1/network/version",{mode:"cors"})
+    .then(function(r){return r.json()})
+    .then(function(d){networkVersion=d})
+    .catch(function(){});
+
   var validators=getValidators();
   if(validators.length===0){render();return}
   var pending=validators.length;
