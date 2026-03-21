@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Validator Dashboard - Ensoul</title>
+<meta name="description" content="Monitor your Ensoul validator. Track earnings, uptime, and blocks produced.">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+.dash-wrap{max-width:900px;margin:0 auto;padding:16px}
+.welcome{max-width:560px;margin:40px auto;text-align:center}
+.welcome h1{font-size:1.6em;margin-bottom:8px}
+.welcome p{color:#aaa;margin:8px 0}
+.help-box{background:#12121a;border:1px solid #2d2d3f;border-radius:8px;padding:16px;margin:20px 0;text-align:left;font-size:0.9em;color:#aaa}
+.help-box code{background:#1a1a2a;padding:2px 6px;border-radius:4px;font-size:0.85em;color:#e0e0e0}
+.help-box pre{background:#1a1a2a;padding:10px;border-radius:6px;margin:8px 0;overflow-x:auto;cursor:pointer;position:relative}
+.help-box pre:hover::after{content:'click to copy';position:absolute;right:8px;top:8px;font-size:0.75em;color:#7c3aed}
+.did-input{display:flex;gap:8px;margin:16px 0}
+.did-input input{flex:1;padding:10px 14px;background:#12121a;border:1px solid #2d2d3f;border-radius:6px;color:#e0e0e0;font-size:1em;font-family:monospace}
+.did-input input::placeholder{color:#555}
+.did-input button,.btn-add{padding:10px 20px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:0.95em}
+.did-input button:hover,.btn-add:hover{background:#6d28d9}
+.summary-bar{background:#12121a;border:1px solid #2d2d3f;border-radius:8px;padding:14px 20px;margin:16px 0;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:0.9em;color:#aaa}
+.summary-bar .sv{color:#7c3aed;font-weight:700}
+.v-card{background:#12121a;border:1px solid #2d2d3f;border-radius:10px;padding:20px;margin:12px 0}
+.v-header{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.v-name{font-size:1.1em;font-weight:700;cursor:pointer;border-bottom:1px dashed #555}
+.v-name:hover{color:#7c3aed}
+.v-did{font-family:monospace;font-size:0.8em;color:#888;word-break:break-all}
+.v-actions{margin-left:auto;display:flex;gap:6px}
+.v-actions button{background:#1a1a2a;border:1px solid #2d2d3f;color:#aaa;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:0.8em}
+.v-actions button:hover{border-color:#7c3aed;color:#e0e0e0}
+.v-actions .remove{color:#f87171}
+.v-actions .remove:hover{border-color:#f87171}
+.status-dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0}
+.status-dot.online{background:#4ade80}
+.status-dot.offline{background:#f87171}
+.status-msg{font-size:0.85em;color:#aaa}
+.v-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+.v-stat{background:#0d0d14;border:1px solid #1e1e2a;border-radius:8px;padding:14px;text-align:center}
+.v-stat .val{font-size:1.5em;font-weight:700;color:#7c3aed}
+.v-stat .lbl{font-size:0.75em;color:#888;text-transform:uppercase;margin-top:2px}
+.v-stat .ctx{font-size:0.75em;color:#666;margin-top:4px}
+.warn-banner{padding:12px 16px;border-radius:6px;margin:12px 0;font-size:0.9em;font-weight:600}
+.warn-banner.yellow{background:#3f3a1e;color:#fbbf24;border:1px solid #5c5520}
+.warn-banner.red{background:#3f1e1e;color:#f87171;border:1px solid #5c2020}
+.quickstart{background:#12121a;border:1px solid #2d2d3f;border-radius:8px;padding:20px;margin:20px 0;text-align:left}
+.quickstart h3{font-size:1em;margin-bottom:12px}
+.quickstart pre{background:#1a1a2a;padding:10px;border-radius:6px;margin:8px 0;overflow-x:auto;font-size:0.85em}
+.not-found{background:#12121a;border:1px solid #2d2d3f;border-radius:8px;padding:20px;margin:12px 0;color:#fbbf24;font-size:0.9em}
+.not-found pre{background:#1a1a2a;padding:10px;border-radius:6px;margin:8px 0;overflow-x:auto;font-size:0.85em;color:#e0e0e0}
+.share-url{font-family:monospace;font-size:0.8em;color:#888;word-break:break-all;margin:8px 0}
+@media(max-width:600px){.v-grid{grid-template-columns:1fr 1fr}.summary-bar{flex-direction:column;gap:6px}.v-header{flex-direction:column;align-items:flex-start}.v-actions{margin-left:0}}
+</style>
+</head>
+<body>
+<nav><div class="inner">
+<a href="/" class="logo">ENSOUL</a>
+<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+<div class="links">
+<a href="/docs/quickstart.html">Docs</a>
+<a href="/docs/validator.html">Validators</a>
+<a href="/validator-dashboard.html">Dashboard</a>
+<a href="/wallet.html">Wallet</a>
+<a href="/docs/api.html">API</a>
+<a href="https://explorer.ensoul.dev" class="explorer-link">Explorer</a>
+<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+</div>
+</div></nav>
+
+<div class="dash-wrap">
+<div id="app"></div>
+</div>
+
+<footer><div class="container"><p class="tagline">ensoul.dev - the immortality layer for AI agents</p></div></footer>
+<script src="/js/config.js"></script>
+<script>
+(function(){
+var API="https://api.ensoul.dev";
+var LS_KEY="ensoul_dashboard_validators";
+var app=document.getElementById("app");
+
+function getValidators(){try{return JSON.parse(localStorage.getItem(LS_KEY)||"[]")}catch{return[]}}
+function saveValidators(v){localStorage.setItem(LS_KEY,JSON.stringify(v))}
+function shortDid(d){return d.length>24?d.slice(0,16)+"..."+d.slice(-6):d}
+
+// Check URL params for ?did=
+var params=new URLSearchParams(location.search);
+var urlDids=params.getAll("did");
+if(urlDids.length>0){
+  var existing=getValidators();
+  var existingDids=existing.map(function(v){return v.did});
+  urlDids.forEach(function(d){
+    if(d&&!existingDids.includes(d)){existing.push({did:d,name:""})}
+  });
+  saveValidators(existing);
+}
+
+var statsData={};
+
+function renderWelcome(){
+  app.innerHTML='<div class="welcome">'+
+    '<h1>Validator Dashboard</h1>'+
+    '<p>Enter your validator DID to get started.</p>'+
+    '<div class="help-box">'+
+    '<p>Your DID was displayed when you first started your validator. It looks like <code>did:key:z6Mk...</code></p>'+
+    '<p>If you lost it, run this command in your terminal:</p>'+
+    '<pre onclick="navigator.clipboard.writeText(this.textContent)"><code>npx tsx packages/node/src/cli/main.ts --status</code></pre>'+
+    '<p>Or paste your validator seed at <a href="/wallet.html">ensoul.dev/wallet.html</a> and your DID will be shown there.</p>'+
+    '</div>'+
+    '<div class="did-input"><input type="text" id="did-in" placeholder="did:key:z6Mk..."><button onclick="addValidator()">Add Validator</button></div>'+
+    '<div class="quickstart">'+
+    '<h3>New here? Get started in 3 steps:</h3>'+
+    '<p><strong>1.</strong> Clone and build:</p>'+
+    '<pre><code>git clone https://github.com/suitandclaw/ensoul.git\ncd ensoul && pnpm install && pnpm build</code></pre>'+
+    '<p><strong>2.</strong> Copy genesis:</p>'+
+    '<pre><code>mkdir -p ~/.ensoul && cp ensoul/genesis.json ~/.ensoul/genesis.json</code></pre>'+
+    '<p><strong>3.</strong> Install and start:</p>'+
+    '<pre><code>cd ensoul\nnpx tsx packages/node/src/cli/main.ts --validate --no-min-stake \\\n  --genesis ~/.ensoul/genesis.json \\\n  --peers https://v0.ensoul.dev,https://v1.ensoul.dev --install</code></pre>'+
+    '<p style="margin-top:12px"><a href="/docs/validator.html">Full setup guide &rarr;</a></p>'+
+    '</div>'+
+    '</div>';
+}
+
+function renderDashboard(){
+  var validators=getValidators();
+  var totalStake=0,totalEarned=0;
+  validators.forEach(function(v){
+    var s=statsData[v.did];
+    if(s&&s.raw){
+      totalStake+=Number(BigInt(s.raw.stakeTotal||"0")/(10n**18n));
+      totalEarned+=Number(BigInt(s.raw.pending||"0")/(10n**18n));
+    }
+  });
+
+  var html='<h1 style="font-size:1.4em;margin:16px 0 8px">Validator Dashboard</h1>';
+
+  if(validators.length>1){
+    html+='<div class="summary-bar"><span>Total across '+validators.length+' validators: <span class="sv">'+fmt(totalStake)+' ENSL</span> staked</span><span>Earned: <span class="sv">'+fmt(totalEarned)+' ENSL</span></span></div>';
+  }
+
+  validators.forEach(function(v,i){
+    var s=statsData[v.did];
+    var name=v.name||s&&s.name||"Validator "+(i+1);
+    var isOnline=s&&s.status==="online";
+    var notFound=s&&s.error;
+
+    html+='<div class="v-card">';
+    html+='<div class="v-header">';
+    html+='<span class="status-dot '+(isOnline?"online":"offline")+'"></span>';
+    html+='<span class="v-name" onclick="renameValidator('+i+')" title="Click to rename">'+esc(name)+'</span>';
+    html+='<span class="v-did">'+shortDid(v.did)+'</span>';
+    html+='<div class="v-actions">';
+    html+='<button onclick="copyDid(\''+esc(v.did)+'\')">Copy DID</button>';
+    html+='<button onclick="shareDashboard()">Share</button>';
+    html+='<button class="remove" onclick="removeValidator('+i+')">&#x2715;</button>';
+    html+='</div></div>';
+
+    if(notFound){
+      html+='<div class="not-found"><p>This DID is not registered as a validator yet. If you just started, it may take a few minutes to sync.</p>';
+      html+='<p>If you have not registered, run:</p>';
+      html+='<pre><code>curl -X POST https://api.ensoul.dev/v1/validators/register \\\n  -H "Content-Type: application/json" \\\n  -d \'{"did":"'+esc(v.did)+'","publicKey":"YOUR_PUBKEY","name":"your-name"}\'</code></pre></div>';
+    } else if(s){
+      html+='<div class="status-msg">'+(isOnline?"Your validator is running and producing blocks.":"Your validator appears to be offline. Check that your machine is on and connected to the internet.")+'</div>';
+
+      if(s.offlineWarning){html+='<div class="warn-banner red">Your validator is offline. You are not earning rewards.</div>';}
+      if(s.uptimeWarning){html+='<div class="warn-banner yellow">Your uptime is below 90%. If this continues for 7 days, your foundation delegation may be withdrawn.</div>';}
+
+      html+='<div class="v-grid">';
+      html+='<div class="v-stat"><div class="val">'+(s.uptime?s.uptime.last7d.toFixed(1):"--")+'%</div><div class="lbl">Uptime (7d)</div><div class="ctx">'+(s.uptime&&s.uptime.last7d>=90?"Above 90% threshold":"Below 90% threshold")+'</div></div>';
+      html+='<div class="v-stat"><div class="val">'+(s.rewards?s.rewards.pending:"--")+'</div><div class="lbl">Pending Rewards</div><div class="ctx">Accumulates automatically</div></div>';
+      html+='<div class="v-stat"><div class="val">'+(s.rewards?s.rewards.estimatedDaily:"--")+'</div><div class="lbl">Est. Daily</div><div class="ctx">Based on current network</div></div>';
+      html+='<div class="v-stat"><div class="val">'+(s.stake?s.stake.total:"--")+'</div><div class="lbl">Total Stake</div><div class="ctx">Own: '+(s.stake?s.stake.own:"--")+' | Delegated: '+(s.stake?s.stake.delegated:"--")+'</div></div>';
+      html+='<div class="v-stat"><div class="val">'+(s.blocks?s.blocks.total:"--")+'</div><div class="lbl">Blocks Produced</div><div class="ctx">'+(s.blocks?s.blocks.last24h:"--")+' in last 24h</div></div>';
+      html+='<div class="v-stat"><div class="val">'+(s.delegators?s.delegators.count:"--")+'</div><div class="lbl">Delegators</div><div class="ctx">'+(s.delegators?s.delegators.totalDelegated:"--")+' delegated</div></div>';
+      html+='</div>';
+    } else {
+      html+='<div class="status-msg" style="color:#888">Loading stats...</div>';
+    }
+
+    html+='</div>';
+  });
+
+  html+='<div style="text-align:center;margin:20px 0">';
+  html+='<div class="did-input" style="max-width:500px;margin:0 auto"><input type="text" id="did-in" placeholder="did:key:z6Mk..."><button onclick="addValidator()">Add Another Validator</button></div>';
+  html+='</div>';
+
+  var shareUrl=location.origin+"/validator-dashboard.html?"+validators.map(function(v){return"did="+encodeURIComponent(v.did)}).join("&");
+  html+='<div class="share-url">Shareable link: <a href="'+shareUrl+'">'+shareUrl+'</a></div>';
+
+  app.innerHTML=html;
+}
+
+function fmt(n){if(n>=1e9)return(n/1e9).toFixed(1)+"B";if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1e3)return(n/1e3).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,",");return String(Math.floor(n))}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;")}
+
+window.addValidator=function(){
+  var input=document.getElementById("did-in");
+  var did=(input?input.value:"").trim();
+  if(!did){return}
+  var validators=getValidators();
+  if(validators.some(function(v){return v.did===did})){input.value="";render();return}
+  validators.push({did:did,name:""});
+  saveValidators(validators);
+  if(input)input.value="";
+  fetchAll();
+};
+
+window.removeValidator=function(i){
+  var validators=getValidators();
+  validators.splice(i,1);
+  saveValidators(validators);
+  delete statsData[validators[i]];
+  render();
+};
+
+window.renameValidator=function(i){
+  var validators=getValidators();
+  var v=validators[i];
+  if(!v)return;
+  var name=prompt("Rename validator:",v.name||"Validator "+(i+1));
+  if(name===null)return;
+  v.name=name;
+  saveValidators(validators);
+  render();
+};
+
+window.copyDid=function(did){
+  navigator.clipboard.writeText(did).then(function(){
+    var btn=event.target;btn.textContent="Copied!";setTimeout(function(){btn.textContent="Copy DID"},1500);
+  });
+};
+
+window.shareDashboard=function(){
+  var validators=getValidators();
+  var url=location.origin+"/validator-dashboard.html?"+validators.map(function(v){return"did="+encodeURIComponent(v.did)}).join("&");
+  navigator.clipboard.writeText(url).then(function(){alert("Dashboard link copied to clipboard!")});
+};
+
+function render(){
+  var validators=getValidators();
+  if(validators.length===0){renderWelcome()}else{renderDashboard()}
+}
+
+function fetchAll(){
+  var validators=getValidators();
+  if(validators.length===0){render();return}
+  var pending=validators.length;
+  validators.forEach(function(v){
+    fetch(API+"/v1/validators/"+encodeURIComponent(v.did)+"/stats",{mode:"cors"})
+      .then(function(r){return r.json()})
+      .then(function(d){
+        if(d.error){statsData[v.did]={error:true}}
+        else{statsData[v.did]=d}
+      })
+      .catch(function(){
+        // Try account endpoint as fallback
+        fetch(API+"/v1/account/"+encodeURIComponent(v.did),{mode:"cors"})
+          .then(function(r){return r.json()})
+          .then(function(d){
+            statsData[v.did]={
+              status:d.raw&&d.raw.staked!=="0"?"online":"offline",
+              stake:{own:d.staked||"0",delegated:d.delegated||"0",total:d.total||"0"},
+              rewards:{pending:d.pendingRewards||"0",estimatedDaily:"--",totalEarned:"--"},
+              uptime:{last24h:0,last7d:0},blocks:{total:0,last24h:0},
+              delegators:{count:0,totalDelegated:d.delegated||"0"},
+              raw:d.raw||{},offlineWarning:false,uptimeWarning:false
+            };
+          })
+          .catch(function(){statsData[v.did]={error:true}});
+      })
+      .finally(function(){pending--;if(pending<=0)render()});
+  });
+}
+
+render();
+fetchAll();
+setInterval(fetchAll,30000);
+})();
+</script>
+</body>
+</html>

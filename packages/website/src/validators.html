@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Validators - Ensoul</title>
+<meta name="description" content="All active validators on the Ensoul network. Search by DID or name.">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+.val-wrap{max-width:900px;margin:0 auto;padding:16px}
+.val-wrap h1{font-size:1.4em;margin:16px 0 4px}
+.val-wrap .sub{color:#888;font-size:0.9em;margin-bottom:16px}
+.dash-link{background:#1e1e3a;border:1px solid #2d2d3f;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:0.9em;color:#aaa;text-align:center}
+.dash-link a{color:#7c3aed;font-weight:600}
+.search-bar{margin:16px 0}
+.search-bar input{width:100%;padding:10px 14px;background:#12121a;border:1px solid #2d2d3f;border-radius:6px;color:#e0e0e0;font-size:1em}
+.search-bar input::placeholder{color:#555}
+.v-table{width:100%;border-collapse:collapse;margin:16px 0}
+.v-table th{text-align:left;padding:10px 12px;font-size:0.75em;color:#888;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #2d2d3f;cursor:pointer;user-select:none}
+.v-table th:hover{color:#7c3aed}
+.v-table th .arrow{font-size:0.8em;margin-left:4px}
+.v-table td{padding:10px 12px;font-size:0.9em;border-bottom:1px solid #1e1e2a}
+.v-table tr:nth-child(even) td{background:#0d0d14}
+.v-table tr:hover td{background:#14142a}
+.v-table tr{cursor:pointer}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.online{background:#4ade80}
+.dot.offline{background:#f87171}
+.expand-row td{background:#12121a !important;padding:16px;font-size:0.85em;color:#aaa}
+.expand-row .detail{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px}
+.expand-row .detail span{color:#e0e0e0}
+.expand-row .full-did{font-family:monospace;font-size:0.8em;word-break:break-all;color:#888;margin-top:8px}
+.copy-btn{background:#1a1a2a;border:1px solid #2d2d3f;color:#aaa;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:0.8em;margin-left:6px}
+.copy-btn:hover{border-color:#7c3aed;color:#e0e0e0}
+.loading{text-align:center;color:#888;padding:40px;font-size:1em}
+.error-msg{text-align:center;color:#f87171;padding:20px;background:#1e1212;border-radius:8px;margin:16px 0}
+@media(max-width:700px){
+  .v-table,.v-table thead,.v-table tbody,.v-table th,.v-table td,.v-table tr{display:block}
+  .v-table thead{display:none}
+  .v-table tr{background:#12121a;border:1px solid #2d2d3f;border-radius:8px;margin:8px 0;padding:12px}
+  .v-table td{padding:4px 12px;border:none;font-size:0.85em}
+  .v-table td::before{content:attr(data-label);display:inline-block;width:100px;color:#888;font-size:0.8em;text-transform:uppercase}
+  .expand-row .detail{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<nav><div class="inner">
+<a href="/" class="logo">ENSOUL</a>
+<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+<div class="links">
+<a href="/docs/quickstart.html">Docs</a>
+<a href="/docs/validator.html">Validators</a>
+<a href="/validator-dashboard.html">Dashboard</a>
+<a href="/wallet.html">Wallet</a>
+<a href="/docs/api.html">API</a>
+<a href="https://explorer.ensoul.dev" class="explorer-link">Explorer</a>
+<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+</div>
+</div></nav>
+
+<div class="val-wrap">
+<h1>Network Validators</h1>
+<p class="sub">All active validators on the Ensoul network.</p>
+<div class="dash-link">Running a validator? <a href="/validator-dashboard.html">Track your stats at the Validator Dashboard &rarr;</a></div>
+
+<div class="search-bar">
+<input type="text" id="search" placeholder="Search by DID or validator name" oninput="filterValidators()">
+</div>
+
+<div id="content"><div class="loading">Loading validators...</div></div>
+</div>
+
+<footer><div class="container"><p class="tagline">ensoul.dev - the immortality layer for AI agents</p></div></footer>
+<script src="/js/config.js"></script>
+<script>
+(function(){
+var API="https://api.ensoul.dev";
+var allValidators=[];
+var sortCol="stake";
+var sortAsc=false;
+var expandedDid=null;
+
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+
+function renderTable(validators){
+  var el=document.getElementById("content");
+  if(!validators||validators.length===0){
+    el.innerHTML='<div class="loading">No validators found.</div>';
+    return;
+  }
+
+  var html='<table class="v-table"><thead><tr>';
+  var cols=[
+    {key:"rank",label:"#",sortable:false},
+    {key:"name",label:"Name",sortable:true},
+    {key:"stake",label:"Stake",sortable:true},
+    {key:"uptime24h",label:"Uptime",sortable:true},
+    {key:"status",label:"Status",sortable:true},
+    {key:"registeredAt",label:"Registered",sortable:true}
+  ];
+  cols.forEach(function(c){
+    var arrow=sortCol===c.key?(sortAsc?" &#9650;":" &#9660;"):"";
+    html+='<th'+(c.sortable?' onclick="sortBy(\''+c.key+'\')"':'')+'>'+c.label+(c.sortable?'<span class="arrow">'+arrow+'</span>':'')+'</th>';
+  });
+  html+='</tr></thead><tbody>';
+
+  validators.forEach(function(v,i){
+    var displayName=v.name||v.didShort||"Unknown";
+    var statusClass=v.status==="online"?"online":"offline";
+    var regDate=v.registeredAt?new Date(v.registeredAt).toLocaleDateString():"--";
+
+    html+='<tr onclick="toggleExpand(\''+esc(v.did)+'\')">';
+    html+='<td data-label="#">'+(i+1)+'</td>';
+    html+='<td data-label="Name">'+esc(displayName)+'</td>';
+    html+='<td data-label="Stake">'+(v.stake||"--")+'</td>';
+    html+='<td data-label="Uptime">'+(v.uptime24h?v.uptime24h.toFixed(1)+"%":"--")+'</td>';
+    html+='<td data-label="Status"><span class="dot '+statusClass+'"></span> '+v.status+'</td>';
+    html+='<td data-label="Registered">'+regDate+'</td>';
+    html+='</tr>';
+
+    if(expandedDid===v.did){
+      html+='<tr class="expand-row"><td colspan="6">';
+      html+='<div class="detail">';
+      html+='<div>Commission: <span>'+(v.commission?Math.round(v.commission*100)+"%":"10%")+'</span></div>';
+      html+='<div>Delegated: <span>'+(v.delegated||"--")+'</span></div>';
+      html+='<div>Status: <span>'+v.status+'</span></div>';
+      html+='<div>Registered: <span>'+(v.registeredAt?new Date(v.registeredAt).toISOString().slice(0,10):"--")+'</span></div>';
+      html+='</div>';
+      html+='<div class="full-did">'+esc(v.did)+' <button class="copy-btn" onclick="event.stopPropagation();navigator.clipboard.writeText(\''+esc(v.did)+'\')">Copy</button></div>';
+      html+='</td></tr>';
+    }
+  });
+
+  html+='</tbody></table>';
+  el.innerHTML=html;
+}
+
+window.sortBy=function(col){
+  if(sortCol===col){sortAsc=!sortAsc}else{sortCol=col;sortAsc=col==="name"}
+  doSort();
+  renderFiltered();
+};
+
+function doSort(){
+  allValidators.sort(function(a,b){
+    var av=a[sortCol],bv=b[sortCol];
+    if(sortCol==="stake"){
+      av=BigInt(a.stakeRaw||"0");bv=BigInt(b.stakeRaw||"0");
+      return sortAsc?(av>bv?1:av<bv?-1:0):(bv>av?1:bv<av?-1:0);
+    }
+    if(typeof av==="number"&&typeof bv==="number"){return sortAsc?av-bv:bv-av}
+    av=String(av||"").toLowerCase();bv=String(bv||"").toLowerCase();
+    return sortAsc?av.localeCompare(bv):bv.localeCompare(av);
+  });
+}
+
+window.toggleExpand=function(did){
+  expandedDid=expandedDid===did?null:did;
+  renderFiltered();
+};
+
+window.filterValidators=function(){renderFiltered()};
+
+function renderFiltered(){
+  var q=(document.getElementById("search").value||"").toLowerCase().trim();
+  if(!q){renderTable(allValidators);return}
+  var filtered=allValidators.filter(function(v){
+    return (v.did||"").toLowerCase().includes(q)||(v.name||"").toLowerCase().includes(q)||(v.didShort||"").toLowerCase().includes(q);
+  });
+  renderTable(filtered);
+}
+
+function fetchData(){
+  fetch(API+"/v1/validators/leaderboard",{mode:"cors"})
+    .then(function(r){if(!r.ok)throw new Error(r.status);return r.json()})
+    .then(function(d){
+      allValidators=d.validators||[];
+      doSort();
+      renderFiltered();
+    })
+    .catch(function(){
+      document.getElementById("content").innerHTML='<div class="error-msg">Could not load validator data. The network may be temporarily unreachable.</div>';
+    });
+}
+
+fetchData();
+setInterval(fetchData,60000);
+})();
+</script>
+</body>
+</html>

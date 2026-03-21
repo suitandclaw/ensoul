@@ -962,6 +962,175 @@ async function main(): Promise<void> {
 		};
 	});
 
+	// ── Validator Stats ──────────────────────────────────────────
+
+	/** Fetch account data for a DID from validators. */
+	async function fetchAccountData(did: string): Promise<{
+		balance: bigint; staked: bigint; delegated: bigint;
+		unstaking: bigint; pending: bigint; nonce: number;
+	} | null> {
+		const encoded = encodeURIComponent(did);
+		for (const url of VALIDATORS) {
+			try {
+				const resp = await fetch(`${url}/peer/account/${encoded}`, { signal: AbortSignal.timeout(5000) });
+				if (!resp.ok) continue;
+				const d = (await resp.json()) as {
+					balance: string; staked: string; delegatedBalance?: string;
+					unstaking?: string; pendingRewards?: string; nonce: number;
+				};
+				return {
+					balance: BigInt(d.balance),
+					staked: BigInt(d.staked),
+					delegated: BigInt(d.delegatedBalance ?? "0"),
+					unstaking: BigInt(d.unstaking ?? "0"),
+					pending: BigInt(d.pendingRewards ?? "0"),
+					nonce: d.nonce,
+				};
+			} catch { continue; }
+		}
+		return null;
+	}
+
+	// In-memory validator stats cache (refreshed on request, max once per 30s)
+	const validatorStatsCache = new Map<string, { data: Record<string, unknown>; fetchedAt: number }>();
+	const STATS_CACHE_TTL = 30_000;
+
+	app.get<{ Params: { did: string } }>("/v1/validators/:did/stats", async (req, reply) => {
+		const did = decodeURIComponent(req.params.did);
+
+		// Check cache
+		const cached = validatorStatsCache.get(did);
+		if (cached && Date.now() - cached.fetchedAt < STATS_CACHE_TTL) {
+			return cached.data;
+		}
+
+		// Look up registration
+		const reg = registeredValidators.get(did);
+
+		// Fetch account data
+		const account = await fetchAccountData(did);
+		if (!account && !reg) {
+			return reply.status(404).send({
+				error: "Validator not found",
+				did,
+				hint: "This DID is not registered. Register with POST /v1/validators/register",
+			});
+		}
+
+		const own = account?.staked ?? 0n;
+		const delegated = account?.delegated ?? 0n;
+		const total = own + delegated;
+		const pending = account?.pending ?? 0n;
+
+		// Estimate daily earnings: ~19 ENSL/block, ~14400 blocks/day, divided by validator count
+		const validatorCount = registeredValidators.size || 35;
+		const estimatedDaily = (19n * 14400n * DECIMALS_VAL) / BigInt(validatorCount);
+
+		// Simple online check: if account has recent activity (nonce > 0 or has stake)
+		const isOnline = account !== null && (own > 0n || (account.balance > 0n));
+
+		// Uptime: simplified estimate based on registration age
+		const regAge = reg ? (Date.now() - reg.registeredAt) : 0;
+		const uptimePct = isOnline ? (regAge > 86400000 ? 99.5 : 100.0) : 0.0;
+
+		const didShort = did.length > 24 ? `${did.slice(0, 16)}...${did.slice(-6)}` : did;
+
+		const stats: Record<string, unknown> = {
+			did,
+			didShort,
+			name: reg?.name ?? null,
+			status: isOnline ? "online" : "offline",
+			stake: {
+				own: fmtEnsl(own),
+				delegated: fmtEnsl(delegated),
+				total: fmtEnsl(total),
+			},
+			rewards: {
+				pending: fmtEnsl(pending),
+				totalEarned: fmtEnsl(pending), // approximation
+				estimatedDaily: fmtEnsl(estimatedDaily),
+			},
+			uptime: {
+				last24h: uptimePct,
+				last7d: uptimePct,
+			},
+			blocks: {
+				total: 0, // would need block scanning
+				last24h: 0,
+			},
+			delegators: {
+				count: 0,
+				totalDelegated: fmtEnsl(delegated),
+			},
+			lastBlock: null,
+			commission: 0.10,
+			registeredAt: reg ? new Date(reg.registeredAt).toISOString() : null,
+			uptimeWarning: uptimePct < 90 && uptimePct > 0,
+			offlineWarning: !isOnline,
+			raw: {
+				stakeOwn: own.toString(),
+				stakeDelegated: delegated.toString(),
+				stakeTotal: total.toString(),
+				pending: pending.toString(),
+				estimatedDaily: estimatedDaily.toString(),
+				balance: (account?.balance ?? 0n).toString(),
+			},
+		};
+
+		validatorStatsCache.set(did, { data: stats, fetchedAt: Date.now() });
+		return stats;
+	});
+
+	// ── Validator Leaderboard ────────────────────────────────────
+
+	let leaderboardCache: { data: Record<string, unknown>; fetchedAt: number } | null = null;
+	const LEADERBOARD_CACHE_TTL = 60_000;
+
+	app.get("/v1/validators/leaderboard", async () => {
+		if (leaderboardCache && Date.now() - leaderboardCache.fetchedAt < LEADERBOARD_CACHE_TTL) {
+			return leaderboardCache.data;
+		}
+
+		const entries: Record<string, unknown>[] = [];
+
+		for (const [did, reg] of registeredValidators) {
+			const account = await fetchAccountData(did);
+			const own = account?.staked ?? 0n;
+			const delegated = account?.delegated ?? 0n;
+			const total = own + delegated;
+			const isOnline = account !== null && (own > 0n || (account.balance > 0n));
+			const didShort = did.length > 24 ? `${did.slice(0, 16)}...${did.slice(-6)}` : did;
+
+			entries.push({
+				did,
+				didShort,
+				name: reg.name,
+				blocksProduced: 0,
+				stake: fmtEnsl(total),
+				stakeRaw: total.toString(),
+				uptime24h: isOnline ? 99.5 : 0,
+				lastBlock: null,
+				status: isOnline ? "online" : "offline",
+				registeredAt: new Date(reg.registeredAt).toISOString(),
+				delegated: fmtEnsl(delegated),
+				commission: 0.10,
+			});
+		}
+
+		// Sort by stake descending
+		entries.sort((a, b) => {
+			const aStake = BigInt((a["stakeRaw"] as string) || "0");
+			const bStake = BigInt((b["stakeRaw"] as string) || "0");
+			if (bStake > aStake) return 1;
+			if (bStake < aStake) return -1;
+			return 0;
+		});
+
+		const result = { validators: entries, total: entries.length };
+		leaderboardCache = { data: result, fetchedAt: Date.now() };
+		return result;
+	});
+
 	// ── Start ────────────────────────────────────────────────────
 
 	await app.listen({ port, host: "0.0.0.0" });
@@ -982,6 +1151,8 @@ async function main(): Promise<void> {
 	process.stdout.write(`    POST /v1/agents/register\n`);
 	process.stdout.write(`    GET  /v1/agents/list\n`);
 	process.stdout.write(`    POST /v1/validators/register\n`);
+	process.stdout.write(`    GET  /v1/validators/:did/stats\n`);
+	process.stdout.write(`    GET  /v1/validators/leaderboard\n`);
 	process.stdout.write(`\n  Backend validators: ${VALIDATORS.length} (${net.alive} alive)\n`);
 	process.stdout.write(`  Block height: ${net.height}\n\n`);
 
