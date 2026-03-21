@@ -231,7 +231,7 @@ async function signAndSubmitDelegation(validatorDid: string): Promise<boolean> {
 	}
 }
 
-// ── Staked accounts discovery (all 35 genesis validators) ────────────
+// ── Genesis validator discovery ──────────────────────────────────────
 
 interface StakedAccount {
 	did: string;
@@ -242,90 +242,95 @@ interface StakedAccount {
 	nonce: number;
 }
 
+/** DIDs extracted from genesis.json at startup. Never changes. */
+let genesisDids: string[] = [];
+
+/** Load all did:key: DIDs from genesis allocations. */
+async function loadGenesisDids(): Promise<void> {
+	const genesisPath = join(LOG_DIR, "genesis.json");
+	try {
+		const raw = await readFile(genesisPath, "utf-8");
+		const genesis = JSON.parse(raw) as {
+			transactions: Array<{ type: string; to: string }>;
+		};
+		const dids = new Set<string>();
+		for (const tx of genesis.transactions) {
+			if (tx.type === "genesis_allocation" && tx.to.startsWith("did:key:")) {
+				dids.add(tx.to);
+			}
+		}
+		genesisDids = [...dids].sort();
+		await log(`Loaded ${genesisDids.length} validator DIDs from genesis.json`);
+	} catch {
+		await log("Warning: could not load genesis.json from ~/.ensoul/genesis.json. Validator discovery limited.");
+	}
+}
+
 let allStakedAccounts: StakedAccount[] = [];
 let stakedAccountsFetchedAt = 0;
 const STAKED_ACCOUNTS_TTL = 60_000;
 
-/** Discover all accounts with stakedBalance > 0 from a validator's account state. */
+/**
+ * Refresh account data for all genesis validators.
+ * Uses the canonical DID list from genesis.json and queries the local
+ * validator (localhost:9000) which has the full account state.
+ */
 async function refreshStakedAccounts(): Promise<void> {
 	if (Date.now() - stakedAccountsFetchedAt < STAKED_ACCOUNTS_TTL) return;
 
-	// Try to get accounts from the first responding validator
-	for (const url of VALIDATORS) {
+	// Combine genesis DIDs + registered validators
+	const allDids = new Set(genesisDids);
+	for (const [did] of registeredValidators) allDids.add(did);
+
+	// Query the local validator first (has full state), fall back to tunnels
+	const endpoints = ["http://localhost:9000", ...VALIDATORS];
+	const accounts: StakedAccount[] = [];
+
+	// Find a working endpoint
+	let workingUrl = "";
+	for (const url of endpoints) {
 		try {
-			// Use the peer/peers endpoint to get connected validator DIDs,
-			// then query each account. But more reliably: query known genesis DIDs.
-			// Instead, scan the genesis config for foundation validator DIDs.
-			// The simplest approach: fetch all accounts that have stake from
-			// the validator's account endpoint by trying known DID patterns.
-			// Best approach: add a /peer/staked-accounts endpoint later.
-			// For now: query /peer/status for each validator's DID, then
-			// also query all registered validators + genesis accounts.
-			break;
+			const resp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(3000) });
+			if (resp.ok) { workingUrl = url; break; }
 		} catch { continue; }
 	}
 
-	// Collect all known DIDs: registered validators + tunnel validators
-	const knownDids = new Set<string>();
-	for (const [did] of registeredValidators) knownDids.add(did);
-
-	// Query tunnel endpoints for their DIDs and peers
-	for (const url of VALIDATORS) {
-		try {
-			const statusResp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(5000) });
-			if (statusResp.ok) {
-				const status = (await statusResp.json()) as PeerStatus;
-				knownDids.add(status.did);
-			}
-			// Also get peers behind this tunnel
-			const peersResp = await fetch(`${url}/peer/peers`, { signal: AbortSignal.timeout(5000) });
-			if (peersResp.ok) {
-				const peersData = (await peersResp.json()) as { peers: Array<{ address: string }> };
-				// Query each peer for its DID
-				for (const p of (peersData.peers || [])) {
-					try {
-						const pResp = await fetch(`${p.address}/peer/status`, { signal: AbortSignal.timeout(3000) });
-						if (pResp.ok) {
-							const pStatus = (await pResp.json()) as PeerStatus;
-							knownDids.add(pStatus.did);
-						}
-					} catch { /* unreachable peer */ }
-				}
-			}
-		} catch { /* tunnel down */ }
+	if (!workingUrl) {
+		await log("Warning: no validator reachable for account queries");
+		stakedAccountsFetchedAt = Date.now();
+		return;
 	}
 
-	// Now fetch account data for all known DIDs
-	const accounts: StakedAccount[] = [];
-	for (const did of knownDids) {
-		const encoded = encodeURIComponent(did);
-		for (const url of VALIDATORS) {
-			try {
-				const resp = await fetch(`${url}/peer/account/${encoded}`, { signal: AbortSignal.timeout(5000) });
-				if (!resp.ok) continue;
-				const d = (await resp.json()) as {
-					balance: string; staked: string; delegatedBalance?: string;
-					pendingRewards?: string; nonce: number;
-				};
-				const staked = BigInt(d.staked);
-				if (staked > 0n || BigInt(d.balance) > 0n) {
-					accounts.push({
-						did,
-						balance: BigInt(d.balance),
-						staked,
-						delegated: BigInt(d.delegatedBalance ?? "0"),
-						pending: BigInt(d.pendingRewards ?? "0"),
-						nonce: d.nonce,
-					});
-				}
-				break;
-			} catch { continue; }
-		}
+	// Batch-query all DIDs from the working validator
+	for (const did of allDids) {
+		try {
+			const resp = await fetch(
+				`${workingUrl}/peer/account/${encodeURIComponent(did)}`,
+				{ signal: AbortSignal.timeout(3000) },
+			);
+			if (!resp.ok) continue;
+			const d = (await resp.json()) as {
+				balance: string; staked: string; delegatedBalance?: string;
+				pendingRewards?: string; nonce: number;
+			};
+			const staked = BigInt(d.staked);
+			const balance = BigInt(d.balance);
+			if (staked > 0n || balance > 0n) {
+				accounts.push({
+					did,
+					balance,
+					staked,
+					delegated: BigInt(d.delegatedBalance ?? "0"),
+					pending: BigInt(d.pendingRewards ?? "0"),
+					nonce: d.nonce,
+				});
+			}
+		} catch { /* skip unreachable */ }
 	}
 
 	allStakedAccounts = accounts;
 	stakedAccountsFetchedAt = Date.now();
-	await log(`Discovered ${accounts.length} staked accounts`);
+	await log(`Refreshed ${accounts.length} staked accounts from ${workingUrl}`);
 }
 
 // ── Block proposer counting ─────────────────────────────────────────
@@ -620,6 +625,7 @@ function incrementDailyBonus(): void {
 
 async function main(): Promise<void> {
 	await mkdir(LOG_DIR, { recursive: true });
+	await loadGenesisDids();
 	await loadRegisteredAgents();
 	await loadRegisteredValidators();
 	await loadOnboardingKey();
