@@ -304,9 +304,13 @@ export function applyTransaction(
 		case "genesis_allocation": {
 			// Protocol-generated: credit recipient (and optionally auto-stake)
 			state.credit(tx.to, tx.amount);
-			// If data field contains "stake", auto-stake the tokens
-			if (tx.data && new TextDecoder().decode(tx.data) === "stake") {
-				state.stake(tx.to, tx.amount);
+			// If data field contains "stake", auto-stake the tokens.
+			// tx.data may be a Uint8Array (in-memory) or a plain number array (from JSON).
+			if (tx.data) {
+				const dataBytes = tx.data instanceof Uint8Array ? tx.data : new Uint8Array(tx.data);
+				if (dataBytes.length > 0 && new TextDecoder().decode(dataBytes) === "stake") {
+					state.stake(tx.to, tx.amount);
+				}
 			}
 			break;
 		}
