@@ -269,7 +269,9 @@ export class EnsoulNodeRunner {
 
 	/**
 	 * Start the block production loop.
-	 * Uses adaptive block time (6s min, 60s max).
+	 * Checks every 6 seconds whether this node is the selected proposer.
+	 * If yes, produces immediately. If not, waits for the block from the
+	 * actual proposer. Fallback fires only after 30s with no block.
 	 */
 	startBlockLoop(): void {
 		if (this.running) return;
@@ -278,16 +280,13 @@ export class EnsoulNodeRunner {
 
 		const scheduleNext = (): void => {
 			if (!this.running) return;
-			const mempoolSize =
-				this.producer?.getMempool().readySize ?? 0;
-			// Adaptive: 6s with txs, stretch up to 60s when empty
-			const interval =
-				mempoolSize > 0 ? 6000 : Math.min(60000, 6000 * 2);
-
+			// Always check every 6s (one block interval). This ensures
+			// the selected proposer produces immediately on its turn,
+			// rather than waiting for an adaptive delay.
 			this.blockTimer = setTimeout(() => {
 				this.tryProduceBlock();
 				scheduleNext();
-			}, interval);
+			}, 6000);
 		};
 
 		scheduleNext();
