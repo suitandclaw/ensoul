@@ -15,6 +15,11 @@
 
 set -euo pipefail
 
+# Resolve PATH for launchd (minimal PATH doesn't include nvm/pnpm)
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh" 2>/dev/null
+export PATH="$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/share/pnpm:$HOME/Library/pnpm:/usr/local/bin:/opt/homebrew/bin:$PATH"
+
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 LOG_DIR="$HOME/.ensoul"
 LOG_FILE="$LOG_DIR/auto-update.log"
