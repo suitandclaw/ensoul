@@ -273,12 +273,8 @@ async function handleExportSeed(dataDir: string): Promise<void> {
 				},
 				password,
 			);
-			// Export gives us the seed back
-			const bundle = await identity.export(password);
-			// The seed is in the encrypted bundle, but we need the raw seed
-			// Re-derive: the identity was created from a seed, export gives encrypted form
-			// We need to decrypt it. loadIdentity already did that internally.
-			// Use the identity's internal key
+			// The identity was loaded from encrypted storage. We cannot
+			// extract the raw seed, only show the public key and DID.
 			const idJson = identity.toJSON();
 			console.log(`\n[ensoul] Your validator seed is encrypted. DID: ${idJson.did}`);
 			console.log("[ensoul] Public key: " + idJson.publicKey);
@@ -354,7 +350,7 @@ async function handleImportSeed(seedHex: string, dataDir: string): Promise<void>
 /**
  * Compare local version with connected peers. Warn if any peer is newer.
  */
-async function checkPeerVersions(peerNet: PeerNetwork, peerAddrs: string[]): Promise<void> {
+async function checkPeerVersions(peerNet: PeerNetwork, _peerAddrs: string[]): Promise<void> {
 	const peers = peerNet.getPeers();
 	for (const peer of peers) {
 		try {
