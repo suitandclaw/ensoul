@@ -778,7 +778,7 @@ async function main(): Promise<void> {
 	// ── Network Version ─────────────────────────────────────────
 
 	app.get("/v1/network/version", async () => {
-		return { version: "0.5.0", minimumVersion: "0.5.0" };
+		return { version: "0.5.1", minimumVersion: "0.5.0" };
 	});
 
 	// ── Consciousness Store ──────────────────────────────────────
