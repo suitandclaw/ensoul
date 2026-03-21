@@ -6,6 +6,7 @@ import { deserializeTx } from "./types.js";
 import { SeedClient } from "./seed-node.js";
 import { VERSION } from "../version.js";
 import type { ConsensusMessage, SerializedConsensusMessage } from "./tendermint.js";
+import { computeBlockHash } from "@ensoul/ledger";
 
 /**
  * Extract blocks array from a sync response.
@@ -45,6 +46,7 @@ export interface PeerStatus {
 	peerCount: number;
 	did: string;
 	version?: string;
+	genesisHash?: string;
 }
 
 /**
@@ -115,11 +117,14 @@ export class PeerNetwork {
 
 		// GET /peer/status
 		this.server.get("/peer/status", async () => {
+			const producer = this.gossip.getProducer();
+			const genesis = producer.getBlock(0);
 			return {
-				height: this.gossip.getProducer().getHeight(),
+				height: producer.getHeight(),
 				peerCount: this.peers.size,
 				did: this.myDid,
 				version: VERSION,
+				genesisHash: genesis ? computeBlockHash(genesis) : undefined,
 			} satisfies PeerStatus;
 		});
 
@@ -386,6 +391,31 @@ export class PeerNetwork {
 			},
 		);
 
+		// POST /peer/reset - wipe chain and resync (requires ENSOUL_PEER_KEY)
+		this.server.post("/peer/reset", async (_req, reply) => {
+			// Auth is handled by the global onRequest hook (requires peerKey)
+			this.log("RESET requested. Wiping chain data and exiting for restart.");
+			// Wipe chain data directory
+			try {
+				const { rm } = await import("node:fs/promises");
+				const { join } = await import("node:path");
+				const { homedir } = await import("node:os");
+				// Find data dirs and wipe chain subdirectories
+				const baseDir = join(homedir(), ".ensoul");
+				for (let i = 0; i < 10; i++) {
+					const chainDir = join(baseDir, `validator-${i}`, "chain");
+					try { await rm(chainDir, { recursive: true }); } catch { /* ok */ }
+				}
+				this.log("Chain data wiped. Exiting process for restart.");
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				this.log(`Reset wipe failed: ${msg}`);
+			}
+			void reply.send({ reset: true, message: "Chain data wiped. Process will exit for restart." });
+			// Exit after a short delay to let the response send
+			setTimeout(() => process.exit(0), 500);
+		});
+
 		await this.server.listen({ port, host: "0.0.0.0" });
 		this.log(`Peer API listening on port ${port}`);
 	}
@@ -396,11 +426,26 @@ export class PeerNetwork {
 	async connectToPeers(addresses: string[]): Promise<number> {
 		let connectedCount = 0;
 
+		// Compute our own genesis hash for comparison
+		const myGenesis = this.gossip.getProducer().getBlock(0);
+		const myGenesisHash = myGenesis ? computeBlockHash(myGenesis) : "";
+		let mismatchCount = 0;
+
 		for (const addr of addresses) {
 			try {
 				const resp = await fetch(`${addr}/peer/status`);
 				if (!resp.ok) continue;
 				const status = (await resp.json()) as PeerStatus;
+
+				// Check genesis hash compatibility
+				if (myGenesisHash && status.genesisHash && status.genesisHash !== myGenesisHash) {
+					this.log(
+						`WARNING: Peer ${addr} is on a different chain (genesis ${status.genesisHash.slice(0, 16)} vs ours ${myGenesisHash.slice(0, 16)}). Skipping.`,
+					);
+					mismatchCount++;
+					continue;
+				}
+
 				this.peers.set(addr, {
 					address: addr,
 					height: status.height,
@@ -413,6 +458,13 @@ export class PeerNetwork {
 			} catch {
 				this.log(`Failed to connect to peer ${addr}`);
 			}
+		}
+
+		// If ALL peers have a different genesis, we are on the wrong chain
+		if (mismatchCount > 0 && connectedCount === 0 && mismatchCount === addresses.length) {
+			this.log("Chain mismatch detected. All peers are on a different chain. Wiping local chain data and resyncing.");
+			await this.wipeAndResync();
+			return 0;
 		}
 
 		// Sync from the peer with the highest chain
@@ -528,6 +580,28 @@ export class PeerNetwork {
 	 */
 	getServer(): FastifyInstance | null {
 		return this.server;
+	}
+
+	/**
+	 * Wipe local chain data and exit for restart.
+	 * Called when all peers are on a different genesis chain.
+	 */
+	private async wipeAndResync(): Promise<void> {
+		try {
+			const { rm } = await import("node:fs/promises");
+			const { join } = await import("node:path");
+			const { homedir } = await import("node:os");
+			const baseDir = join(homedir(), ".ensoul");
+			for (let i = 0; i < 10; i++) {
+				const chainDir = join(baseDir, `validator-${i}`, "chain");
+				try { await rm(chainDir, { recursive: true }); } catch { /* ok */ }
+			}
+			this.log("Chain data wiped. Exiting for restart with correct genesis.");
+			setTimeout(() => process.exit(1), 500);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			this.log(`Wipe failed: ${msg}`);
+		}
 	}
 
 	/**
