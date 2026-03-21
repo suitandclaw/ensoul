@@ -89,7 +89,18 @@ if [ "$OLD_VERSION" = "$NEW_VERSION" ] && [ "${NEW_HASH:-}" = "${OLD_HASH:-}" ];
 	exit 0
 fi
 
-# 7. Restart validators
+# 7. Wipe chain data on version change (genesis processing may have changed)
+if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
+	log "Version changed ($OLD_VERSION -> $NEW_VERSION). Wiping chain data."
+	for i in $(seq 0 9); do
+		if [ -d "$LOG_DIR/validator-$i/chain" ]; then
+			rm -rf "$LOG_DIR/validator-$i/chain"
+			log "Wiped chain data for validator-$i"
+		fi
+	done
+fi
+
+# 8. Restart validators
 log "Restarting validators (version: $OLD_VERSION -> $NEW_VERSION)..."
 
 # Try start-mini.sh first (Mac Mini), then start-all.sh (MacBook Pro)
