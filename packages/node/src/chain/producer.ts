@@ -253,7 +253,19 @@ export class NodeBlockProducer {
 			return eligible[idx] ?? null;
 		}
 
-		// Use block height as a deterministic seed into the weighted range
+		// If all validators have equal stake (genesis state), use simple
+		// round-robin by index. The stake-weighted approach breaks down
+		// when stakes are equal because height % totalStake always lands
+		// in the first validator's range until height exceeds per-validator stake.
+		const minStake = stakes.reduce((m, s) => s.stake < m ? s.stake : m, stakes[0]!.stake);
+		const maxStake = stakes.reduce((m, s) => s.stake > m ? s.stake : m, stakes[0]!.stake);
+		if (minStake === maxStake) {
+			const idx = height % eligible.length;
+			return eligible[idx] ?? null;
+		}
+
+		// Stakes differ: use stake-weighted selection. Validators with
+		// more stake get proportionally more slots.
 		const slot = BigInt(height) % totalStake;
 		let cumulative = 0n;
 		for (const entry of stakes) {
