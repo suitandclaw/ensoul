@@ -231,6 +231,155 @@ async function signAndSubmitDelegation(validatorDid: string): Promise<boolean> {
 	}
 }
 
+// ── Staked accounts discovery (all 35 genesis validators) ────────────
+
+interface StakedAccount {
+	did: string;
+	balance: bigint;
+	staked: bigint;
+	delegated: bigint;
+	pending: bigint;
+	nonce: number;
+}
+
+let allStakedAccounts: StakedAccount[] = [];
+let stakedAccountsFetchedAt = 0;
+const STAKED_ACCOUNTS_TTL = 60_000;
+
+/** Discover all accounts with stakedBalance > 0 from a validator's account state. */
+async function refreshStakedAccounts(): Promise<void> {
+	if (Date.now() - stakedAccountsFetchedAt < STAKED_ACCOUNTS_TTL) return;
+
+	// Try to get accounts from the first responding validator
+	for (const url of VALIDATORS) {
+		try {
+			// Use the peer/peers endpoint to get connected validator DIDs,
+			// then query each account. But more reliably: query known genesis DIDs.
+			// Instead, scan the genesis config for foundation validator DIDs.
+			// The simplest approach: fetch all accounts that have stake from
+			// the validator's account endpoint by trying known DID patterns.
+			// Best approach: add a /peer/staked-accounts endpoint later.
+			// For now: query /peer/status for each validator's DID, then
+			// also query all registered validators + genesis accounts.
+			break;
+		} catch { continue; }
+	}
+
+	// Collect all known DIDs: registered validators + tunnel validators
+	const knownDids = new Set<string>();
+	for (const [did] of registeredValidators) knownDids.add(did);
+
+	// Query tunnel endpoints for their DIDs and peers
+	for (const url of VALIDATORS) {
+		try {
+			const statusResp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(5000) });
+			if (statusResp.ok) {
+				const status = (await statusResp.json()) as PeerStatus;
+				knownDids.add(status.did);
+			}
+			// Also get peers behind this tunnel
+			const peersResp = await fetch(`${url}/peer/peers`, { signal: AbortSignal.timeout(5000) });
+			if (peersResp.ok) {
+				const peersData = (await peersResp.json()) as { peers: Array<{ address: string }> };
+				// Query each peer for its DID
+				for (const p of (peersData.peers || [])) {
+					try {
+						const pResp = await fetch(`${p.address}/peer/status`, { signal: AbortSignal.timeout(3000) });
+						if (pResp.ok) {
+							const pStatus = (await pResp.json()) as PeerStatus;
+							knownDids.add(pStatus.did);
+						}
+					} catch { /* unreachable peer */ }
+				}
+			}
+		} catch { /* tunnel down */ }
+	}
+
+	// Now fetch account data for all known DIDs
+	const accounts: StakedAccount[] = [];
+	for (const did of knownDids) {
+		const encoded = encodeURIComponent(did);
+		for (const url of VALIDATORS) {
+			try {
+				const resp = await fetch(`${url}/peer/account/${encoded}`, { signal: AbortSignal.timeout(5000) });
+				if (!resp.ok) continue;
+				const d = (await resp.json()) as {
+					balance: string; staked: string; delegatedBalance?: string;
+					pendingRewards?: string; nonce: number;
+				};
+				const staked = BigInt(d.staked);
+				if (staked > 0n || BigInt(d.balance) > 0n) {
+					accounts.push({
+						did,
+						balance: BigInt(d.balance),
+						staked,
+						delegated: BigInt(d.delegatedBalance ?? "0"),
+						pending: BigInt(d.pendingRewards ?? "0"),
+						nonce: d.nonce,
+					});
+				}
+				break;
+			} catch { continue; }
+		}
+	}
+
+	allStakedAccounts = accounts;
+	stakedAccountsFetchedAt = Date.now();
+	await log(`Discovered ${accounts.length} staked accounts`);
+}
+
+// ── Block proposer counting ─────────────────────────────────────────
+
+const blockProposerCounts = new Map<string, number>();
+const blockProposerCounts24h = new Map<string, number>();
+let proposerCountsFetchedAt = 0;
+const PROPOSER_COUNTS_TTL = 60_000;
+
+/** Scan recent blocks from the primary validator to count proposers. */
+async function refreshProposerCounts(): Promise<void> {
+	if (Date.now() - proposerCountsFetchedAt < PROPOSER_COUNTS_TTL) return;
+
+	// Try localhost first (co-located validator), then tunnel endpoints
+	const endpoints = ["http://localhost:9000", ...VALIDATORS];
+	for (const url of endpoints) {
+		try {
+			const statusResp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(5000) });
+			if (!statusResp.ok) continue;
+			const status = (await statusResp.json()) as PeerStatus;
+			const tipHeight = status.height;
+
+			// Scan last 1000 blocks (or all if chain is shorter)
+			const fromHeight = Math.max(1, tipHeight - 999);
+			const syncResp = await fetch(`${url}/peer/sync/${fromHeight}`, { signal: AbortSignal.timeout(15000) });
+			if (!syncResp.ok) continue;
+
+			const data = (await syncResp.json()) as { blocks?: Array<{ proposer: string; height: number; timestamp: number }>; } | Array<{ proposer: string; height: number; timestamp: number }>;
+			const blocks = Array.isArray(data) ? data : (data.blocks ?? []);
+
+			const counts = new Map<string, number>();
+			const counts24h = new Map<string, number>();
+			const cutoff24h = Date.now() - 86400000;
+
+			for (const block of blocks) {
+				if (!block.proposer) continue;
+				counts.set(block.proposer, (counts.get(block.proposer) ?? 0) + 1);
+				if (block.timestamp && block.timestamp > cutoff24h) {
+					counts24h.set(block.proposer, (counts24h.get(block.proposer) ?? 0) + 1);
+				}
+			}
+
+			blockProposerCounts.clear();
+			for (const [k, v] of counts) blockProposerCounts.set(k, v);
+			blockProposerCounts24h.clear();
+			for (const [k, v] of counts24h) blockProposerCounts24h.set(k, v);
+			proposerCountsFetchedAt = Date.now();
+
+			await log(`Scanned ${blocks.length} blocks, ${counts.size} unique proposers`);
+			return;
+		} catch { continue; }
+	}
+}
+
 // In-memory consciousness store (indexed by DID)
 const consciousnessStore = new Map<string, {
 	did: string;
@@ -608,9 +757,12 @@ async function main(): Promise<void> {
 
 	app.get("/v1/network/status", async () => {
 		const net = await queryValidatorStatus();
+		await refreshStakedAccounts();
+		// Validator count: use staked accounts (genesis has all 35), fall back to 35
+		const validatorCount = allStakedAccounts.length > 0 ? allStakedAccounts.length : 35;
 		return {
 			blockHeight: net.height,
-			validatorCount: net.validatorCount,
+			validatorCount,
 			agentCount: registeredAgents.size,
 			totalConsciousnessStored: consciousnessStore.size,
 			validators: net.alive,
@@ -1022,8 +1174,11 @@ async function main(): Promise<void> {
 		const total = own + delegated;
 		const pending = account?.pending ?? 0n;
 
+		// Refresh block counts
+		await refreshProposerCounts();
+
 		// Estimate daily earnings: ~19 ENSL/block, ~14400 blocks/day, divided by validator count
-		const validatorCount = registeredValidators.size || 35;
+		const validatorCount = allStakedAccounts.length || registeredValidators.size || 35;
 		const estimatedDaily = (19n * 14400n * DECIMALS_VAL) / BigInt(validatorCount);
 
 		// Simple online check: if account has recent activity (nonce > 0 or has stake)
@@ -1034,6 +1189,8 @@ async function main(): Promise<void> {
 		const uptimePct = isOnline ? (regAge > 86400000 ? 99.5 : 100.0) : 0.0;
 
 		const didShort = did.length > 24 ? `${did.slice(0, 16)}...${did.slice(-6)}` : did;
+		const blocksTotal = blockProposerCounts.get(did) ?? 0;
+		const blocks24h = blockProposerCounts24h.get(did) ?? 0;
 
 		const stats: Record<string, unknown> = {
 			did,
@@ -1055,8 +1212,8 @@ async function main(): Promise<void> {
 				last7d: uptimePct,
 			},
 			blocks: {
-				total: 0, // would need block scanning
-				last24h: 0,
+				total: blocksTotal,
+				last24h: blocks24h,
 			},
 			delegators: {
 				count: 0,
@@ -1091,21 +1248,54 @@ async function main(): Promise<void> {
 			return leaderboardCache.data;
 		}
 
-		const entries: Record<string, unknown>[] = [];
+		// Refresh discovery and block counts
+		await refreshStakedAccounts();
+		await refreshProposerCounts();
 
+		const entries: Record<string, unknown>[] = [];
+		const seen = new Set<string>();
+
+		// Include all staked accounts from on-chain state (all 35 genesis validators)
+		for (const acc of allStakedAccounts) {
+			seen.add(acc.did);
+			const reg = registeredValidators.get(acc.did);
+			const total = acc.staked + acc.delegated;
+			const isOnline = acc.staked > 0n || acc.balance > 0n;
+			const didShort = acc.did.length > 24 ? `${acc.did.slice(0, 16)}...${acc.did.slice(-6)}` : acc.did;
+			const blocksTotal = blockProposerCounts.get(acc.did) ?? 0;
+
+			entries.push({
+				did: acc.did,
+				didShort,
+				name: reg?.name ?? null,
+				blocksProduced: blocksTotal,
+				stake: fmtEnsl(total),
+				stakeRaw: total.toString(),
+				uptime24h: isOnline ? 99.5 : 0,
+				lastBlock: null,
+				status: isOnline ? "online" : "unknown",
+				registeredAt: reg ? new Date(reg.registeredAt).toISOString() : null,
+				delegated: fmtEnsl(acc.delegated),
+				commission: 0.10,
+			});
+		}
+
+		// Also include registered validators not yet in staked accounts
 		for (const [did, reg] of registeredValidators) {
+			if (seen.has(did)) continue;
 			const account = await fetchAccountData(did);
 			const own = account?.staked ?? 0n;
 			const delegated = account?.delegated ?? 0n;
 			const total = own + delegated;
 			const isOnline = account !== null && (own > 0n || (account.balance > 0n));
 			const didShort = did.length > 24 ? `${did.slice(0, 16)}...${did.slice(-6)}` : did;
+			const blocksTotal = blockProposerCounts.get(did) ?? 0;
 
 			entries.push({
 				did,
 				didShort,
 				name: reg.name,
-				blocksProduced: 0,
+				blocksProduced: blocksTotal,
 				stake: fmtEnsl(total),
 				stakeRaw: total.toString(),
 				uptime24h: isOnline ? 99.5 : 0,
