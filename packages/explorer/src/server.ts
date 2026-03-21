@@ -10,6 +10,7 @@ import {
 	renderBlockList,
 	renderValidators,
 	renderAccount,
+	renderTransaction,
 } from "./html.js";
 
 /**
@@ -195,11 +196,34 @@ export async function createExplorer(
 			.send(renderValidators(validators));
 	});
 
+	// Transaction detail page
+	app.get<{ Params: { hash: string } }>(
+		"/tx/:hash",
+		async (req, reply) => {
+			const hash = decodeURIComponent(req.params.hash);
+			// Search through cached blocks for the transaction
+			const height = dataSource.getChainHeight();
+			for (let h = height; h >= Math.max(0, height - 1000); h--) {
+				const block = dataSource.getBlock(h);
+				if (!block) continue;
+				for (const tx of block.transactions) {
+					if (tx.hash === hash) {
+						return reply.type("text/html").send(renderTransaction(tx, block));
+					}
+				}
+			}
+			return reply.status(404).type("text/html").send(
+				`<html><body style="background:#0a0a0f;color:#e0e0e0;font-family:sans-serif;padding:40px;text-align:center"><h1>Transaction not found</h1><p>${hash}</p><a href="/" style="color:#7c3aed">Back to explorer</a></body></html>`,
+			);
+		},
+	);
+
 	// Account/wallet page
-	app.get<{ Params: { did: string } }>(
+	app.get<{ Params: { did: string }; Querystring: { page?: string } }>(
 		"/account/:did",
 		async (req, reply) => {
 			const did = decodeURIComponent(req.params.did);
+			const page = Math.max(1, Number(req.query.page ?? 1));
 			// Try to get account data from the data source
 			const ds = dataSource as { getAccountData?: (did: string) => Promise<Record<string, string> | null> };
 			let account: Record<string, string> | null = null;
@@ -224,8 +248,12 @@ export async function createExplorer(
 			}
 			txs.reverse(); // newest first
 
+			const perPage = 25;
+			const totalPages = Math.max(1, Math.ceil(txs.length / perPage));
+			const pageTxs = txs.slice((page - 1) * perPage, page * perPage);
+
 			return reply.type("text/html").send(
-				renderAccount(did, account, isValidator, validatorData ?? null, txs),
+				renderAccount(did, account, isValidator, validatorData ?? null, pageTxs, txs.length, page, totalPages),
 			);
 		},
 	);
