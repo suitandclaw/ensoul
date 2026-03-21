@@ -9,6 +9,7 @@ import {
 	renderBlock,
 	renderBlockList,
 	renderValidators,
+	renderAccount,
 } from "./html.js";
 
 /**
@@ -193,6 +194,41 @@ export async function createExplorer(
 			.type("text/html")
 			.send(renderValidators(validators));
 	});
+
+	// Account/wallet page
+	app.get<{ Params: { did: string } }>(
+		"/account/:did",
+		async (req, reply) => {
+			const did = decodeURIComponent(req.params.did);
+			// Try to get account data from the data source
+			const ds = dataSource as { getAccountData?: (did: string) => Promise<Record<string, string> | null> };
+			let account: Record<string, string> | null = null;
+			if (ds.getAccountData) {
+				account = await ds.getAccountData(did);
+			}
+			const validators = dataSource.getValidators();
+			const isValidator = validators.some((v) => v.did === did);
+			const validatorData = validators.find((v) => v.did === did);
+
+			// Get transactions for this DID from block cache
+			const height = dataSource.getChainHeight();
+			const txs: Array<{ hash: string; type: string; from: string; to: string; amount: string; timestamp: number; blockHeight: number }> = [];
+			for (let h = Math.max(0, height - 500); h <= height; h++) {
+				const block = dataSource.getBlock(h);
+				if (!block) continue;
+				for (const tx of block.transactions) {
+					if (tx.from === did || tx.to === did) {
+						txs.push({ ...tx, blockHeight: block.height });
+					}
+				}
+			}
+			txs.reverse(); // newest first
+
+			return reply.type("text/html").send(
+				renderAccount(did, account, isValidator, validatorData ?? null, txs),
+			);
+		},
+	);
 
 	return app;
 }

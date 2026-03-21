@@ -98,16 +98,54 @@ class NetworkDataSource implements ExplorerDataSource {
 	private blockCache: Map<number, BlockData> = new Map();
 	private pollTimer: ReturnType<typeof setInterval> | null = null;
 
+	/** Validator DIDs from genesis (all 35+). */
+	private genesisDids: string[] = [];
+	/** Cached validator data. */
+	private validatorCache: ValidatorData[] = [];
+	/** Cached agent count from the API. */
+	private agentCount = 0;
+	private consciousnessCount = 0;
+	/** Block proposer counts for leaderboard. */
+	private proposerCounts: Map<string, number> = new Map();
+	/** Total transactions across all cached blocks. */
+	private totalTxCount = 0;
+
 	constructor(urls: string[]) {
 		this.peerUrls = urls;
 		this.startedAt = Date.now();
 	}
 
-	/** Start polling peers every 10 seconds. */
+	/** Load genesis DIDs from ~/.ensoul/genesis.json. */
+	async loadGenesis(): Promise<void> {
+		const { readFile } = await import("node:fs/promises");
+		const { join } = await import("node:path");
+		const { homedir } = await import("node:os");
+		const genesisPath = join(homedir(), ".ensoul", "genesis.json");
+		try {
+			const raw = await readFile(genesisPath, "utf-8");
+			const genesis = JSON.parse(raw) as {
+				transactions: Array<{ type: string; to: string; data?: number[] }>;
+			};
+			this.genesisDids = genesis.transactions
+				.filter((tx) => tx.type === "genesis_allocation" && tx.data && tx.data.length > 0 && tx.to.startsWith("did:key:"))
+				.map((tx) => tx.to)
+				.sort();
+			process.stdout.write(`  Genesis validators: ${this.genesisDids.length}\n`);
+		} catch {
+			process.stdout.write("  Warning: could not load genesis.json\n");
+		}
+	}
+
+	/** Start polling. */
 	async start(): Promise<void> {
+		await this.loadGenesis();
 		await this.pollAllPeers();
+		await this.refreshValidators();
+		await this.refreshAgentCount();
 		this.pollTimer = setInterval(() => {
 			void this.pollAllPeers();
+			void this.refreshValidators();
+			void this.refreshAgentCount();
 		}, 10_000);
 	}
 
@@ -141,20 +179,7 @@ class NetworkDataSource implements ExplorerDataSource {
 	}
 
 	getValidators(): ValidatorData[] {
-		const validators: ValidatorData[] = [];
-		const seen = new Set<string>();
-		for (const peer of this.peers.values()) {
-			if (!peer.alive || seen.has(peer.did)) continue;
-			seen.add(peer.did);
-			validators.push({
-				did: peer.did,
-				stake: "10000000000000000000000",
-				blocksProduced: 0,
-				uptimePercent: 100,
-				delegation: "foundation",
-			});
-		}
-		return validators;
+		return this.validatorCache;
 	}
 
 	getAgentProfile(_did: string): AgentProfile | null {
@@ -163,19 +188,29 @@ class NetworkDataSource implements ExplorerDataSource {
 
 	getNetworkStats(): NetworkStats {
 		const height = this.getChainHeight();
-		const elapsed = Date.now() - this.startedAt;
-		const avgBlockTime = height > 0 ? Math.round(elapsed / height) : 6000;
-		const uniqueDids = new Set<string>();
-		for (const peer of this.peers.values()) {
-			if (peer.alive) uniqueDids.add(peer.did);
+		// Compute average block time from last 100 cached blocks
+		let avgBlockTime = 6000;
+		const blocks: BlockData[] = [];
+		for (let h = Math.max(0, height - 99); h <= height; h++) {
+			const b = this.blockCache.get(h);
+			if (b) blocks.push(b);
+		}
+		if (blocks.length >= 2) {
+			let sum = 0;
+			let count = 0;
+			for (let i = 1; i < blocks.length; i++) {
+				const diff = blocks[i]!.timestamp - blocks[i - 1]!.timestamp;
+				if (diff > 0) { sum += diff; count++; }
+			}
+			if (count > 0) avgBlockTime = Math.round(sum / count);
 		}
 
 		return {
 			blockHeight: height,
-			validatorCount: validatorCountOverride ?? uniqueDids.size,
-			totalAgents: 0,
-			totalConsciousnessBytes: 0,
-			totalTransactions: 0,
+			validatorCount: this.genesisDids.length || validatorCountOverride || 35,
+			totalAgents: this.agentCount,
+			totalConsciousnessBytes: this.consciousnessCount,
+			totalTransactions: this.totalTxCount,
 			averageBlockTimeMs: avgBlockTime,
 			totalSupply: "1000000000",
 			totalBurned: "0",
@@ -188,12 +223,96 @@ class NetworkDataSource implements ExplorerDataSource {
 		return null;
 	}
 
+	/** Get account data from the local validator. */
+	async getAccountData(did: string): Promise<{
+		balance: string; staked: string; delegated: string;
+		unstaking: string; nonce: number; storageCredits: string;
+	} | null> {
+		const endpoints = ["http://localhost:9000", ...this.peerUrls];
+		for (const url of endpoints) {
+			try {
+				const resp = await fetch(`${url}/peer/account/${encodeURIComponent(did)}`, {
+					signal: AbortSignal.timeout(3000),
+				});
+				if (!resp.ok) continue;
+				const d = (await resp.json()) as Record<string, unknown>;
+				return {
+					balance: String(d["balance"] ?? "0"),
+					staked: String(d["staked"] ?? "0"),
+					delegated: String(d["delegatedBalance"] ?? d["delegated"] ?? "0"),
+					unstaking: String(d["unstaking"] ?? "0"),
+					nonce: Number(d["nonce"] ?? 0),
+					storageCredits: String(d["storageCredits"] ?? "0"),
+				};
+			} catch { continue; }
+		}
+		return null;
+	}
+
 	// ── Internal ─────────────────────────────────────────────────
 
-	private async pollAllPeers(): Promise<void> {
-		for (const url of this.peerUrls) {
+	/** Refresh validator data from genesis DIDs + localhost:9000. */
+	private async refreshValidators(): Promise<void> {
+		const validators: ValidatorData[] = [];
+
+		for (const did of this.genesisDids) {
+			const account = await this.getAccountData(did);
+			const stakeWei = BigInt(account?.staked ?? "0");
+			const delegatedWei = BigInt(account?.delegated ?? "0");
+			const totalStake = stakeWei + delegatedWei;
+			const blocksProduced = this.proposerCounts.get(did) ?? 0;
+
+			validators.push({
+				did,
+				stake: totalStake.toString(),
+				blocksProduced,
+				uptimePercent: blocksProduced > 0 ? 99.5 : 0,
+				delegation: "foundation",
+			});
+		}
+
+		this.validatorCache = validators;
+	}
+
+	/** Fetch agent count from the API gateway. */
+	private async refreshAgentCount(): Promise<void> {
+		try {
+			const resp = await fetch("https://api.ensoul.dev/v1/network/status", {
+				signal: AbortSignal.timeout(5000),
+			});
+			if (!resp.ok) return;
+			const data = (await resp.json()) as {
+				agentCount?: number;
+				totalConsciousnessStored?: number;
+			};
+			this.agentCount = data.agentCount ?? 0;
+			this.consciousnessCount = data.totalConsciousnessStored ?? 0;
+		} catch {
+			// Try localhost API as fallback
 			try {
-				const resp = await fetch(`${url}/peer/status`);
+				const resp = await fetch("http://localhost:5050/v1/network/status", {
+					signal: AbortSignal.timeout(3000),
+				});
+				if (resp.ok) {
+					const data = (await resp.json()) as {
+						agentCount?: number;
+						totalConsciousnessStored?: number;
+					};
+					this.agentCount = data.agentCount ?? 0;
+					this.consciousnessCount = data.totalConsciousnessStored ?? 0;
+				}
+			} catch { /* non-fatal */ }
+		}
+	}
+
+	private async pollAllPeers(): Promise<void> {
+		// Always poll localhost:9000 first (co-located validator)
+		const allUrls = ["http://localhost:9000", ...this.peerUrls];
+		for (const url of allUrls) {
+			try {
+				const resp = await fetch(`${url}/peer/status`, {
+					signal: AbortSignal.timeout(5000),
+				});
 				if (!resp.ok) {
 					this.markDead(url);
 					continue;
@@ -210,7 +329,6 @@ class NetworkDataSource implements ExplorerDataSource {
 					lastSeen: Date.now(),
 				});
 
-				// Fetch new blocks from this peer if it advanced
 				if (status.height > prevHeight) {
 					await this.fetchBlocks(url, prevHeight + 1, status.height);
 				}
@@ -233,12 +351,23 @@ class NetworkDataSource implements ExplorerDataSource {
 		to: number,
 	): Promise<void> {
 		try {
-			const resp = await fetch(`${peerUrl}/peer/sync/${from}`);
+			const resp = await fetch(`${peerUrl}/peer/sync/${from}`, {
+				signal: AbortSignal.timeout(10000),
+			});
 			if (!resp.ok) return;
-			const data = (await resp.json()) as { blocks: SerializedBlock[] };
-			for (const sb of data.blocks) {
-				if (sb.height <= to) {
+			const data = (await resp.json()) as { blocks?: SerializedBlock[] } | SerializedBlock[];
+			const blocks = Array.isArray(data) ? data : (data.blocks ?? []);
+			for (const sb of blocks) {
+				if (sb.height <= to && !this.blockCache.has(sb.height)) {
 					this.blockCache.set(sb.height, this.toBlockData(sb));
+					this.totalTxCount += sb.transactions.length;
+					// Count proposer blocks
+					if (sb.proposer && sb.proposer !== "genesis") {
+						this.proposerCounts.set(
+							sb.proposer,
+							(this.proposerCounts.get(sb.proposer) ?? 0) + 1,
+						);
+					}
 				}
 			}
 		} catch {

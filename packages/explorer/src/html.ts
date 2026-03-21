@@ -67,8 +67,9 @@ function explorerNav(activeTab: string): string {
 	return `<div class="explorer-nav">${tab("/", "Dashboard", "dashboard")}${tab("/agents", "Agents", "agents")}${tab("/blocks", "Blocks", "blocks")}${tab("/validators", "Validators", "validators")}</div>`;
 }
 
-function layout(title: string, tab: string, content: string): string {
-	return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - Ensoul Explorer</title><style>${CSS}</style></head><body>${siteNav("explorer")}${explorerNav(tab)}<div class="content">${content}</div><div class="footer">ensoul.dev - the immortality layer for AI agents</div></body></html>`;
+function layout(title: string, tab: string, content: string, autoRefresh = false): string {
+	const refreshScript = autoRefresh ? `<script>setTimeout(function(){location.reload()},6000)</script>` : "";
+	return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - Ensoul Explorer</title><style>${CSS}</style></head><body>${siteNav("explorer")}${explorerNav(tab)}<div class="content">${content}</div><div class="footer">ensoul.dev - the immortality layer for AI agents</div>${refreshScript}</body></html>`;
 }
 
 /**
@@ -95,7 +96,7 @@ export function renderDashboard(
 	return layout(
 		"Dashboard",
 		"dashboard",
-		`<form action="/agent" method="get" style="margin:16px 0">
+		`<form action="/agents" method="get" style="margin:16px 0">
 <input class="search" name="did" placeholder="Search by DID, block height, or transaction hash..." autofocus>
 </form>
 <div class="card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;text-align:center">
@@ -108,6 +109,7 @@ export function renderDashboard(
 <h2>Latest Blocks</h2>
 <table><tr><th>Height</th><th>Proposer</th><th>Txs</th><th>Reward</th><th>Time</th></tr>${blocks}</table>
 <p style="text-align:center;margin:12px 0"><a href="/blocks">View all blocks &rarr;</a></p>`,
+		true, // auto-refresh every 6 seconds
 	);
 }
 
@@ -176,7 +178,7 @@ export function renderBlock(block: BlockData): string {
 <div class="card">
 <p><strong>Block Hash:</strong> <code>${block.hash}</code></p>
 <p><strong>Parent Hash:</strong> <code>${block.parentHash.slice(0, 20)}...${block.parentHash.slice(-8)}</code></p>
-<p><strong>Proposer:</strong> <a href="/agent?did=${encodeURIComponent(block.proposer)}">${shortProposer}</a></p>
+<p><strong>Proposer:</strong> <a href="/account/${encodeURIComponent(block.proposer)}">${shortProposer}</a></p>
 <p><strong>Timestamp:</strong> ${new Date(block.timestamp).toISOString()} (${timeAgo(block.timestamp)})</p>
 <p><strong>Transactions:</strong> ${block.txCount}</p>
 </div>
@@ -216,7 +218,7 @@ export function renderValidators(validators: ValidatorData[]): string {
 			(v, i) => {
 				const shortDid = v.did.length > 40 ? `${v.did.slice(0, 16)}...${v.did.slice(-6)}` : v.did;
 				const stakeEnsl = formatEnsl(v.stake);
-				return `<tr><td>${i + 1}</td><td><a href="/agent?did=${encodeURIComponent(v.did)}">${shortDid}</a></td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${v.uptimePercent.toFixed(1)}%</td><td>${v.delegation}</td></tr>`;
+				return `<tr><td>${i + 1}</td><td><a href="/account/${encodeURIComponent(v.did)}">${shortDid}</a></td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${v.uptimePercent.toFixed(1)}%</td><td>${v.delegation}</td></tr>`;
 			},
 		)
 		.join("");
@@ -257,4 +259,72 @@ function formatEnsl(amountStr: string): string {
 	} catch {
 		return amountStr;
 	}
+}
+
+/**
+ * Render an account/wallet detail page.
+ */
+export function renderAccount(
+	did: string,
+	account: Record<string, string> | null,
+	isValidator: boolean,
+	validatorData: { blocksProduced: number; stake: string } | null,
+	txs: Array<{ hash: string; type: string; from: string; to: string; amount: string; timestamp: number; blockHeight: number }>,
+): string {
+	const shortDid = did.length > 40 ? `${did.slice(0, 20)}...${did.slice(-8)}` : did;
+	const balance = formatEnsl(account?.balance ?? "0");
+	const staked = formatEnsl(account?.staked ?? "0");
+	const delegated = formatEnsl(account?.delegated ?? "0");
+	const totalWei = BigInt(account?.balance ?? "0") + BigInt(account?.staked ?? "0") + BigInt(account?.delegated ?? "0");
+	const total = formatEnsl(totalWei.toString());
+	const credits = account?.storageCredits ?? "0";
+
+	let badges = "";
+	if (isValidator) badges += '<span class="badge badge-verified">VALIDATOR</span> ';
+	// Agent badge would require checking consciousness store
+
+	const txRows = txs.slice(0, 50).map((tx) => {
+		const typeLabel = tx.type.replace(/_/g, " ").toUpperCase();
+		const shortFrom = tx.from.length > 30 ? `${tx.from.slice(0, 14)}...${tx.from.slice(-6)}` : tx.from;
+		const shortTo = tx.to.length > 30 ? `${tx.to.slice(0, 14)}...${tx.to.slice(-6)}` : tx.to;
+		const direction = tx.from === did ? "OUT" : "IN";
+		return `<tr>
+			<td><a href="/block/${tx.blockHeight}">${tx.blockHeight}</a></td>
+			<td><span class="badge badge-basic">${typeLabel}</span></td>
+			<td>${direction === "OUT" ? shortFrom : `<a href="/account/${encodeURIComponent(tx.from)}">${shortFrom}</a>`}</td>
+			<td>${direction === "IN" ? shortTo : `<a href="/account/${encodeURIComponent(tx.to)}">${shortTo}</a>`}</td>
+			<td>${formatEnsl(tx.amount)}</td>
+			<td>${timeAgo(tx.timestamp)}</td>
+		</tr>`;
+	}).join("");
+
+	let validatorSection = "";
+	if (isValidator && validatorData) {
+		validatorSection = `
+		<h2>Validator Stats</h2>
+		<div class="card">
+			<div class="stat"><div class="stat-value">${validatorData.blocksProduced}</div><div class="stat-label">Blocks Produced</div></div>
+			<div class="stat"><div class="stat-value">${formatEnsl(validatorData.stake)}</div><div class="stat-label">Total Stake</div></div>
+			<div class="stat"><div class="stat-value">10%</div><div class="stat-label">Commission</div></div>
+		</div>`;
+	}
+
+	return layout(
+		`Account ${shortDid}`,
+		"agents",
+		`<h2>Account</h2>
+<div class="card">
+<p><strong>DID:</strong> <code style="font-size:0.85em;word-break:break-all">${did}</code></p>
+<p>${badges}</p>
+</div>
+<div class="card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;text-align:center">
+<div class="stat"><div class="stat-value">${balance}</div><div class="stat-label">Available</div></div>
+<div class="stat"><div class="stat-value">${staked}</div><div class="stat-label">Staked</div></div>
+<div class="stat"><div class="stat-value">${delegated}</div><div class="stat-label">Delegated</div></div>
+<div class="stat"><div class="stat-value">${total}</div><div class="stat-label">Total</div></div>
+</div>
+${validatorSection}
+<h2>Transactions (${txs.length})</h2>
+${txs.length > 0 ? `<table><tr><th>Block</th><th>Type</th><th>From</th><th>To</th><th>Amount</th><th>Time</th></tr>${txRows}</table>` : '<p style="color:#888">No transactions found for this account.</p>'}`,
+	);
 }
