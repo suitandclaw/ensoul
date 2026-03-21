@@ -181,9 +181,11 @@ async function main(): Promise<void> {
 		await checkPeerVersions(peerNet, args.peers);
 	}
 
-	// Step 4: Start consensus engine
+	// Step 4: Start consensus engine (after sync is complete)
 	if (args.mode === "validate") {
-		console.log(`\n  Mode: VALIDATOR (Tendermint consensus) v${VERSION}\n`);
+		const syncedHeight = runner.getStatus().chainHeight;
+		console.log(`\n  Mode: VALIDATOR (Tendermint consensus) v${VERSION}`);
+		console.log(`  Synced to height: ${syncedHeight}\n`);
 		runner.startBlockLoop();
 
 		// Wire consensus to peer network for message broadcasting

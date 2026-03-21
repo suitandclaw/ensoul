@@ -433,9 +433,15 @@ export class PeerNetwork {
 		let mismatchCount = 0;
 
 		for (const addr of addresses) {
+			this.log(`Connecting to peer: ${addr}`);
 			try {
-				const resp = await fetch(`${addr}/peer/status`);
-				if (!resp.ok) continue;
+				const resp = await fetch(`${addr}/peer/status`, {
+					signal: AbortSignal.timeout(10000),
+				});
+				if (!resp.ok) {
+					this.log(`Peer connection failed: ${addr} returned HTTP ${resp.status}`);
+					continue;
+				}
 				const status = (await resp.json()) as PeerStatus;
 
 				// Check genesis hash compatibility
@@ -453,11 +459,12 @@ export class PeerNetwork {
 					lastSeen: Date.now(),
 				});
 				this.log(
-					`Connected to peer ${addr} (height: ${status.height}, did: ${status.did.slice(0, 24)}...)`,
+					`Peer connected: ${addr} height=${status.height} version=${status.version ?? "unknown"}`,
 				);
 				connectedCount++;
-			} catch {
-				this.log(`Failed to connect to peer ${addr}`);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				this.log(`Peer connection failed: ${addr} (${msg})`);
 			}
 		}
 
@@ -668,21 +675,28 @@ export class PeerNetwork {
 		}
 
 		const myHeight = this.gossip.getProducer().getHeight();
-		if (bestHeight <= myHeight || !bestAddr) return;
+		if (bestHeight <= myHeight || !bestAddr) {
+			this.log(`Already at network height (local=${myHeight}, best peer=${bestHeight})`);
+			return;
+		}
 
-		this.log(
-			`Syncing blocks ${myHeight + 1}..${bestHeight} from ${bestAddr}`,
-		);
+		const gap = bestHeight - myHeight;
+		this.log(`Syncing ${gap} blocks (${myHeight + 1}..${bestHeight}) from ${bestAddr}`);
 
 		try {
 			const resp = await fetch(
 				`${bestAddr}/peer/sync/${myHeight + 1}`,
+				{ signal: AbortSignal.timeout(30000) },
 			);
-			if (!resp.ok) return;
+			if (!resp.ok) {
+				this.log(`Sync request failed: HTTP ${resp.status}`);
+				return;
+			}
 			const blocks = extractBlocks(await resp.json());
+			this.log(`Received ${blocks.length} blocks from peer`);
 			const result = this.gossip.applySyncBlocks(blocks);
 			this.log(
-				`Synced ${result.applied} blocks (${result.errors.length} errors)`,
+				`Sync complete: ${result.applied} applied, ${result.errors.length} errors, now at height ${this.gossip.getProducer().getHeight()}`,
 			);
 			for (const e of result.errors) {
 				this.log(`Sync block error: ${e}`);

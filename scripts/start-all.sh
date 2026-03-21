@@ -183,7 +183,7 @@ do_start() {
 		npx tsx "$REPO_DIR/packages/node/src/cli/main.ts" \
 			--validate \
 			--no-min-stake \
-			--consensus-threshold 0.3 \
+			--consensus-threshold 0.1 \
 			--genesis "$LOG_DIR/genesis.json" \
 			--port "$vport" \
 			--api-port "$aport" \
