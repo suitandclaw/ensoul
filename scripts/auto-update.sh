@@ -37,80 +37,98 @@ git fetch origin main --quiet 2>/dev/null || { log "Git fetch failed. Skipping."
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 
+STALE_RESTART=false
+
 if [ "$LOCAL" = "$REMOTE" ]; then
-	log "Already up to date ($LOCAL)."
-	exit 0
-fi
+	# Code is up to date, but check if running validators match the built version.
+	# A previous auto-update may have pulled code but failed to restart.
+	BUILT_VERSION=$(grep -o '"[0-9]*\.[0-9]*\.[0-9]*"' packages/node/src/version.ts 2>/dev/null | tr -d '"' || echo "")
+	RUNNING_VERSION=$(curl -s http://localhost:9000/peer/health 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || echo "")
 
-log "New commits found: $LOCAL -> $REMOTE"
-
-# 2. Save current version and genesis hash
-OLD_VERSION=$(grep -o '"[0-9]*\.[0-9]*\.[0-9]*"' packages/node/src/version.ts 2>/dev/null | tr -d '"' || echo "unknown")
-OLD_GENESIS_HASH=$(md5 -q "$LOG_DIR/genesis.json" 2>/dev/null || md5sum "$LOG_DIR/genesis.json" 2>/dev/null | awk '{print $1}' || echo "none")
-log "Current: version=$OLD_VERSION genesis=$OLD_GENESIS_HASH"
-
-# 3. Create snapshot before update
-log "Creating pre-update snapshot..."
-SNAP_NAME=$(date +"%Y%m%d-%H%M%S")
-SNAP_DIR="$SNAPSHOT_DIR/$SNAP_NAME"
-mkdir -p "$SNAP_DIR"
-echo "{\"version\":\"$OLD_VERSION\",\"genesis\":\"$OLD_GENESIS_HASH\",\"commit\":\"$LOCAL\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$SNAP_DIR/meta.json"
-# Copy chain data for first validator as representative snapshot
-if [ -d "$LOG_DIR/validator-0/chain" ]; then
-	cp -r "$LOG_DIR/validator-0/chain" "$SNAP_DIR/chain" 2>/dev/null || true
-fi
-log "Snapshot saved: $SNAP_DIR"
-
-# Prune old snapshots (keep last 5)
-ls -dt "$SNAPSHOT_DIR"/*/ 2>/dev/null | tail -n +6 | xargs rm -rf 2>/dev/null || true
-
-# 4. Pull latest code
-log "Pulling latest code..."
-git pull origin main --quiet 2>/dev/null || { log "Git pull failed. Skipping."; exit 0; }
-
-# 5. Build (safe: revert on failure)
-log "Building..."
-if ! pnpm build >> "$LOG_FILE" 2>&1; then
-	log "BUILD FAILED. Reverting to $LOCAL."
-	git reset --hard "$LOCAL" --quiet 2>/dev/null || true
-	exit 1
-fi
-
-# 6. Run tests (unit tests only, not full smoke test)
-log "Running tests..."
-if ! pnpm test >> "$LOG_FILE" 2>&1; then
-	log "TESTS FAILED. Keeping current running version. Code reverted."
-	git reset --hard "$LOCAL" --quiet 2>/dev/null || true
-	pnpm build >> "$LOG_FILE" 2>&1 || true
-	exit 1
-fi
-log "Tests passed."
-
-# 7. Check what changed
-NEW_VERSION=$(grep -o '"[0-9]*\.[0-9]*\.[0-9]*"' packages/node/src/version.ts 2>/dev/null | tr -d '"' || echo "unknown")
-NEEDS_RESTART=false
-NEEDS_CHAIN_WIPE=false
-
-# Genesis change
-if [ -f "$REPO_DIR/genesis.json" ]; then
-	NEW_GENESIS_HASH=$(md5 -q "$REPO_DIR/genesis.json" 2>/dev/null || md5sum "$REPO_DIR/genesis.json" | awk '{print $1}')
-	if [ "$NEW_GENESIS_HASH" != "$OLD_GENESIS_HASH" ]; then
-		log "Genesis changed ($OLD_GENESIS_HASH -> $NEW_GENESIS_HASH)."
-		cp "$REPO_DIR/genesis.json" "$LOG_DIR/genesis.json"
-		NEEDS_CHAIN_WIPE=true
-		NEEDS_RESTART=true
+	if [ -n "$BUILT_VERSION" ] && [ -n "$RUNNING_VERSION" ] && [ "$BUILT_VERSION" != "$RUNNING_VERSION" ]; then
+		log "Code up to date but running version ($RUNNING_VERSION) differs from built version ($BUILT_VERSION). Restarting."
+		STALE_RESTART=true
+	else
+		log "Already up to date ($LOCAL)."
+		exit 0
 	fi
 fi
 
-# Version change
-if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
-	log "Version changed: $OLD_VERSION -> $NEW_VERSION"
-	NEEDS_RESTART=true
+if [ "$STALE_RESTART" = "false" ]; then
+	log "New commits found: $LOCAL -> $REMOTE"
 fi
 
-if [ "$NEEDS_RESTART" = "false" ]; then
-	log "Code updated, no restart needed (version=$NEW_VERSION)."
-	exit 0
+NEEDS_RESTART=$STALE_RESTART
+NEEDS_CHAIN_WIPE=false
+NEW_VERSION=$(grep -o '"[0-9]*\.[0-9]*\.[0-9]*"' packages/node/src/version.ts 2>/dev/null | tr -d '"' || echo "unknown")
+OLD_VERSION="$NEW_VERSION"
+OLD_GENESIS_HASH=$(md5 -q "$LOG_DIR/genesis.json" 2>/dev/null || md5sum "$LOG_DIR/genesis.json" 2>/dev/null | awk '{print $1}' || echo "none")
+
+if [ "$STALE_RESTART" = "false" ]; then
+	# New commits: pull, build, test, check changes
+
+	# 2. Save current version
+	OLD_VERSION=$(grep -o '"[0-9]*\.[0-9]*\.[0-9]*"' packages/node/src/version.ts 2>/dev/null | tr -d '"' || echo "unknown")
+	log "Current: version=$OLD_VERSION genesis=$OLD_GENESIS_HASH"
+
+	# 3. Create snapshot before update
+	log "Creating pre-update snapshot..."
+	SNAP_NAME=$(date +"%Y%m%d-%H%M%S")
+	SNAP_DIR="$SNAPSHOT_DIR/$SNAP_NAME"
+	mkdir -p "$SNAP_DIR"
+	echo "{\"version\":\"$OLD_VERSION\",\"genesis\":\"$OLD_GENESIS_HASH\",\"commit\":\"$LOCAL\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$SNAP_DIR/meta.json"
+	if [ -d "$LOG_DIR/validator-0/chain" ]; then
+		cp -r "$LOG_DIR/validator-0/chain" "$SNAP_DIR/chain" 2>/dev/null || true
+	fi
+	log "Snapshot saved: $SNAP_DIR"
+	ls -dt "$SNAPSHOT_DIR"/*/ 2>/dev/null | tail -n +6 | xargs rm -rf 2>/dev/null || true
+
+	# 4. Pull latest code
+	log "Pulling latest code..."
+	git pull origin main --quiet 2>/dev/null || { log "Git pull failed. Skipping."; exit 0; }
+
+	# 5. Build (safe: revert on failure)
+	log "Building..."
+	if ! pnpm build >> "$LOG_FILE" 2>&1; then
+		log "BUILD FAILED. Reverting to $LOCAL."
+		git reset --hard "$LOCAL" --quiet 2>/dev/null || true
+		exit 1
+	fi
+
+	# 6. Run tests
+	log "Running tests..."
+	if ! pnpm test >> "$LOG_FILE" 2>&1; then
+		log "TESTS FAILED. Keeping current running version. Code reverted."
+		git reset --hard "$LOCAL" --quiet 2>/dev/null || true
+		pnpm build >> "$LOG_FILE" 2>&1 || true
+		exit 1
+	fi
+	log "Tests passed."
+
+	# 7. Check what changed
+	NEW_VERSION=$(grep -o '"[0-9]*\.[0-9]*\.[0-9]*"' packages/node/src/version.ts 2>/dev/null | tr -d '"' || echo "unknown")
+
+	# Genesis change
+	if [ -f "$REPO_DIR/genesis.json" ]; then
+		NEW_GENESIS_HASH=$(md5 -q "$REPO_DIR/genesis.json" 2>/dev/null || md5sum "$REPO_DIR/genesis.json" | awk '{print $1}')
+		if [ "$NEW_GENESIS_HASH" != "$OLD_GENESIS_HASH" ]; then
+			log "Genesis changed ($OLD_GENESIS_HASH -> $NEW_GENESIS_HASH)."
+			cp "$REPO_DIR/genesis.json" "$LOG_DIR/genesis.json"
+			NEEDS_CHAIN_WIPE=true
+			NEEDS_RESTART=true
+		fi
+	fi
+
+	# Version change
+	if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
+		log "Version changed: $OLD_VERSION -> $NEW_VERSION"
+		NEEDS_RESTART=true
+	fi
+
+	if [ "$NEEDS_RESTART" = "false" ]; then
+		log "Code updated, no restart needed (version=$NEW_VERSION)."
+		exit 0
+	fi
 fi
 
 # 8. Wipe chain data if genesis changed
