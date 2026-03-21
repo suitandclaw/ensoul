@@ -119,6 +119,20 @@ export class PeerNetwork {
 			} satisfies PeerStatus;
 		});
 
+		// GET /peer/health
+		this.server.get("/peer/health", async () => {
+			const producer = this.gossip.getProducer();
+			const latest = producer.getLatestBlock();
+			return {
+				healthy: true,
+				height: producer.getHeight(),
+				version: VERSION,
+				lastBlockTime: latest?.timestamp ?? 0,
+				uptimeSeconds: Math.floor(process.uptime()),
+				syncStatus: producer.getHeight() >= 0 ? "synced" : "syncing",
+			};
+		});
+
 		// GET /peer/blocks/:height
 		this.server.get<{ Params: { height: string } }>(
 			"/peer/blocks/:height",

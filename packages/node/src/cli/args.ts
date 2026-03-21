@@ -22,6 +22,8 @@ export interface CliArgs {
 	exportSeed: boolean;
 	importSeed: string;
 	autoUpdate: boolean;
+	snapshot: boolean;
+	rollback: boolean;
 }
 
 /** Default seed node URL. Empty means no seed unless --seed is provided. */
@@ -67,6 +69,8 @@ export function parseArgs(argv: string[]): CliArgs {
 		exportSeed: false,
 		importSeed: "",
 		autoUpdate: false,
+		snapshot: false,
+		rollback: false,
 	};
 
 	for (let i = 0; i < argv.length; i++) {
@@ -116,6 +120,10 @@ export function parseArgs(argv: string[]): CliArgs {
 			args.importSeed = argv[++i]!;
 		} else if (arg === "--auto-update") {
 			args.autoUpdate = true;
+		} else if (arg === "--snapshot") {
+			args.snapshot = true;
+		} else if (arg === "--rollback") {
+			args.rollback = true;
 		}
 	}
 

@@ -56,6 +56,28 @@ async function main(): Promise<void> {
 		return;
 	}
 
+	// Snapshot and rollback
+	if (args.snapshot) {
+		const { createSnapshot } = await import("../chain/snapshot.js");
+		const dataDir = expandHome(args.dataDir);
+		const snap = await createSnapshot(dataDir, 0, "manual");
+		console.log(`[ensoul] Snapshot created: ${snap}`);
+		return;
+	}
+
+	if (args.rollback) {
+		const { rollbackToLatest } = await import("../chain/snapshot.js");
+		const dataDir = expandHome(args.dataDir);
+		const result = await rollbackToLatest(dataDir);
+		if (result.restored) {
+			console.log(`[ensoul] Rolled back to snapshot: ${result.snapshot}`);
+			console.log(`[ensoul] Version: ${result.meta?.version}, Height: ${result.meta?.height}`);
+		} else {
+			console.log("[ensoul] No snapshots available to roll back to.");
+		}
+		return;
+	}
+
 	// Wallet commands: query RPC and exit (no node startup)
 	if (isWalletCommand(process.argv.slice(2))) {
 		const walletCmd = parseWalletArgs(process.argv.slice(2));
