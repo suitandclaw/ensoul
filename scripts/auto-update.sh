@@ -60,17 +60,37 @@ if ! pnpm build >> "$LOG_FILE" 2>&1; then
 	exit 1
 fi
 
-# 5. Check if version changed
+# 5. Check for genesis changes
+if [ -f "$REPO_DIR/genesis.json" ] && [ -f "$LOG_DIR/genesis.json" ]; then
+	NEW_HASH=$(shasum -a 256 "$REPO_DIR/genesis.json" | awk '{print $1}')
+	OLD_HASH=$(shasum -a 256 "$LOG_DIR/genesis.json" | awk '{print $1}')
+	if [ "$NEW_HASH" != "$OLD_HASH" ]; then
+		log "Genesis changed ($OLD_HASH -> $NEW_HASH). Updating and wiping chain data."
+		cp "$REPO_DIR/genesis.json" "$LOG_DIR/genesis.json"
+		for i in $(seq 0 9); do
+			if [ -d "$LOG_DIR/validator-$i/chain" ]; then
+				rm -rf "$LOG_DIR/validator-$i/chain"
+				log "Wiped chain data for validator-$i"
+			fi
+		done
+		log "Genesis changed. Chain data wiped. Validators will sync from network."
+	fi
+elif [ -f "$REPO_DIR/genesis.json" ] && [ ! -f "$LOG_DIR/genesis.json" ]; then
+	cp "$REPO_DIR/genesis.json" "$LOG_DIR/genesis.json"
+	log "Copied genesis.json to $LOG_DIR/genesis.json"
+fi
+
+# 6. Check if version changed
 NEW_VERSION=$(node -e "console.log(require('./packages/node/package.json').version)" 2>/dev/null || echo "unknown")
 log "New version: $NEW_VERSION (was $OLD_VERSION)"
 
-if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
-	log "Version unchanged. Code updated but no restart needed."
+if [ "$OLD_VERSION" = "$NEW_VERSION" ] && [ "${NEW_HASH:-}" = "${OLD_HASH:-}" ]; then
+	log "Version and genesis unchanged. Code updated but no restart needed."
 	exit 0
 fi
 
-# 6. Restart validators
-log "Version changed ($OLD_VERSION -> $NEW_VERSION). Restarting validators..."
+# 7. Restart validators
+log "Restarting validators (version: $OLD_VERSION -> $NEW_VERSION)..."
 
 # Try start-mini.sh first (Mac Mini), then start-all.sh (MacBook Pro)
 if [ -f "$REPO_DIR/scripts/start-mini.sh" ]; then
