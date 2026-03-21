@@ -248,16 +248,19 @@ export class EnsoulNodeRunner {
 			return block;
 		}
 
-		// Fallback: if no block produced for 30s, produce regardless of proposer
-		if (this.producer.isProposerTimedOut()) {
-			this.log("Proposer timeout: producing block as fallback (expected proposer offline)");
+		// Priority-based fallback: each validator waits based on its
+		// distance from the expected proposer in the roster.
+		// Distance 0 (expected proposer) = 6s, distance 1 = 12s, etc.
+		const nextHeight = this.producer.getHeight() + 1;
+		if (this.producer.canProduceFallback(nextHeight, this.identity.did)) {
+			const delay = this.producer.getFallbackDelay(nextHeight, this.identity.did);
+			this.log(`Fallback production at priority distance ${Math.round(delay / 6000) - 1} for height ${nextHeight}`);
 			const fallback = this.producer.produceBlock(this.identity.did, true);
 			if (fallback) {
 				this.blocksProduced++;
 				this.log(
 					`Fallback block ${fallback.height} with ${fallback.transactions.length} txs`,
 				);
-				// Broadcast via gossip
 				this.gossip.broadcastBlock(fallback);
 				if (this.onBlock) this.onBlock(fallback);
 				return fallback;

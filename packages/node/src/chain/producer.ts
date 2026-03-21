@@ -68,8 +68,8 @@ export class NodeBlockProducer {
 	/** Timestamp of the last block produced or applied. */
 	private lastBlockTime = Date.now();
 
-	/** Timeout before fallback block production (5x normal interval). */
-	private static readonly PROPOSER_TIMEOUT_MS = 30_000;
+	/** Base block interval for fallback delay calculation. */
+	private static readonly BLOCK_INTERVAL_MS = 6_000;
 
 	/** Callback invoked when a new block is produced. */
 	onBlock: ((block: Block) => void) | null = null;
@@ -252,11 +252,35 @@ export class NodeBlockProducer {
 	}
 
 	/**
-	 * Check if the proposer timeout has been exceeded (no block for 30s).
-	 * Returns true if a fallback block should be produced.
+	 * Calculate the fallback delay for a given validator at a given height.
+	 * Each validator has a priority based on its distance from the expected
+	 * proposer in the roster. Distance 0 = expected proposer (6s), distance
+	 * 1 = next in roster (12s), distance 2 = 18s, etc.
+	 * Returns the delay in milliseconds, or -1 if the DID is not in the roster.
 	 */
-	isProposerTimedOut(): boolean {
-		return Date.now() - this.lastBlockTime > NodeBlockProducer.PROPOSER_TIMEOUT_MS;
+	getFallbackDelay(height: number, myDid: string): number {
+		const roster = this.getEligibleValidators();
+		if (roster.length === 0) return -1;
+
+		const myIndex = roster.indexOf(myDid);
+		if (myIndex === -1) return -1;
+
+		const expectedIndex = height % roster.length;
+		const distance = (myIndex - expectedIndex + roster.length) % roster.length;
+
+		return (distance + 1) * NodeBlockProducer.BLOCK_INTERVAL_MS;
+	}
+
+	/**
+	 * Check if enough time has passed for this validator to produce a
+	 * fallback block at the given height. Uses priority-based delay:
+	 * the next validator in the roster after the expected proposer
+	 * gets to produce sooner than validators further away.
+	 */
+	canProduceFallback(height: number, myDid: string): boolean {
+		const delay = this.getFallbackDelay(height, myDid);
+		if (delay < 0) return false;
+		return Date.now() - this.lastBlockTime >= delay;
 	}
 
 	/**
@@ -355,11 +379,15 @@ export class NodeBlockProducer {
 		if (!skipProposerCheck) {
 			const expectedProposer = this.selectProposer(block.height);
 			if (expectedProposer !== null && expectedProposer !== block.proposer) {
-				// Accept fallback blocks: if 30+ seconds since last block
-				// and the proposer is in the roster, this is a valid fallback
-				const timeSinceLastBlock = Date.now() - this.lastBlockTime;
+				// Accept fallback blocks if the proposer is in the roster
+				// and enough time has passed for their priority level.
+				// Any roster validator is accepted if the expected proposer
+				// has had its full slot time plus the fallback validator's
+				// priority delay.
 				const proposerInRoster = this.isInRoster(block.proposer);
-				if (timeSinceLastBlock < NodeBlockProducer.PROPOSER_TIMEOUT_MS || !proposerInRoster) {
+				const timeSinceLastBlock = Date.now() - this.lastBlockTime;
+				const fallbackDelay = this.getFallbackDelay(block.height, block.proposer);
+				if (!proposerInRoster || fallbackDelay < 0 || timeSinceLastBlock < fallbackDelay) {
 					this.log(
 						`Rejected block ${block.height}: proposer ${block.proposer} is not the expected proposer ${expectedProposer}`,
 					);
@@ -368,9 +396,8 @@ export class NodeBlockProducer {
 						error: `Wrong proposer: expected ${expectedProposer}, got ${block.proposer}`,
 					};
 				}
-				// Fallback block accepted
 				this.log(
-					`Accepted fallback block ${block.height} from ${block.proposer} (expected ${expectedProposer}, timed out)`,
+					`Accepted fallback block ${block.height} from ${block.proposer} (expected ${expectedProposer}, priority fallback)`,
 				);
 			}
 		}
