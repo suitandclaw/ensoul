@@ -43,9 +43,8 @@ const DEFAULT_CONFIG: ChainNodeConfig = {
  * Node-level block producer that integrates the ledger with
  * adaptive timing, consensus watchdog, and spam protection.
  *
- * If a BlockStore is provided, all blocks and state are persisted to
- * disk. On restart, the chain resumes from the last persisted height
- * instead of starting from genesis.
+ * Uses a deterministic validator roster from genesis for proposer
+ * selection: simple round-robin by height % roster.length.
  */
 export class NodeBlockProducer {
 	private ledger: LedgerBlockProducer;
@@ -58,6 +57,13 @@ export class NodeBlockProducer {
 	private genesisConfig: GenesisConfig;
 	private store: BlockStore | null;
 	private delegations: DelegationRegistry;
+
+	/**
+	 * Deterministic validator roster derived from genesis.
+	 * Sorted alphabetically. Used for round-robin proposer selection.
+	 * Every node loads the same genesis, gets the same roster.
+	 */
+	private validatorRoster: string[] = [];
 
 	/** Timestamp of the last block produced or applied. */
 	private lastBlockTime = Date.now();
@@ -96,6 +102,17 @@ export class NodeBlockProducer {
 			this.config.blockTimeMs,
 			60000,
 		);
+
+		// Build validator roster from genesis config.
+		// Validators are allocations with autoStake: true, sorted by DID.
+		this.validatorRoster = genesisConfig.allocations
+			.filter((a) => a.autoStake === true)
+			.map((a) => a.recipient)
+			.sort();
+
+		if (this.validatorRoster.length > 0) {
+			this.log(`Validator roster: ${this.validatorRoster.length} validators loaded from genesis`);
+		}
 	}
 
 	/**
@@ -113,7 +130,6 @@ export class NodeBlockProducer {
 			// Resume from persisted state
 			const savedState = await this.store.getAccountState();
 			if (savedState) {
-				// Replace the state in both the ledger and this producer
 				this.state = savedState;
 				const ledgerAny = this.ledger as unknown as Record<
 					string,
@@ -191,96 +207,39 @@ export class NodeBlockProducer {
 	}
 
 	/**
-	 * Get the list of validators with totalStakeWeight >= minimumStake and not unstaking.
-	 * Derives the eligible set from account state (anyone with stake > 0), not from
-	 * this.validatorDids. This ensures a new node syncing historical blocks computes
-	 * the same proposer as the original network, since genesis populates account state
-	 * for all foundation validators regardless of validatorDids.
-	 * Falls back to this.validatorDids only when no accounts have stake (bootstrap
-	 * mode with --no-min-stake).
+	 * Get the validator roster (from genesis, sorted alphabetically).
+	 * Falls back to validatorDids for bootstrap/test mode.
 	 */
 	getEligibleValidators(): string[] {
-		// Derive from on-chain state: all accounts with stakedBalance > 0.
-		// Sorted by DID for determinism across nodes. This ensures a new node
-		// syncing historical blocks computes the same proposer as the original
-		// network, since genesis populates account state for all foundation
-		// validators regardless of this.validatorDids.
-		const staked = this.state.getAllAccounts()
-			.filter((acc) => {
-				if (acc.stakedBalance <= 0n) return false;
-				if (acc.unstakingBalance > 0n) return false;
-				const totalWeight = this.delegations.getTotalStakeWeight(acc.did, acc.stakedBalance);
-				return totalWeight >= this.config.minimumStake;
-			})
-			.map((acc) => acc.did)
-			.sort();
-
-		if (staked.length > 0) return staked;
-
-		// Fallback: bootstrap mode (minimumStake=0, no accounts have stake).
-		// Use validatorDids in original order for backward compatibility.
-		return this.validatorDids.filter((did) => {
-			const account = this.state.getAccount(did);
-			if (account.unstakingBalance > 0n) return false;
-			return true;
-		});
+		if (this.validatorRoster.length > 0) return this.validatorRoster;
+		return [...this.validatorDids];
 	}
 
 	/**
-	 * Select the proposer for a given block height using stake-weighted selection.
-	 * Validators with more stake get proportionally more slots.
-	 * Falls back to equal-weight round-robin if all eligible validators have equal stake.
+	 * Select the proposer for a given block height.
+	 * Simple deterministic round-robin from the genesis validator roster.
+	 * Every node loads the same genesis, gets the same roster, computes
+	 * the same proposer for every height.
 	 */
 	selectProposer(height: number): string | null {
-		const eligible = this.getEligibleValidators();
-		if (eligible.length === 0) return null;
+		const roster = this.getEligibleValidators();
+		if (roster.length === 0) return null;
+		const idx = height % roster.length;
+		return roster[idx] ?? null;
+	}
 
-		// Build a weighted list based on total stake weight (own + delegated)
-		const stakes = eligible.map((did) => ({
-			did,
-			stake: this.delegations.getTotalStakeWeight(
-				did,
-				this.state.getAccount(did).stakedBalance,
-			),
-		}));
-
-		const totalStake = stakes.reduce((sum, s) => sum + s.stake, 0n);
-
-		// If no one has any stake (e.g. testnet with minimumStake=0),
-		// fall back to equal-weight round-robin
-		if (totalStake === 0n) {
-			const idx = height % eligible.length;
-			return eligible[idx] ?? null;
-		}
-
-		// If all validators have equal stake (genesis state), use simple
-		// round-robin by index. The stake-weighted approach breaks down
-		// when stakes are equal because height % totalStake always lands
-		// in the first validator's range until height exceeds per-validator stake.
-		const minStake = stakes.reduce((m, s) => s.stake < m ? s.stake : m, stakes[0]!.stake);
-		const maxStake = stakes.reduce((m, s) => s.stake > m ? s.stake : m, stakes[0]!.stake);
-		if (minStake === maxStake) {
-			const idx = height % eligible.length;
-			return eligible[idx] ?? null;
-		}
-
-		// Stakes differ: use stake-weighted selection. Validators with
-		// more stake get proportionally more slots.
-		const slot = BigInt(height) % totalStake;
-		let cumulative = 0n;
-		for (const entry of stakes) {
-			cumulative += entry.stake;
-			if (slot < cumulative) return entry.did;
-		}
-
-		// Fallback (should not reach here)
-		return eligible[0] ?? null;
+	/**
+	 * Check if a DID is in the validator roster.
+	 */
+	isInRoster(did: string): boolean {
+		return this.validatorRoster.includes(did) || this.validatorDids.includes(did);
 	}
 
 	/**
 	 * Check if a validator has sufficient stake to produce blocks.
 	 */
 	hasMinimumStake(did: string): boolean {
+		if (this.config.minimumStake === 0n) return true;
 		const account = this.state.getAccount(did);
 		return account.stakedBalance >= this.config.minimumStake;
 	}
@@ -302,17 +261,18 @@ export class NodeBlockProducer {
 
 	/**
 	 * Produce a block for the current slot.
-	 * Returns null if myDid is not the selected proposer or lacks minimum stake.
-	 * If force is true, skips the proposer check (used for fallback production
-	 * when the expected proposer is offline).
+	 * Returns null if myDid is not the selected proposer.
+	 * If force is true, skips the proposer check (used for fallback
+	 * production when the expected proposer is offline).
 	 */
 	produceBlock(myDid: string, force = false): Block | null {
-		if (this.getEligibleValidators().length === 0 && this.validatorDids.length === 0) return null;
+		const roster = this.getEligibleValidators();
+		if (roster.length === 0) return null;
 
 		const height = this.ledger.getHeight() + 1;
 
-		// Check minimum stake
-		if (!this.hasMinimumStake(myDid)) {
+		// Check minimum stake (skip if minimumStake is 0)
+		if (this.config.minimumStake > 0n && !this.hasMinimumStake(myDid)) {
 			const account = this.state.getAccount(myDid);
 			const staked = account.stakedBalance / DECIMALS;
 			const required = this.config.minimumStake / DECIMALS;
@@ -322,7 +282,7 @@ export class NodeBlockProducer {
 			return null;
 		}
 
-		// Stake-weighted proposer selection (skip if forced)
+		// Round-robin proposer selection (skip if forced)
 		if (!force) {
 			const expectedProposer = this.selectProposer(height);
 			if (expectedProposer !== myDid) return null;
@@ -358,7 +318,7 @@ export class NodeBlockProducer {
 		ledgerAny["mempool"] = origMempool;
 
 		this.watchdog.recordBlock();
-		this.watchdog.advanceProposer(this.validatorDids.length);
+		this.watchdog.advanceProposer(roster.length);
 		this.adaptiveTime.computeInterval(this.mempool.readySize);
 
 		const limitsCheck = validateBlockLimits(block);
@@ -379,11 +339,10 @@ export class NodeBlockProducer {
 	 * Validates then applies to local state.
 	 *
 	 * When skipProposerCheck is true (bulk sync of historical blocks),
-	 * proposer validation is skipped. During sync, stake weights,
-	 * delegation state, and validator ordering can drift from the
-	 * original network's state at each height. We trust prior network
-	 * consensus for historical blocks. State root and block structure
-	 * validation still runs on every block.
+	 * proposer validation is skipped entirely. For real-time blocks,
+	 * the proposer must match selectProposer(height) OR be a fallback
+	 * block (previous block is 30+ seconds old and the proposer is
+	 * in the validator roster).
 	 */
 	applyBlock(
 		block: Block,
@@ -396,13 +355,23 @@ export class NodeBlockProducer {
 		if (!skipProposerCheck) {
 			const expectedProposer = this.selectProposer(block.height);
 			if (expectedProposer !== null && expectedProposer !== block.proposer) {
+				// Accept fallback blocks: if 30+ seconds since last block
+				// and the proposer is in the roster, this is a valid fallback
+				const timeSinceLastBlock = Date.now() - this.lastBlockTime;
+				const proposerInRoster = this.isInRoster(block.proposer);
+				if (timeSinceLastBlock < NodeBlockProducer.PROPOSER_TIMEOUT_MS || !proposerInRoster) {
+					this.log(
+						`Rejected block ${block.height}: proposer ${block.proposer} is not the expected proposer ${expectedProposer}`,
+					);
+					return {
+						valid: false,
+						error: `Wrong proposer: expected ${expectedProposer}, got ${block.proposer}`,
+					};
+				}
+				// Fallback block accepted
 				this.log(
-					`Rejected block ${block.height}: proposer ${block.proposer} is not the expected proposer ${expectedProposer}`,
+					`Accepted fallback block ${block.height} from ${block.proposer} (expected ${expectedProposer}, timed out)`,
 				);
-				return {
-					valid: false,
-					error: `Wrong proposer: expected ${expectedProposer}, got ${block.proposer}`,
-				};
 			}
 		}
 
@@ -414,7 +383,6 @@ export class NodeBlockProducer {
 
 		// Apply transactions to state (includes block_reward, delegate, etc.)
 		for (const tx of block.transactions) {
-			// Handle delegate/undelegate via the delegation registry
 			if (tx.type === "delegate") {
 				applyTransaction(tx, this.state, this.genesisConfig.protocolFees.storageFeeProtocolShare);
 				this.delegations.delegate(tx.from, tx.to, tx.amount);
@@ -422,13 +390,11 @@ export class NodeBlockProducer {
 				applyTransaction(tx, this.state, this.genesisConfig.protocolFees.storageFeeProtocolShare);
 				this.delegations.undelegate(tx.from, tx.to, tx.amount);
 			} else if (tx.type === "block_reward") {
-				// Protocol-generated, skip normal validation
 				applyTransaction(
 					tx,
 					this.state,
 					this.genesisConfig.protocolFees.storageFeeProtocolShare,
 				);
-				// Track totalEmitted
 				const ledgerAny = this.ledger as unknown as Record<
 					string,
 					unknown
@@ -496,12 +462,11 @@ export class NodeBlockProducer {
 
 	/** Get the validator list. */
 	getValidators(): string[] {
-		return [...this.validatorDids];
+		return [...this.validatorRoster.length > 0 ? this.validatorRoster : this.validatorDids];
 	}
 
 	/**
 	 * Log a slashing warning for a missed block.
-	 * Actual slashing will be implemented separately.
 	 */
 	logMissedBlock(did: string, height: number): void {
 		this.log(`Slashing event: ${did} missed block production at height ${height}`);
