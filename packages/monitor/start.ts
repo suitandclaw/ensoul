@@ -720,6 +720,19 @@ async function main(): Promise<void> {
 		return { validators: results };
 	});
 
+	// Network health (read from file written by network-monitor.sh)
+	app.get("/api/network-health", async () => {
+		try {
+			const { readFile } = await import("node:fs/promises");
+			const { join } = await import("node:path");
+			const { homedir } = await import("node:os");
+			const raw = await readFile(join(homedir(), ".ensoul", "network-health.json"), "utf-8");
+			return JSON.parse(raw);
+		} catch {
+			return { error: "Health data not available. Is network-monitor.sh running?" };
+		}
+	});
+
 	app.get<{ Querystring: { depth?: string } }>("/api/social", async (req) => {
 		const depth = Number(req.query.depth ?? 50);
 		if (depth > socialLogDepth) {
