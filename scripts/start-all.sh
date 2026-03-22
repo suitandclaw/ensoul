@@ -251,30 +251,28 @@ do_start() {
 	log "API gateway started (pid $!)"
 	wait_for_port 5050 10 "api" || true
 
-	# 6. Twitter Agent
-	if [ -d "$AGENT_DIR/src" ] && [ -f "$AGENT_DIR/.env" ]; then
-		log "Starting Twitter agent..."
-		cd "$AGENT_DIR" && npx tsx src/agent.ts \
-			>"$LOG_DIR/agent.log" 2>&1 &
-		save_pid "agent" $!
-		cd "$REPO_DIR"
-		log "Agent started (pid $!)"
-	else
-		log "Skipping Twitter agent ($AGENT_DIR/.env not found)"
-	fi
+	# 6. Twitter Agent (DISABLED - re-enable manually when ready)
+	# if [ -d "$AGENT_DIR/src" ] && [ -f "$AGENT_DIR/.env" ]; then
+	# 	log "Starting Twitter agent..."
+	# 	cd "$AGENT_DIR" && npx tsx src/agent.ts \
+	# 		>"$LOG_DIR/agent.log" 2>&1 &
+	# 	save_pid "agent" $!
+	# 	cd "$REPO_DIR"
+	# 	log "Agent started (pid $!)"
+	# fi
+	log "Twitter agent: DISABLED"
 
-	# 8. Moltbook Agent
-	MOLTBOOK_DIR="$HOME/ensoul-moltbook-agent"
-	if [ -d "$MOLTBOOK_DIR/src" ] && [ -f "$MOLTBOOK_DIR/.env" ]; then
-		log "Starting Moltbook agent..."
-		cd "$MOLTBOOK_DIR" && npx tsx src/agent.ts \
-			>"$LOG_DIR/moltbook-agent.log" 2>&1 &
-		save_pid "moltbook" $!
-		cd "$REPO_DIR"
-		log "Moltbook agent started (pid $!)"
-	else
-		log "Skipping Moltbook agent ($MOLTBOOK_DIR/.env not found)"
-	fi
+	# 8. Moltbook Agent (DISABLED - re-enable manually when ready)
+	# MOLTBOOK_DIR="$HOME/ensoul-moltbook-agent"
+	# if [ -d "$MOLTBOOK_DIR/src" ] && [ -f "$MOLTBOOK_DIR/.env" ]; then
+	# 	log "Starting Moltbook agent..."
+	# 	cd "$MOLTBOOK_DIR" && npx tsx src/agent.ts \
+	# 		>"$LOG_DIR/moltbook-agent.log" 2>&1 &
+	# 	save_pid "moltbook" $!
+	# 	cd "$REPO_DIR"
+	# 	log "Moltbook agent started (pid $!)"
+	# fi
+	log "Moltbook agent: DISABLED"
 
 	echo ""
 	log "All services started."
