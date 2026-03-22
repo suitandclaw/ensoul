@@ -590,9 +590,12 @@ export class TendermintConsensus {
 			this.updateRoster();
 		}
 
-		// Advance to next height asynchronously to prevent stack overflow
+		// Advance to next height. Enforce minimum 6-second block time to
+		// prevent runaway block production when self-committing.
 		this.height = block.height + 1;
-		setTimeout(() => this.startRound(this.height, 0), 0);
+		const elapsed = Date.now() - this.lastCommitTime;
+		const minDelay = Math.max(0, 6000 - elapsed);
+		setTimeout(() => this.startRound(this.height, 0), minDelay);
 	}
 
 	/**
