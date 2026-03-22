@@ -87,6 +87,20 @@ export class TendermintConsensus {
 	private static readonly MAX_ROUND = 50;
 	/** Default stall threshold: 2 minutes without a commit. */
 	private static readonly DEFAULT_STALL_MS = 120_000;
+
+	// ── Protocol-level safety invariants (not configurable) ─────
+	/** Minimum milliseconds between any two committed blocks. */
+	private static readonly MIN_BLOCK_INTERVAL_MS = 6_000;
+	/** Maximum blocks allowed in any 60-second window. */
+	private static readonly MAX_BLOCKS_PER_MINUTE = 12;
+	/** Maximum emission per block in ENSL (raw wei). */
+	private static readonly MAX_EMISSION_PER_BLOCK = 50n * (10n ** 18n);
+	/** Pause duration after consecutive empty blocks. */
+	private static readonly EMPTY_BLOCK_PAUSE_MS = 60_000;
+	/** Max consecutive empty blocks before pause. */
+	private static readonly MAX_EMPTY_CONSECUTIVE = 100;
+	/** Immutable genesis blocks: reject reorgs below this height. */
+	private static readonly GENESIS_PROTECTION_HEIGHT = 70;
 	private thresholdFraction: number;
 	private stallThresholdMs: number;
 
@@ -97,6 +111,10 @@ export class TendermintConsensus {
 	private lastCommitTime = Date.now();
 	private stallCheckTimer: ReturnType<typeof setInterval> | null = null;
 	private rejoinCheckTimer: ReturnType<typeof setInterval> | null = null;
+	/** Rolling window of commit timestamps for rate limiting. */
+	private commitTimestamps: number[] = [];
+	/** Count of consecutive empty blocks. */
+	private emptyBlockCount = 0;
 
 	// ── Lock state (critical for safety) ─────────────────────────
 	// Per the Tendermint paper: a validator that precommits for block B
@@ -561,6 +579,49 @@ export class TendermintConsensus {
 			return;
 		}
 
+		// ── SAFETY: Genesis protection ──────────────────────────
+		if (block.height <= TendermintConsensus.GENESIS_PROTECTION_HEIGHT && this.producer.getBlock(block.height)) {
+			this.log(`SAFETY: rejecting reorg at protected height ${block.height}`);
+			this.advanceRound();
+			return;
+		}
+
+		// ── SAFETY: Emission cap per block ──────────────────────
+		for (const tx of block.transactions) {
+			if (tx.type === "block_reward" && tx.amount > TendermintConsensus.MAX_EMISSION_PER_BLOCK) {
+				this.log(`SAFETY: block reward ${tx.amount} exceeds cap, rejecting`);
+				this.advanceRound();
+				return;
+			}
+		}
+
+		// ── SAFETY: Rate limit (max blocks per minute) ──────────
+		const now = Date.now();
+		this.commitTimestamps = this.commitTimestamps.filter((t) => now - t < 60_000);
+		if (this.commitTimestamps.length >= TendermintConsensus.MAX_BLOCKS_PER_MINUTE) {
+			this.log("SAFETY: block rate limit hit, throttling");
+			const oldest = this.commitTimestamps[0]!;
+			const waitMs = 60_000 - (now - oldest) + 100;
+			setTimeout(() => this.commitBlock(blockHash), waitMs);
+			return;
+		}
+
+		// ── SAFETY: Consecutive empty block pause ───────────────
+		const userTxs = block.transactions.filter(
+			(tx) => tx.type !== "block_reward" && tx.type !== "consensus_join" && tx.type !== "consensus_leave",
+		);
+		if (userTxs.length === 0) {
+			this.emptyBlockCount++;
+			if (this.emptyBlockCount >= TendermintConsensus.MAX_EMPTY_CONSECUTIVE) {
+				this.log(`SAFETY: ${this.emptyBlockCount} empty blocks, pausing ${TendermintConsensus.EMPTY_BLOCK_PAUSE_MS / 1000}s`);
+				this.emptyBlockCount = 0;
+				setTimeout(() => this.commitBlock(blockHash), TendermintConsensus.EMPTY_BLOCK_PAUSE_MS);
+				return;
+			}
+		} else {
+			this.emptyBlockCount = 0;
+		}
+
 		// Apply block to state (skip if already applied by the proposer)
 		const currentHeight = this.producer.getHeight();
 		if (block.height <= currentHeight) {
@@ -575,6 +636,7 @@ export class TendermintConsensus {
 		}
 
 		this.lastCommitTime = Date.now();
+		this.commitTimestamps.push(this.lastCommitTime);
 		this.log(`COMMITTED H=${block.height} hash=${blockHash.slice(0, 16)} proposer=${this.shortDid(block.proposer)}`);
 
 		if (this.onCommit) {
@@ -582,7 +644,6 @@ export class TendermintConsensus {
 		}
 
 		// Update roster if this block contains consensus_join/leave transactions
-		// or at epoch boundaries
 		const hasConsensusChange = block.transactions.some(
 			(tx) => tx.type === "consensus_join" || tx.type === "consensus_leave",
 		);
@@ -590,12 +651,9 @@ export class TendermintConsensus {
 			this.updateRoster();
 		}
 
-		// Advance to next height. Enforce minimum 6-second block time to
-		// prevent runaway block production when self-committing.
+		// Advance to next height with minimum 6-second block interval
 		this.height = block.height + 1;
-		const elapsed = Date.now() - this.lastCommitTime;
-		const minDelay = Math.max(0, 6000 - elapsed);
-		setTimeout(() => this.startRound(this.height, 0), minDelay);
+		setTimeout(() => this.startRound(this.height, 0), TendermintConsensus.MIN_BLOCK_INTERVAL_MS);
 	}
 
 	/**
