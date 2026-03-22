@@ -196,7 +196,7 @@ async function pollAll(): Promise<void> {
 	let ensouledAgents = 0;
 	let consciousnessStored = 0;
 	try {
-		const apiResp = await fetch("https://api.ensoul.dev/v1/network/status", { signal: AbortSignal.timeout(5000) });
+		const apiResp = await fetch("http://localhost:5050/v1/network/status", { signal: AbortSignal.timeout(5000) });
 		if (apiResp.ok) {
 			const apiData = (await apiResp.json()) as { agentCount?: number; totalConsciousnessStored?: number };
 			ensouledAgents = apiData.agentCount ?? apiData.totalConsciousnessStored ?? 0;
