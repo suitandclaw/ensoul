@@ -83,12 +83,20 @@ export class TendermintConsensus {
 
 	/** Epoch length: roster is updated every N blocks. */
 	private static readonly EPOCH_LENGTH = 100;
+	/** Maximum round before auto-reset to prevent timeout growth. */
+	private static readonly MAX_ROUND = 50;
+	/** Default stall threshold: 2 minutes without a commit. */
+	private static readonly DEFAULT_STALL_MS = 120_000;
 	private thresholdFraction: number;
+	private stallThresholdMs: number;
 
 	// ── State machine ────────────────────────────────────────────
 	private height = 1;
 	private round = 0;
 	private step: ConsensusStep = "propose";
+	private lastCommitTime = Date.now();
+	private stallCheckTimer: ReturnType<typeof setInterval> | null = null;
+	private rejoinCheckTimer: ReturnType<typeof setInterval> | null = null;
 
 	// ── Lock state (critical for safety) ─────────────────────────
 	// Per the Tendermint paper: a validator that precommits for block B
@@ -138,14 +146,14 @@ export class TendermintConsensus {
 			precommitTimeoutMs?: number;
 			roundTimeoutIncrement?: number;
 			thresholdFraction?: number;
+			stallThresholdMs?: number;
 		},
 	) {
 		this.producer = producer;
 		this.myDid = myDid;
 		this.thresholdFraction = options?.thresholdFraction ?? (2 / 3);
+		this.stallThresholdMs = options?.stallThresholdMs ?? TendermintConsensus.DEFAULT_STALL_MS;
 
-		// Build roster from on-chain consensus set. Falls back to genesis
-		// roster if the consensus set is empty (bootstrap phase, height < 10).
 		const consensusSet = producer.getState().getConsensusSet();
 		this.roster = consensusSet.length > 0
 			? consensusSet
@@ -168,7 +176,15 @@ export class TendermintConsensus {
 		}
 		this.height = startHeight ?? this.producer.getHeight() + 1;
 		this.running = true;
+		this.lastCommitTime = Date.now();
 		this.log(`Consensus started at height ${this.height}, threshold=${this.threshold}/${this.roster.length}`);
+
+		// Stall detection: check every 30 seconds
+		this.stallCheckTimer = setInterval(() => this.checkStall(), 30_000);
+
+		// Auto-rejoin: check every 60 seconds if we fell out of the consensus set
+		this.rejoinCheckTimer = setInterval(() => this.checkRejoin(), 60_000);
+
 		this.startRound(this.height, 0);
 	}
 
@@ -176,10 +192,24 @@ export class TendermintConsensus {
 	stop(): void {
 		this.running = false;
 		this.clearTimer();
+		if (this.stallCheckTimer) {
+			clearInterval(this.stallCheckTimer);
+			this.stallCheckTimer = null;
+		}
+		if (this.rejoinCheckTimer) {
+			clearInterval(this.rejoinCheckTimer);
+			this.rejoinCheckTimer = null;
+		}
 	}
 
-	/** Current state for debugging. */
-	getState(): { height: number; round: number; step: ConsensusStep; running: boolean; lockedRound: number; validRound: number } {
+	/** Current state for debugging and the /peer/consensus-state endpoint. */
+	getState(): {
+		height: number; round: number; step: ConsensusStep; running: boolean;
+		lockedRound: number; validRound: number; prevoteCount: number;
+		precommitCount: number; consensusSetSize: number; lastCommitTime: number;
+		stallDetected: boolean; proposerDid: string; rosterSize: number;
+	} {
+		const rk = String(this.round);
 		return {
 			height: this.height,
 			round: this.round,
@@ -187,6 +217,13 @@ export class TendermintConsensus {
 			running: this.running,
 			lockedRound: this.lockedRound,
 			validRound: this.validRound,
+			prevoteCount: this.prevotes.get(rk)?.size ?? 0,
+			precommitCount: this.precommits.get(rk)?.size ?? 0,
+			consensusSetSize: this.producer.getState().getConsensusSet().length,
+			lastCommitTime: this.lastCommitTime,
+			stallDetected: Date.now() - this.lastCommitTime > this.stallThresholdMs,
+			proposerDid: this.selectProposer(this.height, this.round),
+			rosterSize: this.roster.length,
 		};
 	}
 
@@ -282,6 +319,14 @@ export class TendermintConsensus {
 	private advanceRound(): void {
 		this.clearTimer();
 		const nextRound = this.round + 1;
+
+		// Round cap: prevent unbounded timeout growth
+		if (nextRound > TendermintConsensus.MAX_ROUND) {
+			this.log(`Round cap reached (${TendermintConsensus.MAX_ROUND}). Resetting to round 0.`);
+			this.resetForStallRecovery();
+			return;
+		}
+
 		this.log(`Advancing to round ${nextRound}`);
 		this.startRound(this.height, nextRound);
 	}
@@ -521,6 +566,7 @@ export class TendermintConsensus {
 			}
 		}
 
+		this.lastCommitTime = Date.now();
 		this.log(`COMMITTED H=${block.height} hash=${blockHash.slice(0, 16)} proposer=${this.shortDid(block.proposer)}`);
 
 		if (this.onCommit) {
@@ -628,6 +674,77 @@ export class TendermintConsensus {
 		this.validValue = null;
 		this.validRound = -1;
 		this.voteRecord.clear();
+	}
+
+	// ── Stall detection and recovery ─────────────────────────────
+
+	/**
+	 * Check for consensus stall. Called every 30 seconds.
+	 * If no block committed within stallThresholdMs, reset to round 0.
+	 */
+	private checkStall(): void {
+		if (!this.running) return;
+		const elapsed = Date.now() - this.lastCommitTime;
+		if (elapsed > this.stallThresholdMs) {
+			this.log(`Consensus stall detected at height ${this.height}, round ${this.round}. No commit for ${Math.round(elapsed / 1000)}s. Resetting.`);
+			this.resetForStallRecovery();
+		}
+	}
+
+	/**
+	 * Reset consensus state for stall recovery.
+	 * Clears votes, locks, dedup, and restarts from round 0.
+	 * Safe because no block was committed at this height.
+	 */
+	private resetForStallRecovery(): void {
+		this.clearTimer();
+		this.prevotes.clear();
+		this.precommits.clear();
+		this.proposals.clear();
+		this.lockedValue = null;
+		this.lockedRound = -1;
+		this.validValue = null;
+		this.validRound = -1;
+		this.voteRecord.clear();
+		// Clear dedup entries for current height so fresh votes are accepted
+		const prefix = `${this.height}:`;
+		for (const key of this.seenMessages) {
+			if (key.startsWith(prefix)) this.seenMessages.delete(key);
+		}
+		// Also refresh the roster in case it changed
+		this.updateRoster();
+		this.log(`Recovery: reset to H=${this.height} R=0, roster=${this.roster.length}`);
+		this.startRound(this.height, 0);
+	}
+
+	/**
+	 * Check if this validator fell out of the consensus set and should rejoin.
+	 * Called every 60 seconds.
+	 */
+	private checkRejoin(): void {
+		if (!this.running) return;
+		const consensusSet = this.producer.getState().getConsensusSet();
+		if (consensusSet.length > 0 && !consensusSet.includes(this.myDid)) {
+			// We have an on-chain consensus set but we're not in it
+			const account = this.producer.getState().getAccount(this.myDid);
+			if (account.stakedBalance > 0n) {
+				this.log("Not in consensus set. Auto-rejoining...");
+				try {
+					this.producer.submitTransaction({
+						type: "consensus_join",
+						from: this.myDid,
+						to: this.myDid,
+						amount: 0n,
+						nonce: account.nonce,
+						timestamp: Date.now(),
+						signature: new Uint8Array(64),
+					});
+					this.log("CONSENSUS_JOIN submitted for auto-rejoin");
+				} catch {
+					// Already in mempool or other error
+				}
+			}
+		}
 	}
 
 	// ── Helpers ─────────────────────────────────────────────────

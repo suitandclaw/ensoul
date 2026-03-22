@@ -201,6 +201,7 @@ async function main(): Promise<void> {
 			peerNet.onConsensusMessage = (msg) => {
 				consensus.handleMessage(msg);
 			};
+			peerNet.onGetConsensusState = () => consensus.getState();
 			console.log(`  Consensus: Tendermint (threshold=${consensus.getThreshold()})\n`);
 		}
 	} else {

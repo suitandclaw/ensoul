@@ -85,6 +85,9 @@ export class PeerNetwork {
 	/** Callback for incoming consensus messages. Set by the consensus engine. */
 	onConsensusMessage: ((msg: ConsensusMessage) => void) | null = null;
 
+	/** Callback to get consensus state for the diagnostic endpoint. */
+	onGetConsensusState: (() => Record<string, unknown>) | null = null;
+
 	constructor(
 		gossip: GossipNetwork,
 		myDid: string,
@@ -150,6 +153,14 @@ export class PeerNetwork {
 				uptimeSeconds: Math.floor(process.uptime()),
 				syncStatus: producer.getHeight() >= 0 ? "synced" : "syncing",
 			};
+		});
+
+		// GET /peer/consensus-state - diagnostic endpoint for consensus debugging
+		this.server.get("/peer/consensus-state", async () => {
+			if (this.onGetConsensusState) {
+				return this.onGetConsensusState();
+			}
+			return { error: "Consensus engine not attached" };
 		});
 
 		// GET /peer/blocks/:height
