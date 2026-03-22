@@ -150,6 +150,8 @@ export class TendermintConsensus {
 	onBroadcast: ((msg: ConsensusMessage) => void) | null = null;
 	onCommit: ((block: Block) => void) | null = null;
 	onLog: ((msg: string) => void) | null = null;
+	/** Callback to submit a transaction to the gossip network (for CONSENSUS_JOIN). */
+	onSubmitTx: ((tx: { type: string; from: string; to: string; amount: bigint; nonce: number; timestamp: number; signature: Uint8Array }) => void) | null = null;
 
 	// ── Dedup and control ────────────────────────────────────────
 	private seenMessages: Set<string> = new Set();
@@ -805,23 +807,28 @@ export class TendermintConsensus {
 		if (!this.running) return;
 		const consensusSet = this.producer.getState().getConsensusSet();
 		if (consensusSet.length > 0 && !consensusSet.includes(this.myDid)) {
-			// We have an on-chain consensus set but we're not in it
 			const account = this.producer.getState().getAccount(this.myDid);
 			if (account.stakedBalance > 0n) {
-				this.log("Not in consensus set. Auto-rejoining...");
+				this.log("Not in consensus set. Auto-rejoining via network broadcast...");
+				const joinTx = {
+					type: "consensus_join" as const,
+					from: this.myDid,
+					to: this.myDid,
+					amount: 0n,
+					nonce: account.nonce,
+					timestamp: Date.now(),
+					signature: new Uint8Array(64),
+				};
 				try {
-					this.producer.submitTransaction({
-						type: "consensus_join",
-						from: this.myDid,
-						to: this.myDid,
-						amount: 0n,
-						nonce: account.nonce,
-						timestamp: Date.now(),
-						signature: new Uint8Array(64),
-					});
-					this.log("CONSENSUS_JOIN submitted for auto-rejoin");
+					if (this.onSubmitTx) {
+						this.onSubmitTx(joinTx);
+						this.log("CONSENSUS_JOIN broadcast to network");
+					} else {
+						this.producer.submitTransaction(joinTx);
+						this.log("CONSENSUS_JOIN submitted to local mempool");
+					}
 				} catch {
-					// Already in mempool or other error
+					// Already submitted or other error
 				}
 			}
 		}

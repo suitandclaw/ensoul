@@ -198,6 +198,10 @@ async function main(): Promise<void> {
 			consensus.onBroadcast = (msg) => {
 				void peerNet!.broadcastConsensus(msg);
 			};
+			consensus.onSubmitTx = (tx) => {
+				const gossip = runner.getGossip();
+				if (gossip) gossip.submitTransaction(tx as import("@ensoul/ledger").Transaction);
+			};
 			peerNet.onConsensusMessage = (msg) => {
 				consensus.handleMessage(msg);
 			};

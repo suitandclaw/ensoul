@@ -281,11 +281,17 @@ export class EnsoulNodeRunner {
 				amount: 0n,
 				nonce: state.getAccount(this.identity.did).nonce,
 				timestamp: Date.now(),
-				signature: new Uint8Array(64), // self-signed consensus message
+				signature: new Uint8Array(64),
 			};
 			try {
-				this.producer.submitTransaction(joinTx);
-				this.log("CONSENSUS_JOIN submitted to mempool");
+				// Use gossip network to broadcast to all peers (not just local mempool)
+				if (this.gossip) {
+					this.gossip.submitTransaction(joinTx);
+					this.log("CONSENSUS_JOIN broadcast to network");
+				} else {
+					this.producer.submitTransaction(joinTx);
+					this.log("CONSENSUS_JOIN submitted to local mempool");
+				}
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				this.log(`CONSENSUS_JOIN failed: ${msg}`);
