@@ -434,6 +434,7 @@ h2{font-size:0.85em;color:#888;text-transform:uppercase;letter-spacing:1px;margi
 <div id="content">Loading...</div>
 <div id="agents"></div>
 <div id="social"></div>
+<div id="admin"></div>
 <div class="footer"><a href="https://ensoul.dev">ensoul.dev</a> | <a href="https://explorer.ensoul.dev">Explorer</a> | <a href="https://github.com/suitandclaw/ensoul">GitHub</a></div>
 </div>
 <script>
@@ -532,6 +533,127 @@ fetch("https://api.ensoul.dev/v1/agents/list").then(function(r){return r.json()}
 }
 poll();
 setInterval(poll,30000);
+
+// ── Validator Management Panel ──────────────────────────
+var ADMIN_VALIDATORS=[
+{name:"v0 (MBP)",url:"https://v0.ensoul.dev"},
+{name:"v1 (Mini 1)",url:"https://v1.ensoul.dev"},
+{name:"v2 (Mini 2)",url:"https://v2.ensoul.dev"},
+{name:"v3 (Mini 3)",url:"https://v3.ensoul.dev"}
+];
+var PEER_KEY="";
+var adminData={};
+var latestVersion="?";
+
+function renderAdmin(){
+var el=document.getElementById("admin");
+if(!el)return;
+var s='<h2>Validator Management</h2>';
+
+// Key input
+s+='<div style="margin:8px 0"><input type="password" id="peer-key-input" placeholder="Peer Key (for update/reset)" style="padding:6px 10px;background:#1a1a24;border:1px solid #2d2d3f;border-radius:4px;color:#e0e0e0;width:280px;font-size:0.85em" oninput="PEER_KEY=this.value"></div>';
+
+// Bulk actions
+s+='<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap">';
+s+='<button onclick="adminHealthAll()" style="padding:6px 14px;background:#1e2a3f;color:#60a5fa;border:1px solid #2d2d3f;border-radius:4px;cursor:pointer;font-size:0.85em">Health Check All</button>';
+s+='<button onclick="adminUpdateAll()" style="padding:6px 14px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:4px;cursor:pointer;font-size:0.85em">Update All</button>';
+s+='<button onclick="adminRefresh()" style="padding:6px 14px;background:#12121a;color:#888;border:1px solid #2d2d3f;border-radius:4px;cursor:pointer;font-size:0.85em">Refresh</button>';
+s+='</div>';
+
+// Version distribution
+var versions={};
+var onlineCount=0;
+ADMIN_VALIDATORS.forEach(function(v){
+var d=adminData[v.url];
+if(d&&d.version){versions[d.version]=(versions[d.version]||0)+1;onlineCount++;}
+});
+var versionStr=Object.entries(versions).map(function(e){return e[1]+"x v"+e[0]}).join(", ")||"unknown";
+s+='<div style="font-size:0.8em;color:#888;margin:6px 0">Online: '+onlineCount+'/'+ADMIN_VALIDATORS.length+' | Versions: '+versionStr+'</div>';
+
+// Table
+s+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:0.85em">';
+s+='<tr style="border-bottom:1px solid #2d2d3f"><th style="padding:6px 8px;text-align:left;color:#888">Validator</th><th style="padding:6px;color:#888">Version</th><th style="padding:6px;color:#888">Height</th><th style="padding:6px;color:#888">Peers</th><th style="padding:6px;color:#888">Consensus</th><th style="padding:6px;color:#888">Health</th><th style="padding:6px;color:#888">Actions</th></tr>';
+
+ADMIN_VALIDATORS.forEach(function(v){
+var d=adminData[v.url]||{};
+var isOnline=!!d.version;
+var versionColor=d.version&&d.version!==latestVersion?"#f87171":"#4ade80";
+var dot=isOnline?'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80"></span>':'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f87171"></span>';
+
+s+='<tr style="border-bottom:1px solid #1e1e2a">';
+s+='<td style="padding:6px 8px">'+dot+' '+v.name+'</td>';
+s+='<td style="padding:6px;color:'+(isOnline?versionColor:'#666')+'">'+(d.version||'offline')+'</td>';
+s+='<td style="padding:6px">'+(d.height||'-')+'</td>';
+s+='<td style="padding:6px">'+(d.peers||'-')+'</td>';
+s+='<td style="padding:6px">'+(d.consensusRound!=null?'R'+d.consensusRound:'-')+'</td>';
+s+='<td style="padding:6px">'+(isOnline?'<span style="color:#4ade80">OK</span>':'<span style="color:#f87171">DOWN</span>')+'</td>';
+s+='<td style="padding:6px;white-space:nowrap">';
+s+='<button onclick="adminUpdate(\''+v.url+'\')" style="padding:2px 8px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Update</button> ';
+s+='<button onclick="adminReset(\''+v.url+'\')" style="padding:2px 8px;background:#3f1e1e;color:#f87171;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Reset</button>';
+s+='</td></tr>';
+});
+
+s+='</table></div>';
+s+='<div id="admin-status" style="font-size:0.8em;color:#888;margin:4px 0"></div>';
+el.innerHTML=s;
+}
+
+function adminStatus(msg){var el=document.getElementById("admin-status");if(el)el.textContent=msg;}
+
+function adminRefresh(){
+var done=0;
+ADMIN_VALIDATORS.forEach(function(v){
+fetch(v.url+"/peer/status",{mode:"cors"}).then(function(r){return r.json()}).then(function(d){
+adminData[v.url]={version:d.version,height:d.height,peers:d.peerCount};
+if(d.version&&d.version>latestVersion)latestVersion=d.version;
+// Also fetch consensus state
+fetch(v.url+"/peer/consensus-state",{mode:"cors"}).then(function(r){return r.json()}).then(function(cs){
+adminData[v.url].consensusRound=cs.round;
+adminData[v.url].stallDetected=cs.stallDetected;
+}).catch(function(){});
+}).catch(function(){adminData[v.url]={};}).finally(function(){done++;if(done>=ADMIN_VALIDATORS.length)renderAdmin();});
+});
+}
+
+function adminHealthAll(){
+adminStatus("Checking health...");
+adminRefresh();
+setTimeout(function(){adminStatus("Health check complete.");},3000);
+}
+
+function adminUpdate(url){
+if(!PEER_KEY){adminStatus("Enter peer key first.");return;}
+if(!confirm("Update validator at "+url+"?"))return;
+adminStatus("Sending update to "+url+"...");
+fetch(url+"/peer/update",{method:"POST",headers:{"X-Ensoul-Peer-Key":PEER_KEY,"Content-Type":"application/json"},body:"{}",mode:"cors"}).then(function(r){return r.json()}).then(function(d){
+adminStatus("Update triggered: "+JSON.stringify(d));
+}).catch(function(e){adminStatus("Update failed: "+e);});
+}
+
+function adminUpdateAll(){
+if(!PEER_KEY){adminStatus("Enter peer key first.");return;}
+if(!confirm("Update ALL validators?"))return;
+var i=0;
+function next(){
+if(i>=ADMIN_VALIDATORS.length){adminStatus("All updates sent. Refreshing in 30s...");setTimeout(adminRefresh,30000);return;}
+var v=ADMIN_VALIDATORS[i];
+adminStatus("Updating "+(i+1)+"/"+ADMIN_VALIDATORS.length+": "+v.name+"...");
+fetch(v.url+"/peer/update",{method:"POST",headers:{"X-Ensoul-Peer-Key":PEER_KEY,"Content-Type":"application/json"},body:"{}",mode:"cors"}).then(function(){i++;setTimeout(next,2000);}).catch(function(){adminStatus(v.name+" failed. Continuing...");i++;setTimeout(next,2000);});
+}
+next();
+}
+
+function adminReset(url){
+if(!PEER_KEY){adminStatus("Enter peer key first.");return;}
+if(!confirm("RESET validator at "+url+"? This wipes chain data!")){return;}
+if(!confirm("Are you sure? This cannot be undone.")){return;}
+fetch(url+"/peer/reset",{method:"POST",headers:{"X-Ensoul-Peer-Key":PEER_KEY,"Content-Type":"application/json"},body:"{}",mode:"cors"}).then(function(r){return r.json()}).then(function(d){
+adminStatus("Reset: "+JSON.stringify(d));
+}).catch(function(e){adminStatus("Reset failed: "+e);});
+}
+
+adminRefresh();
+setInterval(adminRefresh,10000);
 </script>
 </body>
 </html>`;
