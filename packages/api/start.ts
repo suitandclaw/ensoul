@@ -126,8 +126,8 @@ const DEFAULT_TREASURY_KEY_PATH = join(REPO_DIR, "genesis-keys", "treasury.json"
 let treasuryDid: string | null = null;
 let treasuryKeyPath: string | null = null;
 let treasuryNonce = 0;
-const FOUNDATION_DELEGATION = 100_000n * (10n ** 18n); // 100,000 ENSL
-const DAILY_VALIDATOR_CAP = 10;
+const FOUNDATION_DELEGATION = 1_000_000n * (10n ** 18n); // 1,000,000 ENSL
+const DAILY_VALIDATOR_CAP = 100;
 let dailyValidatorCount = 0;
 let dailyValidatorDate = new Date().toISOString().slice(0, 10);
 
@@ -1111,7 +1111,7 @@ async function main(): Promise<void> {
 		};
 		registeredValidators.set(body.did, entry);
 		await saveRegisteredValidators();
-		await log(`Validator registered: ${body.name} (${body.did}) delegated=${delegatedAmount}`);
+		await log(`Validator registered: ${body.name} (${body.did}) delegated=${delegatedAmount} ip=${req.ip}`);
 
 		return {
 			registered: true,

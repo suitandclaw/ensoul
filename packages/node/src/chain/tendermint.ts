@@ -81,6 +81,10 @@ export class TendermintConsensus {
 	private roster: string[];
 	private threshold: number;
 
+	/** Epoch length: roster is updated every N blocks. */
+	private static readonly EPOCH_LENGTH = 100;
+	private thresholdFraction: number;
+
 	// ── State machine ────────────────────────────────────────────
 	private height = 1;
 	private round = 0;
@@ -139,11 +143,8 @@ export class TendermintConsensus {
 		this.producer = producer;
 		this.myDid = myDid;
 		this.roster = producer.getEligibleValidators();
-
-		// Default threshold: floor(N * 2/3) + 1
-		// Custom threshold: floor(N * fraction) + 1
-		const fraction = options?.thresholdFraction ?? (2 / 3);
-		this.threshold = Math.floor(this.roster.length * fraction) + 1;
+		this.thresholdFraction = options?.thresholdFraction ?? (2 / 3);
+		this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
 
 		this.proposeTimeoutMs = options?.proposeTimeoutMs ?? 10_000;
 		this.prevoteTimeoutMs = options?.prevoteTimeoutMs ?? 10_000;
@@ -520,10 +521,33 @@ export class TendermintConsensus {
 			this.onCommit(block);
 		}
 
+		// Check for epoch boundary: update validator roster every 100 blocks
+		if (block.height > 0 && block.height % TendermintConsensus.EPOCH_LENGTH === 0) {
+			this.updateRoster();
+		}
+
 		// Advance to next height asynchronously to prevent stack overflow
-		// when a single validator can immediately commit the next block
 		this.height = block.height + 1;
 		setTimeout(() => this.startRound(this.height, 0), 0);
+	}
+
+	/**
+	 * Update the validator roster from current account state.
+	 * Called at epoch boundaries (every 100 blocks).
+	 * Scans for all accounts with stakedBalance > 0, rebuilds roster.
+	 */
+	private updateRoster(): void {
+		const newRoster = this.producer.getEligibleValidators();
+		const epoch = Math.floor(this.height / TendermintConsensus.EPOCH_LENGTH);
+
+		if (newRoster.length !== this.roster.length) {
+			this.log(`Epoch ${epoch}: validator roster updated, ${this.roster.length} -> ${newRoster.length} validators`);
+		} else {
+			this.log(`Epoch ${epoch}: roster unchanged (${newRoster.length} validators)`);
+		}
+
+		this.roster = newRoster;
+		this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
 	}
 
 	// ── Equivocation detection ──────────────────────────────────
