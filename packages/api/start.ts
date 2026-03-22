@@ -98,6 +98,7 @@ interface RegisteredValidator {
 	registeredAt: number;
 	delegated: string;
 	lastSeen: number;
+	tier?: "genesis" | "pioneer" | "standard";
 }
 
 const VALIDATORS_FILE = join(LOG_DIR, "registered-validators.json");
@@ -127,6 +128,9 @@ let treasuryDid: string | null = null;
 let treasuryKeyPath: string | null = null;
 let treasuryNonce = 0;
 const FOUNDATION_DELEGATION = 1_000_000n * (10n ** 18n); // 1,000,000 ENSL
+const PIONEER_DELEGATION = 2_000_000n * (10n ** 18n); // 2,000,000 ENSL
+const PIONEER_CAP = 20;
+let pioneerCount = 0;
 const DAILY_VALIDATOR_CAP = 100;
 let dailyValidatorCount = 0;
 let dailyValidatorDate = new Date().toISOString().slice(0, 10);
@@ -164,7 +168,7 @@ async function loadTreasurySeed(): Promise<string | null> {
 	}
 }
 
-async function signAndSubmitDelegation(validatorDid: string): Promise<boolean> {
+async function signAndSubmitDelegation(validatorDid: string, amount: bigint = FOUNDATION_DELEGATION): Promise<boolean> {
 	if (!treasuryDid || !treasuryKeyPath) return false;
 
 	try {
@@ -172,7 +176,7 @@ async function signAndSubmitDelegation(validatorDid: string): Promise<boolean> {
 			type: "delegate",
 			from: treasuryDid,
 			to: validatorDid,
-			amount: FOUNDATION_DELEGATION.toString(),
+			amount: amount.toString(),
 			nonce: treasuryNonce,
 			timestamp: Date.now(),
 		});
@@ -195,7 +199,7 @@ async function signAndSubmitDelegation(validatorDid: string): Promise<boolean> {
 			type: "delegate",
 			from: treasuryDid!,
 			to: validatorDid,
-			amount: FOUNDATION_DELEGATION.toString(),
+			amount: amount.toString(),
 			nonce: treasuryNonce,
 			timestamp: Date.now(),
 			signature: bytesToHexLocal(signature),
@@ -628,6 +632,11 @@ async function main(): Promise<void> {
 	await loadGenesisDids();
 	await loadRegisteredAgents();
 	await loadRegisteredValidators();
+	// Count existing pioneers
+	for (const [, v] of registeredValidators) {
+		if (v.tier === "pioneer") pioneerCount++;
+	}
+	if (pioneerCount > 0) await log(`Pioneer validators: ${pioneerCount}/${PIONEER_CAP}`);
 	await loadOnboardingKey();
 	await loadTreasuryKey();
 
@@ -1126,6 +1135,73 @@ async function main(): Promise<void> {
 		};
 	});
 
+	// ── Pioneer Validator Registration ───────────────────────────
+
+	app.post<{ Body: ValidatorRegisterRequest }>("/v1/validators/register-pioneer", { bodyLimit: 10240 }, async (req, reply) => {
+		const body = req.body;
+		if (!body.did || !body.publicKey || !body.name) {
+			return reply.status(400).send({ error: "did, publicKey, and name are required" });
+		}
+
+		// Require ENSOUL_PIONEER_KEY header
+		const pioneerKey = process.env["ENSOUL_PIONEER_KEY"] ?? "";
+		const provided = req.headers["x-ensoul-pioneer-key"] as string ?? "";
+		if (!pioneerKey || provided !== pioneerKey) {
+			return reply.status(403).send({ error: "Invalid or missing pioneer key" });
+		}
+
+		// Check cap
+		if (pioneerCount >= PIONEER_CAP) {
+			return reply.status(429).send({ error: `Pioneer cap reached (${PIONEER_CAP}/${PIONEER_CAP})` });
+		}
+
+		// Check if already registered
+		const existing = registeredValidators.get(body.did);
+		if (existing) {
+			return {
+				registered: true,
+				did: body.did,
+				tier: existing.tier ?? "standard",
+				message: "Already registered",
+			};
+		}
+
+		// Delegate 2,000,000 ENSL
+		let delegated = false;
+		let delegatedAmount = "0";
+		if (treasuryDid) {
+			delegated = await signAndSubmitDelegation(body.did, PIONEER_DELEGATION);
+			if (delegated) {
+				delegatedAmount = "2,000,000 ENSL";
+			}
+		}
+
+		const entry: RegisteredValidator = {
+			did: body.did,
+			name: body.name,
+			publicKey: body.publicKey,
+			registeredAt: Date.now(),
+			delegated: delegatedAmount,
+			lastSeen: Date.now(),
+			tier: "pioneer",
+		};
+		registeredValidators.set(body.did, entry);
+		await saveRegisteredValidators();
+		pioneerCount++;
+		await log(`Pioneer validator registered: ${body.name} (${body.did}) delegation: 2,000,000 ENSL ip=${req.ip}`);
+
+		return {
+			registered: true,
+			did: body.did,
+			tier: "pioneer",
+			delegated: delegatedAmount,
+			pioneerSlot: `${pioneerCount}/${PIONEER_CAP}`,
+			message: delegated
+				? "Pioneer delegation active (2,000,000 ENSL). Welcome to the founding validators."
+				: "Registered as Pioneer. Delegation could not be sent.",
+		};
+	});
+
 	// ── Validator Stats ──────────────────────────────────────────
 
 	/** Fetch account data for a DID from validators. */
@@ -1289,6 +1365,7 @@ async function main(): Promise<void> {
 				registeredAt: reg ? new Date(reg.registeredAt).toISOString() : null,
 				delegated: fmtEnsl(acc.delegated),
 				commission: 0.10,
+				tier: reg?.tier ?? "genesis",
 			});
 		}
 
@@ -1316,6 +1393,7 @@ async function main(): Promise<void> {
 				registeredAt: new Date(reg.registeredAt).toISOString(),
 				delegated: fmtEnsl(delegated),
 				commission: 0.10,
+				tier: reg.tier ?? "standard",
 			});
 		}
 
@@ -1354,6 +1432,7 @@ async function main(): Promise<void> {
 	process.stdout.write(`    GET  /v1/agents/list\n`);
 	process.stdout.write(`    POST /v1/validators/register\n`);
 	process.stdout.write(`    GET  /v1/network/version\n`);
+	process.stdout.write(`    POST /v1/validators/register-pioneer\n`);
 	process.stdout.write(`    GET  /v1/validators/:did/stats\n`);
 	process.stdout.write(`    GET  /v1/validators/leaderboard\n`);
 	process.stdout.write(`\n  Backend validators: ${VALIDATORS.length} (${net.alive} alive)\n`);

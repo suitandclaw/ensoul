@@ -21,11 +21,14 @@ PEERS="https://v0.ensoul.dev,https://v1.ensoul.dev,https://v2.ensoul.dev,https:/
 API="https://api.ensoul.dev"
 LOG_FILE="$DATA_DIR/cloud-setup.log"
 SEED_ARG=""
+PIONEER_MODE=false
+PIONEER_KEY="${PIONEER_KEY:-}"
 
 # Parse args
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--seed) SEED_ARG="$2"; shift 2 ;;
+		--pioneer) PIONEER_MODE=true; shift ;;
 		*) shift ;;
 	esac
 done
@@ -93,7 +96,8 @@ log "Starting validator..."
 npx tsx "$ENSOUL_DIR/packages/node/src/cli/main.ts" \
 	--validate \
 	--no-min-stake \
-	--consensus-threshold 0.1 \
+	--consensus-only \
+	--consensus-threshold 0.67 \
 	--genesis "$DATA_DIR/genesis.json" \
 	--peers "$PEERS" \
 	--data-dir "$DATA_DIR" \
@@ -128,12 +132,21 @@ if [ -f "$DATA_DIR/identity.json" ]; then
 fi
 
 if [ -n "$DID" ] && [ -n "$PUBKEY" ]; then
-	log "Registering validator: $DID"
 	HOSTNAME=$(hostname)
-	REG_RESP=$(curl -s -X POST "$API/v1/validators/register" \
-		-H "Content-Type: application/json" \
-		-d "{\"did\":\"$DID\",\"publicKey\":\"$PUBKEY\",\"name\":\"cloud-$HOSTNAME\"}" \
-		2>/dev/null || echo "{}")
+	if [ "$PIONEER_MODE" = "true" ] && [ -n "$PIONEER_KEY" ]; then
+		log "Registering as Pioneer validator: $DID"
+		REG_RESP=$(curl -s -X POST "$API/v1/validators/register-pioneer" \
+			-H "Content-Type: application/json" \
+			-H "X-Ensoul-Pioneer-Key: $PIONEER_KEY" \
+			-d "{\"did\":\"$DID\",\"publicKey\":\"$PUBKEY\",\"name\":\"pioneer-$HOSTNAME\"}" \
+			2>/dev/null || echo "{}")
+	else
+		log "Registering validator: $DID"
+		REG_RESP=$(curl -s -X POST "$API/v1/validators/register" \
+			-H "Content-Type: application/json" \
+			-d "{\"did\":\"$DID\",\"publicKey\":\"$PUBKEY\",\"name\":\"cloud-$HOSTNAME\"}" \
+			2>/dev/null || echo "{}")
+	fi
 	log "Registration response: $REG_RESP"
 else
 	log "WARNING: Could not read DID or publicKey. Manual registration needed."

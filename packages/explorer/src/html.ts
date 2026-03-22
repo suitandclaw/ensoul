@@ -296,7 +296,13 @@ export function renderValidators(validators: ValidatorData[]): string {
 				const statusDot = v.uptimePercent > 0
 					? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80"></span>'
 					: '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f87171"></span>';
-				return `<tr data-stake="${v.stake}" data-blocks="${v.blocksProduced}" data-uptime="${v.uptimePercent}"><td>${i + 1}</td><td><a href="/account/${encodeURIComponent(v.did)}">${shortDid}</a></td><td>${statusDot}</td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${v.uptimePercent.toFixed(1)}%</td></tr>`;
+				const tier = v.tier ?? "genesis";
+				const tierBadge = tier === "pioneer"
+					? ' <span class="badge badge-anchored">PIONEER</span>'
+					: tier === "genesis"
+						? ' <span class="badge badge-sovereign">GENESIS</span>'
+						: "";
+				return `<tr data-stake="${v.stake}" data-blocks="${v.blocksProduced}" data-uptime="${v.uptimePercent}"><td>${i + 1}</td><td><a href="/account/${encodeURIComponent(v.did)}">${shortDid}</a>${tierBadge}</td><td>${statusDot}</td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${v.uptimePercent.toFixed(1)}%</td></tr>`;
 			},
 		)
 		.join("");

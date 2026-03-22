@@ -40,6 +40,7 @@ export interface ValidatorData {
 	blocksProduced: number;
 	uptimePercent: number;
 	delegation: "foundation" | "self" | "delegated";
+	tier?: "genesis" | "pioneer" | "standard";
 }
 
 export interface AgentProfile {
