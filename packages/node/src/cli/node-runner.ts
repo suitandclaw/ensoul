@@ -265,6 +265,13 @@ export class EnsoulNodeRunner {
 		this.running = true;
 		this.startedAt = Date.now();
 
+		if (!this.args.consensusOnly) {
+			// Non-consensus validator: sync blocks from peers, do not vote
+			this.log("Running as sync-only validator (no --consensus-only flag)");
+			this.log("This validator syncs blocks but does not participate in consensus voting.");
+			return;
+		}
+
 		this.consensus = new TendermintConsensus(
 			this.producer,
 			this.identity.did,
@@ -283,9 +290,6 @@ export class EnsoulNodeRunner {
 			this.log(`Committed block ${block.height}`);
 			if (this.onBlock) this.onBlock(block);
 		};
-
-		// Broadcast callback will be wired by main.ts after PeerNetwork is set up
-		// (via setConsensusBroadcast)
 
 		this.consensus.start();
 		this.log(

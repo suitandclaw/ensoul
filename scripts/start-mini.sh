@@ -151,10 +151,16 @@ do_start() {
 		mkdir -p "$data_dir"
 
 		log "Starting validator-$i on port $port..."
+		# Only validator-0 (port 9000) participates in consensus
+		local consensus_flag=""
+		if [ "$i" = "0" ]; then
+			consensus_flag="--consensus-only --consensus-threshold 0.67"
+		fi
+
 		npx tsx "$REPO_DIR/packages/node/src/cli/main.ts" \
 			--validate \
 			--no-min-stake \
-			--consensus-threshold 0.1 \
+			$consensus_flag \
 			--genesis "$LOG_DIR/genesis.json" \
 			--port "$port" \
 			--api-port "$api_port" \

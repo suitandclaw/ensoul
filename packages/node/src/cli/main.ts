@@ -184,8 +184,12 @@ async function main(): Promise<void> {
 	// Step 4: Start consensus engine (after sync is complete)
 	if (args.mode === "validate") {
 		const syncedHeight = runner.getStatus().chainHeight;
-		console.log(`\n  Mode: VALIDATOR (Tendermint consensus) v${VERSION}`);
-		console.log(`  Synced to height: ${syncedHeight}\n`);
+		const modeLabel = args.consensusOnly ? "CONSENSUS VALIDATOR" : "SYNC-ONLY VALIDATOR";
+		console.log(`\n  Mode: ${modeLabel} v${VERSION}`);
+		console.log(`  Synced to height: ${syncedHeight}`);
+		if (!args.consensusOnly) {
+			console.log("  (add --consensus-only to participate in block production)\n");
+		}
 		runner.startBlockLoop();
 
 		// Wire consensus to peer network for message broadcasting
@@ -197,7 +201,7 @@ async function main(): Promise<void> {
 			peerNet.onConsensusMessage = (msg) => {
 				consensus.handleMessage(msg);
 			};
-			console.log(`  Consensus: Tendermint (threshold=${consensus.getThreshold()})`);
+			console.log(`  Consensus: Tendermint (threshold=${consensus.getThreshold()})\n`);
 		}
 	} else {
 		console.log("\n  Mode: FULL NODE (syncing only)\n");
