@@ -152,9 +152,10 @@ do_start() {
 
 		log "Starting validator-$i on port $port..."
 		# Only validator-0 (port 9000) participates in consensus
+		# MBP validator-0 is the designated bootstrap validator
 		local consensus_flag=""
 		if [ "$i" = "0" ]; then
-			consensus_flag="--consensus-only --consensus-threshold 0.1"
+			consensus_flag="--consensus-only --consensus-threshold 0.1 --bootstrap-validator did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X"
 		fi
 
 		npx tsx "$REPO_DIR/packages/node/src/cli/main.ts" \

@@ -157,6 +157,9 @@ export class TendermintConsensus {
 	private seenMessages: Set<string> = new Set();
 	private running = false;
 
+	/** If set, only this DID can self-commit during bootstrap. */
+	private bootstrapValidator: string | null;
+
 	constructor(
 		producer: NodeBlockProducer,
 		myDid: string,
@@ -167,24 +170,28 @@ export class TendermintConsensus {
 			roundTimeoutIncrement?: number;
 			thresholdFraction?: number;
 			stallThresholdMs?: number;
+			bootstrapValidator?: string;
 		},
 	) {
 		this.producer = producer;
 		this.myDid = myDid;
 		this.thresholdFraction = options?.thresholdFraction ?? (2 / 3);
 		this.stallThresholdMs = options?.stallThresholdMs ?? TendermintConsensus.DEFAULT_STALL_MS;
+		this.bootstrapValidator = options?.bootstrapValidator ?? null;
 
 		const consensusSet = producer.getState().getConsensusSet();
 		if (consensusSet.length > 0) {
-			// On-chain consensus set exists: use it
 			this.roster = consensusSet;
 			this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
-		} else {
-			// Bootstrap mode: consensus set is empty, no CONSENSUS_JOIN committed yet.
-			// Use self as the only roster member and threshold=1 so this validator
-			// can self-commit blocks (including the CONSENSUS_JOIN transaction).
-			// Once the consensus set has members, the roster switches to on-chain.
+		} else if (this.bootstrapValidator === myDid || !this.bootstrapValidator) {
+			// Bootstrap: only the designated bootstrap validator can self-commit.
+			// If no bootstrapValidator is set, fall back to legacy behavior (self-commit).
 			this.roster = [myDid];
+			this.threshold = 1;
+		} else {
+			// Non-bootstrap validator with empty consensus set: wait for blocks.
+			// Do NOT self-commit. Sync from peers and submit CONSENSUS_JOIN.
+			this.roster = [];
 			this.threshold = 1;
 		}
 
@@ -675,19 +682,21 @@ export class TendermintConsensus {
 		const epoch = Math.floor(this.height / TendermintConsensus.EPOCH_LENGTH);
 
 		if (consensusSet.length > 0) {
-			// On-chain consensus set exists: use it
 			if (consensusSet.length !== this.roster.length) {
 				this.log(`Epoch ${epoch}: roster updated ${this.roster.length} -> ${consensusSet.length} (on-chain consensus set)`);
 			}
 			this.roster = consensusSet;
 			this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
-		} else {
-			// Bootstrap: self-only roster until CONSENSUS_JOIN commits
+		} else if (this.bootstrapValidator === this.myDid || !this.bootstrapValidator) {
+			// Only bootstrap validator can self-commit
 			if (this.roster.length !== 1 || this.roster[0] !== this.myDid) {
 				this.log(`Epoch ${epoch}: bootstrap mode, self-only roster (threshold=1)`);
 				this.roster = [this.myDid];
 				this.threshold = 1;
 			}
+		} else {
+			// Non-bootstrap: empty roster, wait for blocks from network
+			this.roster = [];
 		}
 	}
 
