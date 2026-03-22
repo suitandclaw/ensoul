@@ -93,6 +93,10 @@ else
 	log "Built $BUILT_VERSION"
 fi
 
+# Always clear caches before restart to prevent stale compiled code
+rm -rf .turbo node_modules/.cache packages/*/dist 2>/dev/null
+pnpm build >> "$LOG_FILE" 2>&1 || { log "Pre-restart build failed"; exit 1; }
+
 # Restart validators
 log "Restarting validators..."
 
