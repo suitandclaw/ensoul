@@ -155,7 +155,7 @@ do_start() {
 		# MBP validator-0 is the designated bootstrap validator
 		local consensus_flag=""
 		if [ "$i" = "0" ]; then
-			consensus_flag="--consensus-only --consensus-threshold 0.1 --bootstrap-validator did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X"
+			consensus_flag="--consensus-only --consensus-threshold 0.67"
 		fi
 
 		npx tsx "$REPO_DIR/packages/node/src/cli/main.ts" \

@@ -157,9 +157,6 @@ export class TendermintConsensus {
 	private seenMessages: Set<string> = new Set();
 	private running = false;
 
-	/** If set, only this DID can self-commit during bootstrap. */
-	private bootstrapValidator: string | null;
-
 	constructor(
 		producer: NodeBlockProducer,
 		myDid: string,
@@ -170,30 +167,24 @@ export class TendermintConsensus {
 			roundTimeoutIncrement?: number;
 			thresholdFraction?: number;
 			stallThresholdMs?: number;
-			bootstrapValidator?: string;
 		},
 	) {
 		this.producer = producer;
 		this.myDid = myDid;
 		this.thresholdFraction = options?.thresholdFraction ?? (2 / 3);
 		this.stallThresholdMs = options?.stallThresholdMs ?? TendermintConsensus.DEFAULT_STALL_MS;
-		this.bootstrapValidator = options?.bootstrapValidator ?? null;
 
+		// Roster comes from the on-chain consensus set ONLY.
+		// If the set is empty, use the genesis validator roster as the initial set.
+		// NO self-commit. If quorum cannot be reached, the chain halts (safety over liveness).
 		const consensusSet = producer.getState().getConsensusSet();
 		if (consensusSet.length > 0) {
 			this.roster = consensusSet;
-			this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
-		} else if (this.bootstrapValidator === myDid || !this.bootstrapValidator) {
-			// Bootstrap: only the designated bootstrap validator can self-commit.
-			// If no bootstrapValidator is set, fall back to legacy behavior (self-commit).
-			this.roster = [myDid];
-			this.threshold = 1;
 		} else {
-			// Non-bootstrap validator with empty consensus set: wait for blocks.
-			// Do NOT self-commit. Sync from peers and submit CONSENSUS_JOIN.
-			this.roster = [];
-			this.threshold = 1;
+			// Genesis validators are the initial consensus set
+			this.roster = producer.getEligibleValidators();
 		}
+		this.threshold = Math.max(1, Math.floor(this.roster.length * this.thresholdFraction) + 1);
 
 		this.proposeTimeoutMs = options?.proposeTimeoutMs ?? 10_000;
 		this.prevoteTimeoutMs = options?.prevoteTimeoutMs ?? 10_000;
@@ -681,23 +672,19 @@ export class TendermintConsensus {
 		const consensusSet = this.producer.getState().getConsensusSet();
 		const epoch = Math.floor(this.height / TendermintConsensus.EPOCH_LENGTH);
 
+		let newRoster: string[];
 		if (consensusSet.length > 0) {
-			if (consensusSet.length !== this.roster.length) {
-				this.log(`Epoch ${epoch}: roster updated ${this.roster.length} -> ${consensusSet.length} (on-chain consensus set)`);
-			}
-			this.roster = consensusSet;
-			this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
-		} else if (this.bootstrapValidator === this.myDid || !this.bootstrapValidator) {
-			// Only bootstrap validator can self-commit
-			if (this.roster.length !== 1 || this.roster[0] !== this.myDid) {
-				this.log(`Epoch ${epoch}: bootstrap mode, self-only roster (threshold=1)`);
-				this.roster = [this.myDid];
-				this.threshold = 1;
-			}
+			newRoster = consensusSet;
 		} else {
-			// Non-bootstrap: empty roster, wait for blocks from network
-			this.roster = [];
+			newRoster = this.producer.getEligibleValidators();
 		}
+
+		if (newRoster.length !== this.roster.length) {
+			this.log(`Epoch ${epoch}: roster ${this.roster.length} -> ${newRoster.length}`);
+		}
+
+		this.roster = newRoster;
+		this.threshold = Math.max(1, Math.floor(this.roster.length * this.thresholdFraction) + 1);
 	}
 
 	// ── Equivocation detection ──────────────────────────────────

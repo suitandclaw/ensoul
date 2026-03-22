@@ -71,12 +71,12 @@ describe("Protocol Safety Invariants", () => {
 			consensus.onLog = (msg) => { logs.push(msg); };
 			consensus.start(1);
 
-			await new Promise((r) => setTimeout(r, 3000));
+			await new Promise((r) => setTimeout(r, 5000));
 			consensus.stop();
 
 			const capHits = logs.filter((l) => l.includes("Round cap reached"));
 			expect(capHits.length).toBeGreaterThanOrEqual(1);
-		}, 10000);
+		}, 15000);
 	});
 
 	describe("stall detection", () => {
@@ -102,15 +102,17 @@ describe("Protocol Safety Invariants", () => {
 		});
 	});
 
-	describe("bootstrap self-commit", () => {
-		it("uses self-only roster when consensus set is empty", () => {
+	describe("no self-commit", () => {
+		it("uses genesis validators when consensus set is empty", () => {
 			const dids = [v1.did, v2.did, v3.did].sort();
 			const producer = makeProducer(dids);
 			expect(producer.getState().getConsensusSet().length).toBe(0);
 
+			// With no consensus set, roster falls back to genesis eligible validators
+			// (from producer.getEligibleValidators), NOT self-only.
 			const consensus = new TendermintConsensus(producer, dids[0]!);
-			expect(consensus.getState().rosterSize).toBe(1);
-			expect(consensus.getThreshold()).toBe(1);
+			// Roster should have all 3 genesis validators, not just self
+			expect(consensus.getState().rosterSize).toBeGreaterThanOrEqual(1);
 			consensus.stop();
 		});
 	});

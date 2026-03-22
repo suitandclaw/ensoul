@@ -309,7 +309,6 @@ export class EnsoulNodeRunner {
 				precommitTimeoutMs: 10_000,
 				roundTimeoutIncrement: 2_000,
 				thresholdFraction: this.args.consensusThreshold,
-				...(this.args.bootstrapValidator ? { bootstrapValidator: this.args.bootstrapValidator } : {}),
 			},
 		);
 
