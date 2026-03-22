@@ -442,6 +442,27 @@ export class PeerNetwork {
 			setTimeout(() => process.exit(0), 500);
 		});
 
+		// POST /peer/update - pull latest code, build, and restart (requires ENSOUL_PEER_KEY)
+		this.server.post("/peer/update", async (_req, reply) => {
+			this.log("UPDATE requested. Running auto-update script.");
+			void reply.send({ updating: true, message: "Auto-update triggered. Validator will restart." });
+			// Run auto-update script in background, then exit for restart
+			setTimeout(async () => {
+				try {
+					const { execSync } = await import("node:child_process");
+					const { join } = await import("node:path");
+					const { dirname } = await import("node:path");
+					const { fileURLToPath } = await import("node:url");
+					const scriptDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "scripts");
+					const script = join(scriptDir, "auto-update.sh");
+					execSync(`bash "${script}"`, { timeout: 300000, stdio: "ignore" });
+				} catch {
+					this.log("Auto-update script completed or failed. Process exiting for restart.");
+				}
+				process.exit(0);
+			}, 500);
+		});
+
 		await this.server.listen({ port, host: "0.0.0.0" });
 		this.log(`Peer API listening on port ${port}`);
 	}
