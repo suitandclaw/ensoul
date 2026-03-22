@@ -188,19 +188,21 @@ class NetworkDataSource implements ExplorerDataSource {
 
 	getNetworkStats(): NetworkStats {
 		const height = this.getChainHeight();
-		// Compute average block time from last 100 cached blocks
+		// Compute average block time from the last 10 consecutive cached blocks
 		let avgBlockTime = 6000;
-		const blocks: BlockData[] = [];
-		for (let h = Math.max(0, height - 99); h <= height; h++) {
+		const recent: BlockData[] = [];
+		for (let h = height; h >= Math.max(0, height - 10) && recent.length < 11; h--) {
 			const b = this.blockCache.get(h);
-			if (b) blocks.push(b);
+			if (b) recent.push(b);
 		}
-		if (blocks.length >= 2) {
+		recent.reverse();
+		if (recent.length >= 2) {
 			let sum = 0;
 			let count = 0;
-			for (let i = 1; i < blocks.length; i++) {
-				const diff = blocks[i]!.timestamp - blocks[i - 1]!.timestamp;
-				if (diff > 0) { sum += diff; count++; }
+			for (let i = 1; i < recent.length; i++) {
+				const diff = recent[i]!.timestamp - recent[i - 1]!.timestamp;
+				// Only count reasonable intervals (under 120 seconds)
+				if (diff > 0 && diff < 120000) { sum += diff; count++; }
 			}
 			if (count > 0) avgBlockTime = Math.round(sum / count);
 		}
@@ -496,7 +498,7 @@ class LocalDataSource implements ExplorerDataSource {
 			validatorCount: this.validators.length,
 			totalAgents: 0, totalConsciousnessBytes: 0,
 			totalTransactions: this.totalTxCount,
-			averageBlockTimeMs: height > 0 ? Math.round(elapsed / height) : 6000,
+			averageBlockTimeMs: height > 1 ? Math.round(elapsed / Math.min(height, 10)) : 6000,
 			totalSupply: "1000000000", totalBurned: "0", totalStaked: "0",
 			agentsByTrustLevel: {},
 		};
