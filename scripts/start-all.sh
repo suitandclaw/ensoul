@@ -183,7 +183,7 @@ do_start() {
 		# Only validator-0 (port 9000) participates in consensus
 		local consensus_flag=""
 		if [ "$i" = "0" ]; then
-			consensus_flag="--consensus-only --consensus-threshold 0.67"
+			consensus_flag="--consensus-only --consensus-threshold 0.1"
 		fi
 
 		npx tsx "$REPO_DIR/packages/node/src/cli/main.ts" \
