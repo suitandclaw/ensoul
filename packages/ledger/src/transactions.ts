@@ -128,7 +128,24 @@ export function validateTransaction(
 	}
 
 	if (tx.type === "genesis_allocation") {
-		// Genesis allocations are protocol-generated
+		return { valid: true };
+	}
+
+	if (tx.type === "consensus_join") {
+		const joiner = state.getAccount(tx.from);
+		if (joiner.stakedBalance <= 0n) {
+			return { valid: false, error: "Must have stake to join consensus" };
+		}
+		if (state.isInConsensusSet(tx.from)) {
+			return { valid: false, error: "Already in consensus set" };
+		}
+		return { valid: true };
+	}
+
+	if (tx.type === "consensus_leave") {
+		if (!state.isInConsensusSet(tx.from)) {
+			return { valid: false, error: "Not in consensus set" };
+		}
 		return { valid: true };
 	}
 
@@ -328,7 +345,17 @@ export function applyTransaction(
 		}
 		case "burn": {
 			state.debit(tx.from, tx.amount);
-			// Tokens are burned — not credited to anyone
+			break;
+		}
+		case "consensus_join": {
+			// Validator joins the active consensus set.
+			// Must have stakedBalance > 0 to participate.
+			state.joinConsensus(tx.from);
+			break;
+		}
+		case "consensus_leave": {
+			// Validator leaves the active consensus set.
+			state.leaveConsensus(tx.from);
 			break;
 		}
 	}

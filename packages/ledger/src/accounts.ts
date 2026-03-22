@@ -9,6 +9,9 @@ import type { Account } from "./types.js";
 export class AccountState {
 	private accounts: Map<string, Account> = new Map();
 
+	/** On-chain consensus validator set. DIDs of validators actively participating. */
+	private consensusSet: Set<string> = new Set();
+
 	/**
 	 * Get an account. Returns a default zero-balance account if not found.
 	 */
@@ -261,6 +264,34 @@ export class AccountState {
 	}
 
 	/**
+	 * Add a validator DID to the consensus set.
+	 */
+	joinConsensus(did: string): void {
+		this.consensusSet.add(did);
+	}
+
+	/**
+	 * Remove a validator DID from the consensus set.
+	 */
+	leaveConsensus(did: string): void {
+		this.consensusSet.delete(did);
+	}
+
+	/**
+	 * Get the current consensus set (sorted for determinism).
+	 */
+	getConsensusSet(): string[] {
+		return [...this.consensusSet].sort();
+	}
+
+	/**
+	 * Check if a DID is in the consensus set.
+	 */
+	isInConsensusSet(did: string): boolean {
+		return this.consensusSet.has(did);
+	}
+
+	/**
 	 * Compute a state root from all account data.
 	 * If delegationRoot is provided, it is included in the hash to ensure
 	 * all validators agree on delegation state via consensus.
@@ -282,6 +313,11 @@ export class AccountState {
 		if (delegationRoot) {
 			payload.push(["__delegationRoot__", delegationRoot]);
 		}
+		// Include consensus set in state root
+		const sortedConsensus = [...this.consensusSet].sort();
+		if (sortedConsensus.length > 0) {
+			payload.push(["__consensusSet__", ...sortedConsensus]);
+		}
 		const data = new TextEncoder().encode(JSON.stringify(payload));
 		return bytesToHex(blake3(data));
 	}
@@ -293,6 +329,9 @@ export class AccountState {
 		const copy = new AccountState();
 		for (const [, acc] of this.accounts) {
 			copy.setAccount({ ...acc });
+		}
+		for (const did of this.consensusSet) {
+			copy.joinConsensus(did);
 		}
 		return copy;
 	}

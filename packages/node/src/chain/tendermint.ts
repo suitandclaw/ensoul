@@ -142,8 +142,14 @@ export class TendermintConsensus {
 	) {
 		this.producer = producer;
 		this.myDid = myDid;
-		this.roster = producer.getEligibleValidators();
 		this.thresholdFraction = options?.thresholdFraction ?? (2 / 3);
+
+		// Build roster from on-chain consensus set. Falls back to genesis
+		// roster if the consensus set is empty (bootstrap phase, height < 10).
+		const consensusSet = producer.getState().getConsensusSet();
+		this.roster = consensusSet.length > 0
+			? consensusSet
+			: producer.getEligibleValidators();
 		this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
 
 		this.proposeTimeoutMs = options?.proposeTimeoutMs ?? 10_000;
@@ -521,8 +527,12 @@ export class TendermintConsensus {
 			this.onCommit(block);
 		}
 
-		// Check for epoch boundary: update validator roster every 100 blocks
-		if (block.height > 0 && block.height % TendermintConsensus.EPOCH_LENGTH === 0) {
+		// Update roster if this block contains consensus_join/leave transactions
+		// or at epoch boundaries
+		const hasConsensusChange = block.transactions.some(
+			(tx) => tx.type === "consensus_join" || tx.type === "consensus_leave",
+		);
+		if (hasConsensusChange || (block.height > 0 && block.height % TendermintConsensus.EPOCH_LENGTH === 0)) {
 			this.updateRoster();
 		}
 
@@ -532,12 +542,15 @@ export class TendermintConsensus {
 	}
 
 	/**
-	 * Update the validator roster from current account state.
-	 * Called at epoch boundaries (every 100 blocks).
-	 * Scans for all accounts with stakedBalance > 0, rebuilds roster.
+	 * Update the validator roster from the on-chain consensus set.
+	 * Called at epoch boundaries (every 100 blocks) and on consensus_join/leave.
+	 * Falls back to genesis roster if the consensus set is empty (bootstrap).
 	 */
 	private updateRoster(): void {
-		const newRoster = this.producer.getEligibleValidators();
+		const consensusSet = this.producer.getState().getConsensusSet();
+		const newRoster = consensusSet.length > 0
+			? consensusSet
+			: this.producer.getEligibleValidators();
 		const epoch = Math.floor(this.height / TendermintConsensus.EPOCH_LENGTH);
 
 		if (newRoster.length !== this.roster.length) {

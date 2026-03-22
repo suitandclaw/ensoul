@@ -266,10 +266,32 @@ export class EnsoulNodeRunner {
 		this.startedAt = Date.now();
 
 		if (!this.args.consensusOnly) {
-			// Non-consensus validator: sync blocks from peers, do not vote
 			this.log("Running as sync-only validator (no --consensus-only flag)");
-			this.log("This validator syncs blocks but does not participate in consensus voting.");
 			return;
+		}
+
+		// Submit CONSENSUS_JOIN if not already in the consensus set
+		const state = this.producer.getState();
+		if (!state.isInConsensusSet(this.identity.did)) {
+			this.log("Submitting CONSENSUS_JOIN transaction...");
+			const joinTx: Transaction = {
+				type: "consensus_join",
+				from: this.identity.did,
+				to: this.identity.did,
+				amount: 0n,
+				nonce: state.getAccount(this.identity.did).nonce,
+				timestamp: Date.now(),
+				signature: new Uint8Array(64), // self-signed consensus message
+			};
+			try {
+				this.producer.submitTransaction(joinTx);
+				this.log("CONSENSUS_JOIN submitted to mempool");
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				this.log(`CONSENSUS_JOIN failed: ${msg}`);
+			}
+		} else {
+			this.log("Already in consensus set");
 		}
 
 		this.consensus = new TendermintConsensus(
@@ -293,7 +315,7 @@ export class EnsoulNodeRunner {
 
 		this.consensus.start();
 		this.log(
-			`Tendermint consensus started (threshold=${this.consensus.getThreshold()})`,
+			`Tendermint consensus started (threshold=${this.consensus.getThreshold()}, roster=${this.consensus.getState().height > 0 ? "on-chain" : "genesis-fallback"})`,
 		);
 	}
 

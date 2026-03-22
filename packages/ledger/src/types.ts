@@ -12,7 +12,9 @@ export type TransactionType =
 	| "delegate"
 	| "undelegate"
 	| "slash"
-	| "burn";
+	| "burn"
+	| "consensus_join"
+	| "consensus_leave";
 
 /**
  * A transaction on the Ensoul chain.
