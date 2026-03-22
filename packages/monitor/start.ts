@@ -536,7 +536,7 @@ setInterval(poll,30000);
 
 // ── Validator Management Panel ──────────────────────────
 var ADMIN_VALIDATORS=[
-{name:"v0 (MBP)",url:"https://v0.ensoul.dev"},
+{name:"v0 (MBP)",url:"http://localhost:9000"},
 {name:"v1 (Mini 1)",url:"https://v1.ensoul.dev"},
 {name:"v2 (Mini 2)",url:"https://v2.ensoul.dev"},
 {name:"v3 (Mini 3)",url:"https://v3.ensoul.dev"}
@@ -601,18 +601,19 @@ el.innerHTML=s;
 function adminStatus(msg){var el=document.getElementById("admin-status");if(el)el.textContent=msg;}
 
 function adminRefresh(){
-var done=0;
-ADMIN_VALIDATORS.forEach(function(v){
-fetch(v.url+"/peer/status",{mode:"cors"}).then(function(r){return r.json()}).then(function(d){
-adminData[v.url]={version:d.version,height:d.height,peers:d.peerCount};
-if(d.version&&d.version>latestVersion)latestVersion=d.version;
-// Also fetch consensus state
-fetch(v.url+"/peer/consensus-state",{mode:"cors"}).then(function(r){return r.json()}).then(function(cs){
-adminData[v.url].consensusRound=cs.round;
-adminData[v.url].stallDetected=cs.stallDetected;
-}).catch(function(){});
-}).catch(function(){adminData[v.url]={};}).finally(function(){done++;if(done>=ADMIN_VALIDATORS.length)renderAdmin();});
+fetch("/api/validators-admin").then(function(r){return r.json()}).then(function(data){
+var validators=data.validators||[];
+validators.forEach(function(v){
+if(v.error){adminData[v.url]={};return;}
+adminData[v.url]={version:v.version,height:v.height,peers:v.peerCount};
+if(v.version&&v.version>latestVersion)latestVersion=v.version;
+if(v.consensus){
+adminData[v.url].consensusRound=v.consensus.round;
+adminData[v.url].stallDetected=v.consensus.stallDetected;
+}
 });
+renderAdmin();
+}).catch(function(){renderAdmin();});
 }
 
 function adminHealthAll(){
@@ -690,6 +691,33 @@ async function main(): Promise<void> {
 
 	app.get("/api/health", async () => {
 		return health;
+	});
+
+	// Proxy validator status to avoid CORS issues (browser can't fetch cross-origin)
+	app.get("/api/validators-admin", async () => {
+		const urls = [
+			"http://localhost:9000",
+			"https://v1.ensoul.dev",
+			"https://v2.ensoul.dev",
+			"https://v3.ensoul.dev",
+		];
+		const results: Array<Record<string, unknown>> = [];
+		for (const url of urls) {
+			try {
+				const statusResp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(5000) });
+				if (!statusResp.ok) { results.push({ url, error: true }); continue; }
+				const status = (await statusResp.json()) as Record<string, unknown>;
+				let consensus: Record<string, unknown> = {};
+				try {
+					const csResp = await fetch(`${url}/peer/consensus-state`, { signal: AbortSignal.timeout(3000) });
+					if (csResp.ok) consensus = (await csResp.json()) as Record<string, unknown>;
+				} catch { /* endpoint may not exist on older versions */ }
+				results.push({ url, ...status, consensus });
+			} catch {
+				results.push({ url, error: true });
+			}
+		}
+		return { validators: results };
 	});
 
 	app.get<{ Querystring: { depth?: string } }>("/api/social", async (req) => {
