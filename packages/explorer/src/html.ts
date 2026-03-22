@@ -2,59 +2,74 @@ import type { BlockData, TxData, AgentProfile, ValidatorData, NetworkStats } fro
 
 const CSS = `
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e0e0e0; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e0e0e0; line-height: 1.6; -webkit-font-smoothing: antialiased; font-size: 15px; }
 a { color: #7c3aed; text-decoration: none; transition: color 0.2s; }
 a:hover { color: #a78bfa; }
 
-/* -- Site nav (matches ensoul.dev) -- */
-.site-nav { position: sticky; top: 0; z-index: 100; background: rgba(10,10,15,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid #2d2d3f; padding: 14px 0; }
-.site-nav .inner { max-width: 1120px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 32px; }
-.site-nav .logo { font-size: 1.15em; font-weight: 800; letter-spacing: 1px; color: #7c3aed; text-transform: uppercase; }
-.site-nav .links { display: flex; gap: 24px; margin-left: auto; }
+/* -- Nav with hamburger -- */
+.site-nav { position: sticky; top: 0; z-index: 100; background: rgba(10,10,15,0.95); backdrop-filter: blur(12px); border-bottom: 1px solid #2d2d3f; padding: 12px 0; }
+.site-nav .inner { max-width: 1120px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.site-nav .logo { font-size: 1.1em; font-weight: 800; letter-spacing: 1px; color: #7c3aed; text-transform: uppercase; white-space: nowrap; }
+.site-nav .hamburger { display: none; background: none; border: 1px solid #2d2d3f; color: #888; font-size: 1.4em; padding: 4px 10px; border-radius: 4px; cursor: pointer; margin-left: auto; }
+.site-nav .links { display: flex; gap: 20px; margin-left: auto; }
 .site-nav .links a { color: #888; font-size: 0.9em; font-weight: 500; }
 .site-nav .links a:hover { color: #e0e0e0; }
 .site-nav .links a.active { color: #7c3aed; }
 
 /* -- Explorer sub-nav -- */
-.explorer-nav { max-width: 900px; margin: 0 auto; padding: 12px 20px 0; display: flex; gap: 16px; border-bottom: 1px solid #1e1e2a; }
-.explorer-nav a { color: #888; font-size: 0.9em; padding: 6px 2px 10px; border-bottom: 2px solid transparent; transition: all 0.2s; }
+.explorer-nav { max-width: 900px; margin: 0 auto; padding: 10px 16px 0; display: flex; gap: 12px; border-bottom: 1px solid #1e1e2a; overflow-x: auto; }
+.explorer-nav a { color: #888; font-size: 0.85em; padding: 6px 2px 8px; border-bottom: 2px solid transparent; white-space: nowrap; }
 .explorer-nav a:hover { color: #e0e0e0; }
 .explorer-nav a.active { color: #7c3aed; border-bottom-color: #7c3aed; }
 
 /* -- Content -- */
-.content { max-width: 900px; margin: 0 auto; padding: 20px; }
-h1 { color: #7c3aed; margin-bottom: 5px; }
-h2 { color: #a78bfa; border-bottom: 1px solid #2d2d3f; padding-bottom: 8px; margin-top: 24px; }
-.subtitle { color: #666; margin-top: 0; }
-.card { background: #12121a; border: 1px solid #2d2d3f; border-radius: 8px; padding: 16px; margin: 12px 0; }
-.stat { display: inline-block; margin: 0 20px 10px 0; }
-.stat-value { font-size: 1.4em; font-weight: bold; color: #7c3aed; }
-.stat-label { font-size: 0.85em; color: #888; }
-.age-hero { font-size: 3em; font-weight: 900; color: #7c3aed; text-align: center; padding: 20px 0; letter-spacing: -1px; }
-.age-sub { text-align: center; color: #888; font-size: 1.1em; margin-top: -10px; }
-.badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600; }
+.content { max-width: 900px; margin: 0 auto; padding: 16px; }
+h1 { color: #7c3aed; margin-bottom: 5px; font-size: 1.3em; }
+h2 { color: #a78bfa; border-bottom: 1px solid #2d2d3f; padding-bottom: 6px; margin-top: 20px; font-size: 1.1em; }
+.card { background: #12121a; border: 1px solid #2d2d3f; border-radius: 8px; padding: 14px; margin: 10px 0; overflow-x: auto; }
+.stat { display: inline-block; margin: 0 16px 8px 0; }
+.stat-value { font-size: 1.3em; font-weight: bold; color: #7c3aed; }
+.stat-label { font-size: 0.8em; color: #888; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600; white-space: nowrap; }
 .badge-basic { background: #1e3a2f; color: #4ade80; }
 .badge-verified { background: #1e2a3f; color: #60a5fa; }
 .badge-anchored { background: #2d1e3f; color: #a78bfa; }
 .badge-immortal { background: #3f1e2d; color: #f472b6; }
 .badge-sovereign { background: #3f3a1e; color: #fbbf24; }
 .badge-alive { background: #1e3a2f; color: #4ade80; }
-.badge-concerning { background: #3f3a1e; color: #fbbf24; }
-.badge-unresponsive { background: #3f2a1e; color: #fb923c; }
 .badge-dead { background: #3f1e1e; color: #f87171; }
-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #1e1e2a; }
-th { color: #888; font-weight: 500; font-size: 0.85em; text-transform: uppercase; cursor: pointer; user-select: none; }
+table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1e1e2a; font-size: 0.85em; }
+th { color: #888; font-weight: 500; text-transform: uppercase; cursor: pointer; user-select: none; }
 th:hover { color: #7c3aed; }
-.search { width: 100%; padding: 10px; background: #1a1a24; border: 1px solid #2d2d3f; border-radius: 6px; color: #e0e0e0; font-size: 1em; margin: 10px 0; }
-code { background: #1a1a24; border: 1px solid #2d2d3f; border-radius: 4px; padding: 2px 6px; font-family: 'SF Mono','Fira Code','JetBrains Mono',monospace; font-size: 0.9em; }
-.footer { max-width: 900px; margin: 40px auto 0; padding: 20px; text-align: center; color: #666; font-size: 0.85em; border-top: 1px solid #1e1e2a; }
-.pagination { display: flex; justify-content: center; gap: 8px; margin: 16px 0; }
-.pagination a { padding: 6px 12px; background: #1a1a24; border: 1px solid #2d2d3f; border-radius: 4px; color: #888; font-size: 0.85em; }
+.search { width: 100%; padding: 10px 12px; background: #1a1a24; border: 1px solid #2d2d3f; border-radius: 6px; color: #e0e0e0; font-size: 1em; margin: 8px 0; }
+code { background: #1a1a24; border: 1px solid #2d2d3f; border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 0.85em; word-break: break-all; }
+.footer { max-width: 900px; margin: 30px auto 0; padding: 16px; text-align: center; color: #666; font-size: 0.8em; border-top: 1px solid #1e1e2a; }
+.pagination { display: flex; justify-content: center; gap: 6px; margin: 14px 0; flex-wrap: wrap; }
+.pagination a { padding: 5px 10px; background: #1a1a24; border: 1px solid #2d2d3f; border-radius: 4px; color: #888; font-size: 0.8em; }
 .pagination a:hover { border-color: #7c3aed; color: #e0e0e0; }
 .pagination a.active { background: #7c3aed; color: #fff; border-color: #7c3aed; }
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 680px) { .site-nav .links { gap: 16px; } .stat { display: block; margin-bottom: 12px; } .two-col { grid-template-columns: 1fr; } }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.hide-mobile { }
+
+/* -- Mobile -- */
+@media (max-width: 768px) {
+  body { font-size: 14px; }
+  .site-nav .hamburger { display: block; }
+  .site-nav .links { display: none; width: 100%; flex-direction: column; gap: 12px; padding: 12px 0; }
+  .site-nav .links.open { display: flex; }
+  .site-nav .inner { flex-wrap: wrap; }
+  .explorer-nav { gap: 8px; padding: 8px 12px 0; }
+  .content { padding: 12px; }
+  .two-col { grid-template-columns: 1fr; }
+  .hide-mobile { display: none !important; }
+  .stat-value { font-size: 1.1em; }
+  table { font-size: 0.8em; }
+  th, td { padding: 5px 6px; }
+  h1 { font-size: 1.1em; }
+  h2 { font-size: 1em; }
+  .card { padding: 10px; }
+}
 `;
 
 function siteNav(activePage: string): string {
@@ -62,7 +77,7 @@ function siteNav(activePage: string): string {
 		const cls = id === activePage ? ' class="active"' : "";
 		return `<a href="${href}"${cls}>${label}</a>`;
 	};
-	return `<nav class="site-nav"><div class="inner"><a href="https://ensoul.dev" class="logo">ENSOUL EXPLORER</a><div class="links">${link("/", "Explorer", "explorer")}${link("/validators", "Validators", "validators")}${link("https://ensoul.dev/validator-dashboard.html", "Dashboard", "dashboard")}${link("https://ensoul.dev/wallet.html", "Wallet", "wallet")}${link("https://ensoul.dev/docs/quickstart.html", "Docs", "docs")}${link("https://github.com/suitandclaw/ensoul", "GitHub", "github")}</div></div></nav>`;
+	return `<nav class="site-nav"><div class="inner"><a href="/" class="logo">ENSOUL EXPLORER</a><button class="hamburger" onclick="document.querySelector('.site-nav .links').classList.toggle('open')">&#9776;</button><div class="links">${link("/", "Explorer", "explorer")}${link("/validators", "Validators", "validators")}${link("https://ensoul.dev/validator-dashboard.html", "Dashboard", "dashboard")}${link("https://ensoul.dev/wallet.html", "Wallet", "wallet")}${link("https://ensoul.dev/docs/quickstart.html", "Docs", "docs")}${link("https://github.com/suitandclaw/ensoul", "GitHub", "github")}</div></div></nav>`;
 }
 
 function explorerNav(activeTab: string): string {
@@ -87,10 +102,10 @@ export function renderDashboard(
 ): string {
 	const blockRows = latestBlocks.slice(0, 10)
 		.map((b) => {
-			const shortProposer = b.proposer === "genesis" ? "genesis" : `<a href="/account/${encodeURIComponent(b.proposer)}">${b.proposer.slice(0, 14)}...${b.proposer.slice(-4)}</a>`;
+			const shortProposer = b.proposer === "genesis" ? "genesis" : `<a href="/account/${encodeURIComponent(b.proposer)}">${b.proposer.slice(0, 8)}...${b.proposer.slice(-4)}</a>`;
 			const rewardTx = b.transactions.find((t) => t.type === "block_reward");
 			const reward = rewardTx ? formatEnsl(rewardTx.amount) : "0";
-			return `<tr><td><a href="/block/${b.height}">${b.height}</a></td><td>${shortProposer}</td><td>${b.txCount}</td><td>${reward}</td><td>${timeAgo(b.timestamp)}</td></tr>`;
+			return `<tr><td><a href="/block/${b.height}">${b.height}</a></td><td>${shortProposer}</td><td class="hide-mobile">${b.txCount}</td><td class="hide-mobile">${reward}</td><td>${timeAgo(b.timestamp)}</td></tr>`;
 		})
 		.join("");
 
@@ -112,10 +127,21 @@ export function renderDashboard(
 		})
 		.join("");
 
-	const avgBlockTime = stats.averageBlockTimeMs ? `${(stats.averageBlockTimeMs / 1000).toFixed(1)}s` : "6s";
-	const tps = stats.averageBlockTimeMs > 0 && stats.totalTransactions > 0
-		? (stats.totalTransactions / Math.max(1, stats.blockHeight) * (1000 / stats.averageBlockTimeMs)).toFixed(1)
-		: "0";
+	// Calculate block time and TPS from the last 10 blocks directly
+	let avgBlockTimeStr = "6.0s";
+	let tps = "0.0";
+	const last10 = latestBlocks.slice(0, 10);
+	if (last10.length >= 2) {
+		const newest = last10[0]!;
+		const oldest = last10[last10.length - 1]!;
+		const spanMs = newest.timestamp - oldest.timestamp;
+		if (spanMs > 0) {
+			const avgMs = spanMs / (last10.length - 1);
+			avgBlockTimeStr = `${(avgMs / 1000).toFixed(1)}s`;
+			const txCount = last10.reduce((s, b) => s + b.txCount, 0);
+			tps = (txCount / (spanMs / 1000)).toFixed(1);
+		}
+	}
 
 	return layout(
 		"Dashboard",
@@ -136,18 +162,18 @@ document.getElementById("search-form").onsubmit=function(e){
   window.location="/tx/"+encodeURIComponent(q);
 };
 </script>
-<div class="card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px;text-align:center">
+<div class="card" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center">
 <div class="stat"><div class="stat-value">${stats.blockHeight}</div><div class="stat-label">Block Height</div></div>
-<div class="stat"><div class="stat-value">${avgBlockTime}</div><div class="stat-label">Block Time</div></div>
+<div class="stat"><div class="stat-value">${avgBlockTimeStr}</div><div class="stat-label">Block Time</div></div>
 <div class="stat"><div class="stat-value">${stats.validatorCount}</div><div class="stat-label">Validators</div></div>
 <div class="stat"><div class="stat-value">${stats.totalTransactions}</div><div class="stat-label">Transactions</div></div>
 <div class="stat"><div class="stat-value">${tps}</div><div class="stat-label">TPS</div></div>
-<div class="stat"><div class="stat-value">${stats.totalAgents}</div><div class="stat-label">Ensouled Agents</div></div>
+<div class="stat"><div class="stat-value">${stats.totalAgents}</div><div class="stat-label">Agents</div></div>
 </div>
 <div class="two-col">
 <div>
 <h2>Latest Blocks</h2>
-<table><tr><th>Height</th><th>Proposer</th><th>Txs</th><th>Reward</th><th>Time</th></tr>${blockRows}</table>
+<table><tr><th>Height</th><th>Proposer</th><th class="hide-mobile">Txs</th><th class="hide-mobile">Reward</th><th>Time</th></tr>${blockRows}</table>
 <p style="text-align:center;margin:8px 0"><a href="/blocks">View all blocks &rarr;</a></p>
 </div>
 <div>
