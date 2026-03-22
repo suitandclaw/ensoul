@@ -155,10 +155,18 @@ export class TendermintConsensus {
 		this.stallThresholdMs = options?.stallThresholdMs ?? TendermintConsensus.DEFAULT_STALL_MS;
 
 		const consensusSet = producer.getState().getConsensusSet();
-		this.roster = consensusSet.length > 0
-			? consensusSet
-			: producer.getEligibleValidators();
-		this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
+		if (consensusSet.length > 0) {
+			// On-chain consensus set exists: use it
+			this.roster = consensusSet;
+			this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
+		} else {
+			// Bootstrap mode: consensus set is empty, no CONSENSUS_JOIN committed yet.
+			// Use self as the only roster member and threshold=1 so this validator
+			// can self-commit blocks (including the CONSENSUS_JOIN transaction).
+			// Once the consensus set has members, the roster switches to on-chain.
+			this.roster = [myDid];
+			this.threshold = 1;
+		}
 
 		this.proposeTimeoutMs = options?.proposeTimeoutMs ?? 10_000;
 		this.prevoteTimeoutMs = options?.prevoteTimeoutMs ?? 10_000;
@@ -594,19 +602,23 @@ export class TendermintConsensus {
 	 */
 	private updateRoster(): void {
 		const consensusSet = this.producer.getState().getConsensusSet();
-		const newRoster = consensusSet.length > 0
-			? consensusSet
-			: this.producer.getEligibleValidators();
 		const epoch = Math.floor(this.height / TendermintConsensus.EPOCH_LENGTH);
 
-		if (newRoster.length !== this.roster.length) {
-			this.log(`Epoch ${epoch}: validator roster updated, ${this.roster.length} -> ${newRoster.length} validators`);
+		if (consensusSet.length > 0) {
+			// On-chain consensus set exists: use it
+			if (consensusSet.length !== this.roster.length) {
+				this.log(`Epoch ${epoch}: roster updated ${this.roster.length} -> ${consensusSet.length} (on-chain consensus set)`);
+			}
+			this.roster = consensusSet;
+			this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
 		} else {
-			this.log(`Epoch ${epoch}: roster unchanged (${newRoster.length} validators)`);
+			// Bootstrap: self-only roster until CONSENSUS_JOIN commits
+			if (this.roster.length !== 1 || this.roster[0] !== this.myDid) {
+				this.log(`Epoch ${epoch}: bootstrap mode, self-only roster (threshold=1)`);
+				this.roster = [this.myDid];
+				this.threshold = 1;
+			}
 		}
-
-		this.roster = newRoster;
-		this.threshold = Math.floor(this.roster.length * this.thresholdFraction) + 1;
 	}
 
 	// ── Equivocation detection ──────────────────────────────────
