@@ -102,12 +102,12 @@ do_stop() {
 	for i in 0 1 2 3 4; do
 		kill_service "validator-$i"
 	done
-	kill_service "tunnel"
-	# Also kill by port as fallback
+	# Do NOT kill the tunnel. It is managed by launchd.
+	# Also kill by port as fallback (exclude tunnel ports)
 	for port in 9000 9001 9002 9003 9004 3000 4000 5050; do
 		lsof -ti ":$port" 2>/dev/null | xargs kill 2>/dev/null || true
 	done
-	log "All services stopped."
+	log "All services stopped (tunnel preserved)."
 }
 
 # ── Status ────────────────────────────────────────────────────────────
@@ -151,16 +151,13 @@ do_start() {
 	log "Starting Ensoul network services..."
 	echo ""
 
-	# 1. Cloudflared tunnel
-	log "Starting tunnel (cloudflared)..."
-	if command -v cloudflared >/dev/null 2>&1; then
-		cloudflared tunnel run ensoul \
-			>"$LOG_DIR/tunnel.log" 2>&1 &
-		save_pid "tunnel" $!
-		log "Tunnel started (pid $!)"
-		sleep 2
+	# 1. Cloudflared tunnel (managed by launchd, not started here)
+	# The tunnel runs via ~/Library/LaunchAgents/com.ensoul.tunnel.plist
+	# with KeepAlive=true so launchd auto-restarts it on crash.
+	if pgrep -f cloudflared >/dev/null 2>&1; then
+		log "Tunnel already running (managed by launchd)"
 	else
-		log "WARNING: cloudflared not installed, skipping tunnel"
+		log "WARNING: Tunnel not running. Install with: scripts/install-tunnel-launchd.sh"
 	fi
 
 	# 2. Validators (5 on ports 9000-9004)
