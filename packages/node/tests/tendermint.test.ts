@@ -35,6 +35,11 @@ function makeProducer(dids: string[]): NodeBlockProducer {
 	const genesis = createDefaultGenesis(dids);
 	const producer = new NodeBlockProducer(genesis, { minimumStake: 0n });
 	producer.initGenesis(dids);
+	// Pre-populate the consensus set so tests use multi-validator roster
+	// (bypasses bootstrap self-commit mode which uses roster=[myDid])
+	for (const did of dids) {
+		producer.getState().joinConsensus(did);
+	}
 	return producer;
 }
 

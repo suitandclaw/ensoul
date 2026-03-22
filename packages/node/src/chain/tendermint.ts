@@ -580,10 +580,17 @@ export class TendermintConsensus {
 		}
 
 		// ── SAFETY: Genesis protection ──────────────────────────
-		if (block.height <= TendermintConsensus.GENESIS_PROTECTION_HEIGHT && this.producer.getBlock(block.height)) {
-			this.log(`SAFETY: rejecting reorg at protected height ${block.height}`);
-			this.advanceRound();
-			return;
+		// Reject reorgs that would replace an existing block at a protected height
+		// with a DIFFERENT block. Normal commits of the same block are allowed.
+		const existingBlock = this.producer.getBlock(block.height);
+		if (block.height <= TendermintConsensus.GENESIS_PROTECTION_HEIGHT && existingBlock) {
+			const existingHash = computeBlockHash(existingBlock);
+			const newHash = computeBlockHash(block);
+			if (existingHash !== newHash) {
+				this.log(`SAFETY: rejecting reorg at protected height ${block.height}`);
+				this.advanceRound();
+				return;
+			}
 		}
 
 		// ── SAFETY: Emission cap per block ──────────────────────
