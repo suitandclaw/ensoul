@@ -71,9 +71,16 @@ export class PeerNetwork {
 	private server: FastifyInstance | null = null;
 	private peers: Map<string, PeerInfo> = new Map();
 	private myDid: string;
+	private myPort = 0;
 	private pollTimer: ReturnType<typeof setInterval> | null = null;
 	private seedClient: SeedClient | null = null;
 	private log: (msg: string) => void;
+
+	/** Local validators on the same machine (discovered via localhost scan). */
+	private localPeers: Array<{ port: number; did: string }> = [];
+
+	/** Whether this validator is the tunnel-facing one (port 9000). */
+	private isTunnelValidator = false;
 
 	/** Callback for incoming consensus messages. Set by the consensus engine. */
 	onConsensusMessage: ((msg: ConsensusMessage) => void) | null = null;
@@ -92,6 +99,8 @@ export class PeerNetwork {
 	 * Start the peer API server on the given port.
 	 */
 	async startServer(port: number): Promise<void> {
+		this.myPort = port;
+		this.isTunnelValidator = port === 9000;
 		this.server = Fastify({ logger: false, bodyLimit: 5242880 }); // 5MB for peer routes
 
 		// Peer authentication: if ENSOUL_PEER_KEY is set, require it on
@@ -286,6 +295,11 @@ export class PeerNetwork {
 				if (this.onConsensusMessage) {
 					this.onConsensusMessage(msg);
 				}
+
+				// Relay to local peers (if we are the tunnel validator receiving from remote)
+				if (this.isTunnelValidator) {
+					void this.relayToLocalPeers(body);
+				}
 				return { accepted: true };
 			},
 		);
@@ -475,6 +489,9 @@ export class PeerNetwork {
 			return 0;
 		}
 
+		// Discover local validators on the same machine
+		await this.discoverLocalPeers();
+
 		// Sync from the peer with the highest chain
 		if (connectedCount > 0) {
 			await this.syncFromBestPeer();
@@ -643,19 +660,93 @@ export class PeerNetwork {
 		}
 
 		const body = JSON.stringify(serialized);
-		const promises = [...this.peers.keys()].map(async (addr) => {
+
+		if (this.isTunnelValidator) {
+			// Tunnel validator: send to remote peers AND local validators
+			const promises = [...this.peers.keys()].map(async (addr) => {
+				try {
+					await fetch(`${addr}/peer/consensus`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body,
+						signal: AbortSignal.timeout(3000),
+					});
+				} catch { /* peer offline */ }
+			});
+			await Promise.allSettled(promises);
+			// Also relay to local validators on this machine
+			void this.relayToLocalPeers(serialized);
+		} else {
+			// Non-tunnel validator: send to tunnel validator for external broadcast
+			// AND send directly to local peers on the same machine
+			void this.relayToTunnel(serialized);
+			void this.relayToLocalPeers(serialized);
+		}
+	}
+
+	// ── Local peer relay ─────────────────────────────────────────
+
+	/**
+	 * Discover other validators running on the same machine.
+	 * Scans localhost ports 9000-9009, excludes own port.
+	 */
+	async discoverLocalPeers(): Promise<void> {
+		this.localPeers = [];
+		for (let port = 9000; port <= 9009; port++) {
+			if (port === this.myPort) continue;
 			try {
-				await fetch(`${addr}/peer/consensus`, {
+				const resp = await fetch(`http://localhost:${port}/peer/status`, {
+					signal: AbortSignal.timeout(1000),
+				});
+				if (!resp.ok) continue;
+				const status = (await resp.json()) as PeerStatus;
+				this.localPeers.push({ port, did: status.did });
+			} catch {
+				// Port not running, skip
+			}
+		}
+		if (this.localPeers.length > 0) {
+			this.log(`Discovered ${this.localPeers.length} local validators on this machine`);
+		}
+	}
+
+	/**
+	 * Relay a serialized consensus message to all local validators.
+	 * Called by the tunnel validator when it receives a message from a remote peer.
+	 */
+	private async relayToLocalPeers(serialized: SerializedConsensusMessage): Promise<void> {
+		const body = JSON.stringify(serialized);
+		const promises = this.localPeers.map(async (lp) => {
+			try {
+				await fetch(`http://localhost:${lp.port}/peer/consensus`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body,
-					signal: AbortSignal.timeout(3000),
+					signal: AbortSignal.timeout(1000),
 				});
 			} catch {
-				// Peer offline
+				// Local peer not responding
 			}
 		});
 		await Promise.allSettled(promises);
+	}
+
+	/**
+	 * Relay a serialized consensus message to the tunnel validator (port 9000).
+	 * Called by non-tunnel validators to send their votes to the network.
+	 */
+	private async relayToTunnel(serialized: SerializedConsensusMessage): Promise<void> {
+		if (this.isTunnelValidator) return; // already the tunnel
+		try {
+			await fetch("http://localhost:9000/peer/consensus", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(serialized),
+				signal: AbortSignal.timeout(2000),
+			});
+		} catch {
+			// Tunnel validator not responding
+		}
 	}
 
 	// ── Internal ─────────────────────────────────────────────────
@@ -711,18 +802,46 @@ export class PeerNetwork {
 	 * Broadcast a new block to all connected peers.
 	 */
 	private async broadcastBlock(block: SerializedBlock): Promise<void> {
+		const body = JSON.stringify(block);
+
+		// Broadcast to remote peers
 		const promises = [...this.peers.keys()].map(async (addr) => {
 			try {
 				await fetch(`${addr}/peer/blocks`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(block),
+					body,
 				});
 			} catch {
 				// Peer might be down, non-fatal
 			}
 		});
-		await Promise.allSettled(promises);
+
+		// Also relay to local validators on this machine
+		const localPromises = this.localPeers.map(async (lp) => {
+			try {
+				await fetch(`http://localhost:${lp.port}/peer/blocks`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body,
+					signal: AbortSignal.timeout(1000),
+				});
+			} catch { /* local peer offline */ }
+		});
+
+		// Non-tunnel validators also send to tunnel for external relay
+		if (!this.isTunnelValidator) {
+			try {
+				await fetch("http://localhost:9000/peer/blocks", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body,
+					signal: AbortSignal.timeout(2000),
+				});
+			} catch { /* tunnel offline */ }
+		}
+
+		await Promise.allSettled([...promises, ...localPromises]);
 	}
 
 	/**
