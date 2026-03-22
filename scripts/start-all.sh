@@ -231,9 +231,19 @@ do_start() {
 	wait_for_port 4000 10 "monitor" || true
 
 	# 5. API Gateway
+	# Generate pioneer key if not already stored
+	local pioneer_key_file="$LOG_DIR/pioneer-key.txt"
+	if [ ! -f "$pioneer_key_file" ]; then
+		openssl rand -hex 32 > "$pioneer_key_file"
+		chmod 600 "$pioneer_key_file"
+	fi
+	local pioneer_key
+	pioneer_key=$(cat "$pioneer_key_file")
 	log "Starting API gateway on port 5050..."
+	log "Pioneer key: $pioneer_key"
 	ONBOARDING_KEY_PATH="$REPO_DIR/genesis-keys/onboarding.json" \
 	TREASURY_KEY_PATH="$REPO_DIR/genesis-keys/treasury.json" \
+	ENSOUL_PIONEER_KEY="$pioneer_key" \
 	npx tsx "$REPO_DIR/packages/api/start.ts" \
 		--port 5050 \
 		>"$LOG_DIR/api.log" 2>&1 &
