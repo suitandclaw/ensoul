@@ -109,6 +109,8 @@ class NetworkDataSource implements ExplorerDataSource {
 	private proposerCounts: Map<string, number> = new Map();
 	/** Total transactions across all cached blocks. */
 	private totalTxCount = 0;
+	/** DIDs of validators on reachable machines (online). */
+	private onlineDids: Set<string> = new Set();
 
 	constructor(urls: string[]) {
 		this.peerUrls = urls;
@@ -142,8 +144,10 @@ class NetworkDataSource implements ExplorerDataSource {
 		await this.pollAllPeers();
 		await this.refreshValidators();
 		await this.refreshAgentCount();
+		await this.refreshOnlineStatus();
 		this.pollTimer = setInterval(() => {
 			void this.pollAllPeers();
+			void this.refreshOnlineStatus();
 			void this.refreshValidators();
 			void this.refreshAgentCount();
 		}, 10_000);
@@ -253,6 +257,60 @@ class NetworkDataSource implements ExplorerDataSource {
 
 	// ── Internal ─────────────────────────────────────────────────
 
+	/**
+	 * Discover which validators are online by checking reachable tunnels.
+	 * Each tunnel exposes one validator DID. All validators on the same
+	 * machine as a reachable tunnel are considered online (they communicate
+	 * via the local relay). We also query /peer/peers on each tunnel to
+	 * discover local validator DIDs.
+	 */
+	private async refreshOnlineStatus(): Promise<void> {
+		const online = new Set<string>();
+
+		// localhost:9000 means all local validators are online
+		const localEndpoints = ["http://localhost:9000", ...this.peerUrls];
+		for (const url of localEndpoints) {
+			try {
+				const resp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(3000) });
+				if (!resp.ok) continue;
+				const status = (await resp.json()) as PeerStatusResponse;
+				online.add(status.did);
+
+				// Also get local peers behind this tunnel
+				try {
+					const peersResp = await fetch(`${url}/peer/peers`, { signal: AbortSignal.timeout(3000) });
+					if (peersResp.ok) {
+						const pd = (await peersResp.json()) as { peers: Array<{ address: string }> };
+						for (const p of pd.peers ?? []) {
+							try {
+								const pr = await fetch(`${p.address}/peer/status`, { signal: AbortSignal.timeout(1000) });
+								if (pr.ok) {
+									const ps = (await pr.json()) as PeerStatusResponse;
+									online.add(ps.did);
+								}
+							} catch { /* unreachable local peer */ }
+						}
+					}
+				} catch { /* no peers endpoint */ }
+
+				// If this is a tunnel, scan localhost ports on that machine for more DIDs
+				if (url.startsWith("http://localhost")) {
+					for (let port = 9001; port <= 9009; port++) {
+						try {
+							const lr = await fetch(`http://localhost:${port}/peer/status`, { signal: AbortSignal.timeout(500) });
+							if (lr.ok) {
+								const ls = (await lr.json()) as PeerStatusResponse;
+								online.add(ls.did);
+							}
+						} catch { /* port not running */ }
+					}
+				}
+			} catch { /* tunnel unreachable */ }
+		}
+
+		this.onlineDids = online;
+	}
+
 	/** Refresh validator data from genesis DIDs + localhost:9000. */
 	private async refreshValidators(): Promise<void> {
 		const validators: ValidatorData[] = [];
@@ -263,12 +321,13 @@ class NetworkDataSource implements ExplorerDataSource {
 			const delegatedWei = BigInt(account?.delegated ?? "0");
 			const totalStake = stakeWei + delegatedWei;
 			const blocksProduced = this.proposerCounts.get(did) ?? 0;
+			const isOnline = this.onlineDids.has(did);
 
 			validators.push({
 				did,
 				stake: totalStake.toString(),
 				blocksProduced,
-				uptimePercent: blocksProduced > 0 ? 99.5 : 0,
+				uptimePercent: isOnline ? 99.5 : 0,
 				delegation: "foundation",
 			});
 		}
