@@ -588,8 +588,8 @@ s+='<td style="padding:6px">'+(d.peers||'-')+'</td>';
 s+='<td style="padding:6px">'+(d.consensusRound!=null?'R'+d.consensusRound:'-')+'</td>';
 s+='<td style="padding:6px">'+(isOnline?'<span style="color:#4ade80">OK</span>':'<span style="color:#f87171">DOWN</span>')+'</td>';
 s+='<td style="padding:6px;white-space:nowrap">';
-s+='<button onclick="adminUpdate(\''+v.url+'\')" style="padding:2px 8px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Update</button> ';
-s+='<button onclick="adminReset(\''+v.url+'\')" style="padding:2px 8px;background:#3f1e1e;color:#f87171;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Reset</button>';
+s+='<button data-url="'+v.url+'" onclick="adminUpdate(this.dataset.url)" style="padding:2px 8px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Update</button> ';
+s+='<button data-url="'+v.url+'" onclick="adminReset(this.dataset.url)" style="padding:2px 8px;background:#3f1e1e;color:#f87171;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Reset</button>';
 s+='</td></tr>';
 });
 
