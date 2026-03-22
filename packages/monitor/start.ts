@@ -720,6 +720,40 @@ async function main(): Promise<void> {
 		return { validators: results };
 	});
 
+	// Agent analytics
+	app.get("/api/agent-analytics", async () => {
+		try {
+			const { readFile } = await import("node:fs/promises");
+			const { join } = await import("node:path");
+			const { homedir } = await import("node:os");
+			const h = homedir();
+			const results: Record<string, unknown> = {};
+			for (const platform of ["twitter", "moltbook"]) {
+				try {
+					const raw = await readFile(join(h, ".ensoul", `${platform}-analytics.json`), "utf-8");
+					const data = JSON.parse(raw) as { posts: Array<Record<string, unknown>>; dailyCounts: Record<string, unknown> };
+					results[platform] = {
+						totalPosts: data.posts.length,
+						dailyCounts: data.dailyCounts,
+						topPosts: data.posts
+							.sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
+								(Number(b["likes"] ?? 0) + Number(b["replies"] ?? 0)) - (Number(a["likes"] ?? 0) + Number(a["replies"] ?? 0)))
+							.slice(0, 5)
+							.map((p: Record<string, unknown>) => ({
+								content: String(p["content"] ?? "").slice(0, 100),
+								likes: p["likes"],
+								replies: p["replies"],
+								topic: p["topic"],
+							})),
+					};
+				} catch { results[platform] = { error: "No analytics data" }; }
+			}
+			return results;
+		} catch {
+			return { error: "Analytics not available" };
+		}
+	});
+
 	// Network health (read from file written by network-monitor.sh)
 	app.get("/api/network-health", async () => {
 		try {
