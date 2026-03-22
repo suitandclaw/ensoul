@@ -76,7 +76,9 @@ else
 		cp "$REPO_DIR/genesis.json" "$LOG_DIR/genesis.json"
 	fi
 
-	# Build
+	# Build (clear caches to prevent stale compiled code)
+	log "Clearing build caches..."
+	rm -rf .turbo node_modules/.cache packages/*/dist 2>/dev/null
 	log "Building..."
 	if ! pnpm install --frozen-lockfile >> "$LOG_FILE" 2>&1; then
 		log "pnpm install failed."
