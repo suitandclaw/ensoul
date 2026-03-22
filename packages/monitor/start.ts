@@ -527,9 +527,9 @@ s+='</div>';
 el.innerHTML=s;
 }
 function poll(){
-fetch("/api/health").then(function(r){return r.json()}).then(render).catch(function(){});
-fetch("/api/social").then(function(r){return r.json()}).then(renderSocial).catch(function(){});
-fetch("https://api.ensoul.dev/v1/agents/list").then(function(r){return r.json()}).then(renderAgents).catch(function(){});
+fetch("/api/health",{credentials:"same-origin"}).then(function(r){if(!r.ok)throw new Error(r.status);return r.json()}).then(render).catch(function(e){document.getElementById("content").innerHTML='<div class="overall down">Failed to load: '+e.message+'</div>';});
+fetch("/api/social",{credentials:"same-origin"}).then(function(r){return r.json()}).then(renderSocial).catch(function(){});
+fetch("https://api.ensoul.dev/v1/agents/list",{mode:"cors"}).then(function(r){return r.json()}).then(renderAgents).catch(function(){});
 }
 poll();
 setInterval(poll,30000);
@@ -669,8 +669,8 @@ async function main(): Promise<void> {
 	// Basic auth on all routes except /api/health
 	if (STATUS_PASSWORD) {
 		app.addHook("onRequest", (req, reply, done) => {
-			// /api/health is public for external monitoring
-			if (req.url === "/api/health") { done(); return; }
+			// API endpoints are public (data only, no admin actions)
+			if (req.url.startsWith("/api/")) { done(); return; }
 
 			if (!checkBasicAuth(req.headers.authorization)) {
 				void reply
