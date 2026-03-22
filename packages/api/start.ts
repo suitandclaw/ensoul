@@ -389,7 +389,8 @@ async function refreshProposerCounts(): Promise<void> {
 	}
 }
 
-// In-memory consciousness store (indexed by DID)
+// Consciousness store (indexed by DID, persisted to disk)
+const CONSCIOUSNESS_FILE = join(LOG_DIR, "consciousness-store.json");
 const consciousnessStore = new Map<string, {
 	did: string;
 	stateRoot: string;
@@ -397,6 +398,27 @@ const consciousnessStore = new Map<string, {
 	shardCount: number;
 	storedAt: number;
 }>();
+
+async function loadConsciousnessStore(): Promise<void> {
+	try {
+		const raw = await readFile(CONSCIOUSNESS_FILE, "utf-8");
+		const entries = JSON.parse(raw) as Array<{
+			did: string; stateRoot: string; version: number;
+			shardCount: number; storedAt: number;
+		}>;
+		for (const e of entries) {
+			consciousnessStore.set(e.did, e);
+		}
+		await log(`Loaded ${consciousnessStore.size} consciousness entries from disk`);
+	} catch {
+		// File does not exist yet
+	}
+}
+
+async function saveConsciousnessStore(): Promise<void> {
+	const entries = [...consciousnessStore.values()];
+	await writeFile(CONSCIOUSNESS_FILE, JSON.stringify(entries));
+}
 
 // ── Onboarding key ───────────────────────────────────────────────────
 
@@ -631,6 +653,7 @@ async function main(): Promise<void> {
 	await mkdir(LOG_DIR, { recursive: true });
 	await loadGenesisDids();
 	await loadRegisteredAgents();
+	await loadConsciousnessStore();
 	await loadRegisteredValidators();
 	// Count existing pioneers
 	for (const [, v] of registeredValidators) {
@@ -811,6 +834,7 @@ async function main(): Promise<void> {
 			storedAt: Date.now(),
 		});
 
+		await saveConsciousnessStore();
 		await log(`Stored consciousness for ${body.did} v${body.version} (${shardCount} shards)`);
 
 		// Deferred welcome bonus: send on first consciousness store
