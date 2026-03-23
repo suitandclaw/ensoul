@@ -88,6 +88,9 @@ export class PeerNetwork {
 	/** Callback to get consensus state for the diagnostic endpoint. */
 	onGetConsensusState: (() => Record<string, unknown>) | null = null;
 
+	/** Callback when blocks are synced from peers (to advance consensus height). */
+	onBlockSynced: ((height: number) => void) | null = null;
+
 	constructor(
 		gossip: GossipNetwork,
 		myDid: string,
@@ -196,6 +199,10 @@ export class PeerNetwork {
 			async (req) => {
 				const block = req.body;
 				const result = this.gossip.handleGossipBlock(block);
+				// Notify consensus engine of new block height
+				if (result.applied && this.onBlockSynced) {
+					this.onBlockSynced(this.gossip.getProducer().getHeight());
+				}
 				return result;
 			},
 		);
@@ -818,11 +825,16 @@ export class PeerNetwork {
 			const blocks = extractBlocks(await resp.json());
 			this.log(`Received ${blocks.length} blocks from peer`);
 			const result = this.gossip.applySyncBlocks(blocks);
+			const newHeight = this.gossip.getProducer().getHeight();
 			this.log(
-				`Sync complete: ${result.applied} applied, ${result.errors.length} errors, now at height ${this.gossip.getProducer().getHeight()}`,
+				`Sync complete: ${result.applied} applied, ${result.errors.length} errors, now at height ${newHeight}`,
 			);
 			for (const e of result.errors) {
 				this.log(`Sync block error: ${e}`);
+			}
+			// Notify consensus engine so it advances to the correct height
+			if (result.applied > 0 && this.onBlockSynced) {
+				this.onBlockSynced(newHeight);
 			}
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
