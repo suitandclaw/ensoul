@@ -300,16 +300,15 @@ export class EnsoulNodeRunner {
 			this.log("Already in consensus set");
 		}
 
+		// Build validator set from genesis (autoStake validators)
+		const genesisValidators = this.genesisConfig.allocations
+			.filter((a) => a.autoStake === true)
+			.map((a) => ({ did: a.recipient, power: 10 }));
+
 		this.consensus = new TendermintConsensus(
 			this.producer,
 			this.identity.did,
-			{
-				proposeTimeoutMs: 10_000,
-				prevoteTimeoutMs: 10_000,
-				precommitTimeoutMs: 10_000,
-				roundTimeoutIncrement: 2_000,
-				thresholdFraction: this.args.consensusThreshold,
-			},
+			genesisValidators.length > 0 ? genesisValidators : undefined,
 		);
 
 		this.consensus.onLog = (msg) => this.log(`[consensus] ${msg}`);
@@ -321,7 +320,7 @@ export class EnsoulNodeRunner {
 
 		this.consensus.start();
 		this.log(
-			`Tendermint consensus started (threshold=${this.consensus.getThreshold()}, roster=${this.consensus.getState().height > 0 ? "on-chain" : "genesis-fallback"})`,
+			`Tendermint consensus started (threshold=${this.consensus.getThreshold()})`,
 		);
 	}
 

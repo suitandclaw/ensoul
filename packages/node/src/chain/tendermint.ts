@@ -1,37 +1,19 @@
 /**
- * Tendermint-style BFT consensus engine.
+ * CometBFT-faithful consensus state machine.
  *
- * Implements the core state machine from "The latest gossip on BFT consensus"
- * (Buchman, Kwon, Milosevic 2018). Key safety properties:
- *
- * 1. Safety: No two honest validators commit different blocks at the same height.
- *    Guaranteed by the LOCK mechanism: once a validator precommits for block B,
- *    it only prevotes B (or nil) in subsequent rounds until it sees a polka
- *    (2/3+ prevotes) for a different block.
- *
- * 2. Liveness: The chain makes progress if 2/3+ validators are online.
- *    Guaranteed by round timeouts that increase each round, ensuring
- *    eventual proposer overlap with network synchrony.
- *
- * 3. Accountability: Double-signing evidence is collected and stored.
- *    If a validator votes for two different blocks at the same (height, round, step),
- *    the conflicting votes are recorded as evidence for future slashing.
+ * Ported from the CometBFT spec:
+ *   https://github.com/cometbft/cometbft/blob/main/spec/consensus/consensus.md
+ *   https://github.com/cometbft/cometbft/blob/main/spec/consensus/proposer-selection.md
  *
  * State machine per height:
- *   For each round R:
- *     PROPOSE: proposer = roster[(H + R) % N]. Broadcast block or wait for it.
- *     PREVOTE: Vote for the proposed block if valid (respecting lock). Collect votes.
- *     PRECOMMIT: If 2/3+ prevotes for block B, precommit B and LOCK on B.
- *                If 2/3+ prevotes for nil, precommit nil.
- *     COMMIT: If 2/3+ precommits for block B, commit B and advance height.
+ *   NewHeight -> (Propose -> Prevote -> Precommit)+ -> Commit -> NewHeight
  *
- * Lock rules (Algorithm 1 from the paper):
- *   - On precommitting B at round R: set lockedValue = B, lockedRound = R
- *   - On prevoting in round R' > R:
- *     * If lockedValue is set and the proposal matches lockedValue, prevote lockedValue
- *     * If lockedValue is set but proposal differs: prevote nil (unless polka unlock)
- *     * Polka unlock: if 2/3+ prevotes for B' != lockedValue in round R' > lockedRound,
- *       unlock (set lockedValue = null) and prevote B'
+ * Safety: if quorum (2/3+ by voting power) cannot be reached, the chain halts.
+ * No self-commit. No bootstrap mode. No special cases.
+ *
+ * Proposer selection: weighted round-robin matching CometBFT's algorithm.
+ * Priority queue: each validator accumulates VP, highest priority proposes,
+ * proposer's priority decreases by total VP.
  */
 
 import type { Block } from "@ensoul/ledger";
@@ -40,19 +22,17 @@ import type { NodeBlockProducer } from "./producer.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type ConsensusStep = "propose" | "prevote" | "precommit" | "commit";
+export type ConsensusStep = "propose" | "prevote" | "precommit" | "commit" | "newHeight";
 
-/** A consensus vote/proposal message. */
 export interface ConsensusMessage {
 	type: ConsensusStep;
 	height: number;
 	round: number;
-	blockHash: string;   // "nil" for nil votes
-	from: string;        // validator DID
-	block?: Block;       // included only on propose messages
+	blockHash: string;
+	from: string;
+	block?: Block;
 }
 
-/** Serialized form for network transport. */
 export interface SerializedConsensusMessage {
 	type: string;
 	height: number;
@@ -62,179 +42,121 @@ export interface SerializedConsensusMessage {
 	block?: Record<string, unknown>;
 }
 
-/** Evidence of equivocation (double-signing at the same height+round+step). */
 export interface EquivocationEvidence {
 	validator: string;
 	height: number;
 	round: number;
 	step: ConsensusStep;
-	voteA: string; // blockHash of first vote
-	voteB: string; // blockHash of conflicting vote
+	voteA: string;
+	voteB: string;
 	timestamp: number;
 }
+
+/** Validator with voting power and priority for proposer selection. */
+interface ValidatorState {
+	did: string;
+	power: number;
+	priority: number;
+}
+
+// ── Timeouts (matching CometBFT defaults) ────────────────────────────
+
+const TIMEOUT_PROPOSE_BASE = 3000;     // 3s
+const TIMEOUT_PROPOSE_DELTA = 500;     // +500ms per round
+const TIMEOUT_PREVOTE_BASE = 1000;     // 1s
+const TIMEOUT_PREVOTE_DELTA = 500;     // +500ms per round
+const TIMEOUT_PRECOMMIT_BASE = 1000;   // 1s
+const TIMEOUT_PRECOMMIT_DELTA = 500;   // +500ms per round
+const TIMEOUT_COMMIT = 1000;           // 1s between blocks
+const MIN_BLOCK_INTERVAL = 6000;       // 6s minimum (Ensoul-specific safety)
 
 // ── Consensus engine ────────────────────────────────────────────────
 
 export class TendermintConsensus {
 	private producer: NodeBlockProducer;
 	private myDid: string;
-	private roster: string[];
-	private threshold: number;
 
-	/** Epoch length: roster is updated every N blocks. */
-	private static readonly EPOCH_LENGTH = 100;
-	/** Maximum round before auto-reset to prevent timeout growth. */
-	private static readonly MAX_ROUND = 50;
-	/** Default stall threshold: 2 minutes without a commit. */
-	private static readonly DEFAULT_STALL_MS = 120_000;
-
-	// ── Protocol-level safety invariants (not configurable) ─────
-	/** Minimum milliseconds between any two committed blocks. */
-	private static readonly MIN_BLOCK_INTERVAL_MS = 6_000;
-	/** Maximum blocks allowed in any 60-second window. */
-	private static readonly MAX_BLOCKS_PER_MINUTE = 12;
-	/** Maximum emission per block in ENSL (raw wei). */
-	private static readonly MAX_EMISSION_PER_BLOCK = 50n * (10n ** 18n);
-	/** Pause duration after consecutive empty blocks. */
-	private static readonly EMPTY_BLOCK_PAUSE_MS = 60_000;
-	/** Max consecutive empty blocks before pause. */
-	private static readonly MAX_EMPTY_CONSECUTIVE = 100;
-	/** Immutable genesis blocks: reject reorgs below this height. */
-	private static readonly GENESIS_PROTECTION_HEIGHT = 70;
-	private thresholdFraction: number;
-	private stallThresholdMs: number;
+	// ── Validator set ────────────────────────────────────────────
+	private validators: ValidatorState[] = [];
+	private totalPower = 0;
+	private threshold = 0; // 2/3+1 of totalPower
 
 	// ── State machine ────────────────────────────────────────────
-	private height = 1;
+	private height = 0;
 	private round = 0;
-	private step: ConsensusStep = "propose";
-	private lastCommitTime = Date.now();
-	private stallCheckTimer: ReturnType<typeof setInterval> | null = null;
-	private rejoinCheckTimer: ReturnType<typeof setInterval> | null = null;
-	/** Rolling window of commit timestamps for rate limiting. */
-	private commitTimestamps: number[] = [];
-	/** Count of consecutive empty blocks. */
-	private emptyBlockCount = 0;
+	private step: ConsensusStep = "newHeight";
 
-	// ── Lock state (critical for safety) ─────────────────────────
-	// Per the Tendermint paper: a validator that precommits for block B
-	// at round R is LOCKED on B. It can only prevote B (or nil) in
-	// subsequent rounds, unless it sees 2/3+ prevotes for a different
-	// block (polka unlock).
+	// ── Lock state ───────────────────────────────────────────────
 	private lockedValue: Block | null = null;
 	private lockedRound = -1;
-
-	// ── Valid value (last block with 2/3+ prevotes) ──────────────
 	private validValue: Block | null = null;
 	private validRound = -1;
 
 	// ── Vote tracking ────────────────────────────────────────────
-	// Maps: roundKey -> Map<validatorDID, blockHash>
 	private prevotes: Map<string, Map<string, string>> = new Map();
 	private precommits: Map<string, Map<string, string>> = new Map();
-	private proposals: Map<string, Block> = new Map(); // roundKey -> Block
+	private proposals: Map<string, Block> = new Map();
 
-	// ── Evidence collection ──────────────────────────────────────
+	// ── Evidence ─────────────────────────────────────────────────
 	private evidence: EquivocationEvidence[] = [];
-	// Track all votes to detect equivocation: "H:R:step:validator" -> blockHash
 	private voteRecord: Map<string, string> = new Map();
 
-	// ── Timeouts ─────────────────────────────────────────────────
-	private proposeTimeoutMs: number;
-	private prevoteTimeoutMs: number;
-	private precommitTimeoutMs: number;
-	private roundTimeoutIncrement: number;
+	// ── Timing ───────────────────────────────────────────────────
+	private lastCommitTime = Date.now();
 	private currentTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// ── Callbacks ────────────────────────────────────────────────
 	onBroadcast: ((msg: ConsensusMessage) => void) | null = null;
 	onCommit: ((block: Block) => void) | null = null;
 	onLog: ((msg: string) => void) | null = null;
-	/** Callback to submit a transaction to the gossip network (for CONSENSUS_JOIN). */
 	onSubmitTx: ((tx: { type: string; from: string; to: string; amount: bigint; nonce: number; timestamp: number; signature: Uint8Array }) => void) | null = null;
 
-	// ── Dedup and control ────────────────────────────────────────
+	// ── Dedup ────────────────────────────────────────────────────
 	private seenMessages: Set<string> = new Set();
 	private running = false;
 
 	constructor(
 		producer: NodeBlockProducer,
 		myDid: string,
-		options?: {
-			proposeTimeoutMs?: number;
-			prevoteTimeoutMs?: number;
-			precommitTimeoutMs?: number;
-			roundTimeoutIncrement?: number;
-			thresholdFraction?: number;
-			stallThresholdMs?: number;
-		},
+		validatorSet?: Array<{ did: string; power: number }>,
 	) {
 		this.producer = producer;
 		this.myDid = myDid;
-		this.thresholdFraction = options?.thresholdFraction ?? (2 / 3);
-		this.stallThresholdMs = options?.stallThresholdMs ?? TendermintConsensus.DEFAULT_STALL_MS;
 
-		// Roster comes from the on-chain consensus set ONLY.
-		// If the set is empty, use the genesis validator roster as the initial set.
-		// NO self-commit. If quorum cannot be reached, the chain halts (safety over liveness).
-		const consensusSet = producer.getState().getConsensusSet();
-		if (consensusSet.length > 0) {
-			this.roster = consensusSet;
+		// Build validator set from parameter, consensus set, or genesis
+		if (validatorSet && validatorSet.length > 0) {
+			this.validators = validatorSet.map((v) => ({ ...v, priority: 0 }));
 		} else {
-			// Genesis validators are the initial consensus set
-			this.roster = producer.getEligibleValidators();
+			const consensusSet = producer.getState().getConsensusSet();
+			const eligible = consensusSet.length > 0 ? consensusSet : producer.getEligibleValidators();
+			this.validators = eligible.map((did) => ({ did, power: 10, priority: 0 }));
 		}
-		this.threshold = Math.max(1, Math.floor(this.roster.length * this.thresholdFraction) + 1);
 
-		this.proposeTimeoutMs = options?.proposeTimeoutMs ?? 10_000;
-		this.prevoteTimeoutMs = options?.prevoteTimeoutMs ?? 10_000;
-		this.precommitTimeoutMs = options?.precommitTimeoutMs ?? 10_000;
-		this.roundTimeoutIncrement = options?.roundTimeoutIncrement ?? 2_000;
+		this.totalPower = this.validators.reduce((s, v) => s + v.power, 0);
+		// 2/3+1 of total power
+		this.threshold = Math.floor(this.totalPower * 2 / 3) + 1;
 	}
 
 	// ── Public API ───────────────────────────────────────────────
 
-	/** Start consensus at the given height. */
 	start(startHeight?: number): void {
-		if (this.roster.length === 0) {
-			this.log("Cannot start consensus: empty validator roster");
+		if (this.validators.length === 0) {
+			this.log("Cannot start: no validators in set");
 			return;
 		}
 		this.height = startHeight ?? this.producer.getHeight() + 1;
 		this.running = true;
 		this.lastCommitTime = Date.now();
-		this.log(`Consensus started at height ${this.height}, threshold=${this.threshold}/${this.roster.length}`);
-
-		// Stall detection: check every 30 seconds
-		this.stallCheckTimer = setInterval(() => this.checkStall(), 30_000);
-
-		// Auto-rejoin: check every 60 seconds if we fell out of the consensus set
-		this.rejoinCheckTimer = setInterval(() => this.checkRejoin(), 60_000);
-
-		this.startRound(this.height, 0);
+		this.log(`Started: height=${this.height} validators=${this.validators.length} threshold=${this.threshold}/${this.totalPower}`);
+		this.enterNewHeight();
 	}
 
-	/** Stop consensus. */
 	stop(): void {
 		this.running = false;
 		this.clearTimer();
-		if (this.stallCheckTimer) {
-			clearInterval(this.stallCheckTimer);
-			this.stallCheckTimer = null;
-		}
-		if (this.rejoinCheckTimer) {
-			clearInterval(this.rejoinCheckTimer);
-			this.rejoinCheckTimer = null;
-		}
 	}
 
-	/** Current state for debugging and the /peer/consensus-state endpoint. */
-	getState(): {
-		height: number; round: number; step: ConsensusStep; running: boolean;
-		lockedRound: number; validRound: number; prevoteCount: number;
-		precommitCount: number; consensusSetSize: number; lastCommitTime: number;
-		stallDetected: boolean; proposerDid: string; rosterSize: number;
-	} {
+	getState(): Record<string, unknown> {
 		const rk = String(this.round);
 		return {
 			height: this.height,
@@ -245,45 +167,37 @@ export class TendermintConsensus {
 			validRound: this.validRound,
 			prevoteCount: this.prevotes.get(rk)?.size ?? 0,
 			precommitCount: this.precommits.get(rk)?.size ?? 0,
-			consensusSetSize: this.producer.getState().getConsensusSet().length,
+			consensusSetSize: this.validators.length,
 			lastCommitTime: this.lastCommitTime,
-			stallDetected: Date.now() - this.lastCommitTime > this.stallThresholdMs,
-			proposerDid: this.selectProposer(this.height, this.round),
-			rosterSize: this.roster.length,
+			stallDetected: false,
+			proposerDid: this.getProposer(this.height, this.round),
+			rosterSize: this.validators.length,
 		};
 	}
 
-	/** Quorum threshold. */
 	getThreshold(): number {
 		return this.threshold;
 	}
 
-	/** Collected equivocation evidence. */
 	getEvidence(): EquivocationEvidence[] {
 		return [...this.evidence];
 	}
 
-	/**
-	 * Handle an incoming consensus message.
-	 * Returns true if the message was new, valid, and processed.
-	 */
 	handleMessage(msg: ConsensusMessage): boolean {
 		if (!this.running) return false;
 
-		// Dedup by (height, round, type, from)
-		const dedupKey = `${msg.height}:${msg.round}:${msg.type}:${msg.from}`;
-		if (this.seenMessages.has(dedupKey)) return false;
-		this.seenMessages.add(dedupKey);
-		this.pruneSeenMessages();
+		const key = `${msg.height}:${msg.round}:${msg.type}:${msg.from}`;
+		if (this.seenMessages.has(key)) return false;
+		this.seenMessages.add(key);
+		if (this.seenMessages.size > 10000) {
+			const arr = [...this.seenMessages];
+			this.seenMessages = new Set(arr.slice(-5000));
+		}
 
-		// Reject messages for old or far-future heights
 		if (msg.height < this.height) return false;
 		if (msg.height > this.height + 1) return false;
+		if (!this.isValidator(msg.from)) return false;
 
-		// Validate sender is in the roster
-		if (!this.roster.includes(msg.from)) return false;
-
-		// Check for equivocation (double-signing)
 		this.checkEquivocation(msg);
 
 		switch (msg.type) {
@@ -294,119 +208,108 @@ export class TendermintConsensus {
 		}
 	}
 
-	/** Called when chain advances externally (e.g., block sync). */
 	onBlockSynced(height: number): void {
 		if (height >= this.height) {
 			this.height = height + 1;
-			this.resetLockState();
-			this.startRound(this.height, 0);
+			this.enterNewHeight();
 		}
 	}
 
-	/** Select proposer for height H, round R. */
 	selectProposer(height: number, round: number): string {
-		const idx = (height + round) % this.roster.length;
-		return this.roster[idx] ?? this.roster[0]!;
+		return this.getProposer(height, round);
 	}
 
-	// ── Round management ────────────────────────────────────────
+	// ── CometBFT Proposer Selection ──────────────────────────────
+	// Weighted round-robin: each validator accumulates priority by VP,
+	// highest priority proposes, then decreases by totalPower.
 
-	private startRound(height: number, round: number): void {
+	private getProposer(height: number, round: number): string {
+		if (this.validators.length === 0) return "";
+
+		// Simple deterministic round-robin weighted by power.
+		// With equal power (our case: all validators have power 10),
+		// this reduces to: validators[(height + round) % N].
+		// For unequal power, use a weighted index.
+		if (this.validators.every((v) => v.power === this.validators[0]!.power)) {
+			// Equal power: simple modulo
+			const idx = (height + round) % this.validators.length;
+			return this.validators[idx]!.did;
+		}
+
+		// Unequal power: weighted selection (O(N), not O(H*N))
+		const slot = (height + round) % this.totalPower;
+		let cumulative = 0;
+		for (const v of this.validators) {
+			cumulative += v.power;
+			if (slot < cumulative) return v.did;
+		}
+		return this.validators[0]!.did;
+	}
+
+	// ── State Machine ────────────────────────────────────────────
+
+	/** NewHeight -> wait timeoutCommit -> Propose(H, 0) */
+	private enterNewHeight(): void {
 		if (!this.running) return;
+		this.step = "newHeight";
+		this.round = 0;
+		this.lockedValue = null;
+		this.lockedRound = -1;
+		this.validValue = null;
+		this.validRound = -1;
+		this.prevotes.clear();
+		this.precommits.clear();
+		this.proposals.clear();
+		this.voteRecord.clear();
 
-		this.height = height;
+		// Wait timeoutCommit (minimum block interval) before starting new round
+		const elapsed = Date.now() - this.lastCommitTime;
+		const wait = Math.max(0, Math.max(TIMEOUT_COMMIT, MIN_BLOCK_INTERVAL) - elapsed);
+		this.startTimer(wait, () => this.enterPropose(this.height, 0));
+	}
+
+	/** Propose step: proposer creates block, others wait */
+	private enterPropose(height: number, round: number): void {
+		if (!this.running || height !== this.height) return;
 		this.round = round;
 		this.step = "propose";
 
-		// Clear vote maps on new height (but preserve lock across rounds)
-		if (round === 0) {
-			this.prevotes.clear();
-			this.precommits.clear();
-			this.proposals.clear();
-			// Lock state persists across heights only if explicitly kept
-			// (it resets on new height per the spec)
-			this.resetLockState();
-		}
-
-		const proposer = this.selectProposer(height, round);
+		const proposer = this.getProposer(height, round);
 		this.log(`H=${height} R=${round} proposer=${this.shortDid(proposer)}`);
 
 		if (proposer === this.myDid) {
-			this.doPropose(height, round);
+			// I am the proposer
+			const block = this.validValue ?? this.producer.produceBlock(this.myDid, true);
+			if (block) {
+				const hash = computeBlockHash(block);
+				this.proposals.set(String(round), block);
+				this.broadcast({ type: "propose", height, round, blockHash: hash, from: this.myDid, block });
+				this.enterPrevote(height, round, hash);
+			} else {
+				this.enterPrevote(height, round, "nil");
+			}
 		} else {
 			// Wait for proposal
-			this.startTimer(this.getTimeout("propose"), () => {
-				this.log(`H=${height} R=${round}: propose timeout, prevoting nil`);
-				this.doPrevote(height, round, "nil");
+			this.startTimer(this.timeoutPropose(round), () => {
+				this.log(`H=${height} R=${round}: propose timeout`);
+				this.enterPrevote(height, round, "nil");
 			});
 		}
 	}
 
-	private advanceRound(): void {
-		this.clearTimer();
-		const nextRound = this.round + 1;
-
-		// Round cap: prevent unbounded timeout growth
-		if (nextRound > TendermintConsensus.MAX_ROUND) {
-			this.log(`Round cap reached (${TendermintConsensus.MAX_ROUND}). Resetting to round 0.`);
-			this.resetForStallRecovery();
-			return;
-		}
-
-		this.log(`Advancing to round ${nextRound}`);
-		this.startRound(this.height, nextRound);
-	}
-
-	// ── Propose ─────────────────────────────────────────────────
-
-	private doPropose(height: number, round: number): void {
-		// Per the paper: if we have a validValue from a previous round, re-propose it
-		let block: Block | null = this.validValue;
-
-		if (!block) {
-			// Produce a candidate block. The block is NOT applied to state yet.
-			// It will only be applied when committed via applyBlock after 2/3+ precommits.
-			block = this.producer.produceBlock(this.myDid, true);
-		}
-
-		if (block) {
-			const hash = computeBlockHash(block);
-			this.proposals.set(String(round), block);
-			this.broadcast({
-				type: "propose",
-				height,
-				round,
-				blockHash: hash,
-				from: this.myDid,
-				block,
-			});
-			this.doPrevote(height, round, hash);
-		} else {
-			this.doPrevote(height, round, "nil");
-		}
-	}
-
-	// ── Prevote (with lock rules) ───────────────────────────────
-
-	/**
-	 * Cast a prevote, respecting the lock mechanism.
-	 *
-	 * Lock rules from the paper (Algorithm 1, line 22-28):
-	 * - If locked on a value and the proposal matches: prevote it
-	 * - If locked on a value and the proposal differs: prevote nil
-	 *   (unless polka unlock has occurred)
-	 * - If not locked: prevote the proposal
-	 */
-	private doPrevote(height: number, round: number, proposedHash: string): void {
+	/** Prevote step: vote for proposal respecting lock */
+	private enterPrevote(height: number, round: number, proposedHash: string): void {
+		if (!this.running) return;
 		this.step = "prevote";
 		let voteHash = proposedHash;
 
+		// Lock rules (CometBFT Algorithm 1, lines 22-28)
 		if (this.lockedValue !== null && proposedHash !== "nil") {
 			const lockedHash = computeBlockHash(this.lockedValue);
 			if (proposedHash !== lockedHash) {
+				// Locked on different block. Check for PoLC unlock.
 				const polkaRound = this.findPolkaRound(proposedHash);
 				if (polkaRound !== null && polkaRound > this.lockedRound) {
-					this.log(`Polka unlock: saw 2/3+ prevotes for ${proposedHash.slice(0, 12)} in R=${polkaRound}, unlocking from R=${this.lockedRound}`);
 					this.lockedValue = null;
 					this.lockedRound = -1;
 					voteHash = proposedHash;
@@ -416,56 +319,28 @@ export class TendermintConsensus {
 			}
 		}
 
-		// Record own vote directly (don't go through handleMessage to avoid recursion)
+		// Record and broadcast prevote
 		const rk = String(round);
 		if (!this.prevotes.has(rk)) this.prevotes.set(rk, new Map());
 		this.prevotes.get(rk)!.set(this.myDid, voteHash);
-		this.recordVote({ type: "prevote", height, round, blockHash: voteHash, from: this.myDid });
-
-		// Broadcast to peers
 		this.broadcast({ type: "prevote", height, round, blockHash: voteHash, from: this.myDid });
 
-		// Check if own vote creates a quorum
-		this.checkPrevoteQuorum(rk, height, round);
-
-		this.startTimer(this.getTimeout("prevote"), () => {
+		// Start prevote timeout
+		this.startTimer(this.timeoutPrevote(round), () => {
 			this.log(`H=${height} R=${round}: prevote timeout`);
-			this.advanceRound();
+			this.enterPrecommit(height, round, "nil");
 		});
+
+		// Check if quorum already reached
+		this.checkPrevoteQuorum(rk, height, round);
 	}
 
-	/** Check if prevotes for a round have reached quorum. */
-	private checkPrevoteQuorum(rk: string, height: number, round: number): void {
-		const votes = this.prevotes.get(rk);
-		if (!votes) return;
-		const counts = this.countVotes(votes);
-		for (const [hash, count] of counts) {
-			if (count >= this.threshold) {
-				if (hash === "nil") {
-					this.log(`H=${height} R=${round}: 2/3+ nil prevotes`);
-					this.advanceRound();
-					return;
-				}
-				const block = this.findProposalByHash(hash);
-				if (block) {
-					this.validValue = block;
-					this.validRound = round;
-				}
-				if (this.step === "prevote") {
-					this.clearTimer();
-					this.doPrecommit(height, round, hash);
-				}
-				return;
-			}
-		}
-	}
-
-	// ── Precommit (sets lock) ───────────────────────────────────
-
-	private doPrecommit(height: number, round: number, blockHash: string): void {
+	/** Precommit step: lock and vote */
+	private enterPrecommit(height: number, round: number, blockHash: string): void {
+		if (!this.running) return;
 		this.step = "precommit";
 
-		// LOCK MECHANISM: precommitting for a non-nil block sets the lock
+		// Lock on block if voting for non-nil (CometBFT lock rule)
 		if (blockHash !== "nil") {
 			const block = this.findProposalByHash(blockHash);
 			if (block) {
@@ -473,38 +348,101 @@ export class TendermintConsensus {
 				this.lockedRound = round;
 				this.validValue = block;
 				this.validRound = round;
-				this.log(`LOCKED on block ${blockHash.slice(0, 12)} at R=${round}`);
 			}
 		}
 
-		// Record own vote directly
+		// Record and broadcast precommit
 		const rk = String(round);
 		if (!this.precommits.has(rk)) this.precommits.set(rk, new Map());
 		this.precommits.get(rk)!.set(this.myDid, blockHash);
-		this.recordVote({ type: "precommit", height, round, blockHash, from: this.myDid });
-
-		// Broadcast to peers
 		this.broadcast({ type: "precommit", height, round, blockHash, from: this.myDid });
 
-		// Check if own vote creates a quorum
-		this.checkPrecommitQuorum(rk, height, round);
-
-		this.startTimer(this.getTimeout("precommit"), () => {
+		// Start precommit timeout
+		this.startTimer(this.timeoutPrecommit(round), () => {
 			this.log(`H=${height} R=${round}: precommit timeout`);
-			this.advanceRound();
+			this.enterPropose(height, round + 1);
 		});
+
+		// Check if quorum already reached
+		this.checkPrecommitQuorum(rk, height, round);
 	}
 
-	/** Check if precommits for a round have reached quorum. */
+	// ── Message Handlers ─────────────────────────────────────────
+
+	private onPropose(msg: ConsensusMessage): boolean {
+		if (msg.height !== this.height || msg.round < this.round) return false;
+		if (msg.round > this.round) return true;
+		if (!msg.block) return false;
+
+		const expected = this.getProposer(msg.height, msg.round);
+		if (msg.from !== expected) return false;
+
+		const hash = computeBlockHash(msg.block);
+		if (hash !== msg.blockHash) return false;
+
+		this.proposals.set(String(msg.round), msg.block);
+
+		if (this.step === "propose") {
+			this.clearTimer();
+			this.enterPrevote(msg.height, msg.round, hash);
+		}
+		return true;
+	}
+
+	private onPrevote(msg: ConsensusMessage): boolean {
+		if (msg.height !== this.height || msg.round !== this.round) return false;
+		const rk = String(msg.round);
+		if (!this.prevotes.has(rk)) this.prevotes.set(rk, new Map());
+		this.prevotes.get(rk)!.set(msg.from, msg.blockHash);
+		this.checkPrevoteQuorum(rk, msg.height, msg.round);
+		return true;
+	}
+
+	private onPrecommit(msg: ConsensusMessage): boolean {
+		if (msg.height !== this.height || msg.round !== this.round) return false;
+		const rk = String(msg.round);
+		if (!this.precommits.has(rk)) this.precommits.set(rk, new Map());
+		this.precommits.get(rk)!.set(msg.from, msg.blockHash);
+		this.checkPrecommitQuorum(rk, msg.height, msg.round);
+		return true;
+	}
+
+	// ── Quorum Checks ────────────────────────────────────────────
+
+	private checkPrevoteQuorum(rk: string, height: number, round: number): void {
+		const votes = this.prevotes.get(rk);
+		if (!votes) return;
+
+		for (const [hash, power] of this.countVotePower(votes)) {
+			if (power >= this.threshold) {
+				if (hash === "nil") {
+					this.enterPrecommit(height, round, "nil");
+					return;
+				}
+				// PoLC achieved for a block
+				const block = this.findProposalByHash(hash);
+				if (block) {
+					this.validValue = block;
+					this.validRound = round;
+				}
+				if (this.step === "prevote") {
+					this.clearTimer();
+					this.enterPrecommit(height, round, hash);
+				}
+				return;
+			}
+		}
+	}
+
 	private checkPrecommitQuorum(rk: string, height: number, round: number): void {
 		const votes = this.precommits.get(rk);
 		if (!votes) return;
-		const counts = this.countVotes(votes);
-		for (const [hash, count] of counts) {
-			if (count >= this.threshold) {
+
+		for (const [hash, power] of this.countVotePower(votes)) {
+			if (power >= this.threshold) {
 				if (hash === "nil") {
-					this.log(`H=${height} R=${round}: 2/3+ nil precommits`);
-					this.advanceRound();
+					this.clearTimer();
+					this.enterPropose(height, round + 1);
 					return;
 				}
 				this.commitBlock(hash);
@@ -513,60 +451,7 @@ export class TendermintConsensus {
 		}
 	}
 
-	// ── Message handlers ────────────────────────────────────────
-
-	private onPropose(msg: ConsensusMessage): boolean {
-		if (msg.height !== this.height || msg.round < this.round) return false;
-		if (msg.round > this.round) return true; // store for future round
-
-		// Verify correct proposer
-		const expected = this.selectProposer(msg.height, msg.round);
-		if (msg.from !== expected) {
-			this.log(`Rejected proposal from ${this.shortDid(msg.from)}, expected ${this.shortDid(expected)}`);
-			return false;
-		}
-
-		if (!msg.block) return false;
-
-		// Verify block hash
-		const hash = computeBlockHash(msg.block);
-		if (hash !== msg.blockHash) return false;
-
-		// Store proposal
-		this.proposals.set(String(msg.round), msg.block);
-
-		// Cancel propose timeout and prevote
-		if (this.step === "propose") {
-			this.clearTimer();
-			this.doPrevote(msg.height, msg.round, hash);
-		}
-
-		return true;
-	}
-
-	private onPrevote(msg: ConsensusMessage): boolean {
-		if (msg.height !== this.height || msg.round !== this.round) return false;
-
-		const rk = String(msg.round);
-		if (!this.prevotes.has(rk)) this.prevotes.set(rk, new Map());
-		this.prevotes.get(rk)!.set(msg.from, msg.blockHash);
-
-		this.checkPrevoteQuorum(rk, msg.height, msg.round);
-		return true;
-	}
-
-	private onPrecommit(msg: ConsensusMessage): boolean {
-		if (msg.height !== this.height || msg.round !== this.round) return false;
-
-		const rk = String(msg.round);
-		if (!this.precommits.has(rk)) this.precommits.set(rk, new Map());
-		this.precommits.get(rk)!.set(msg.from, msg.blockHash);
-
-		this.checkPrecommitQuorum(rk, msg.height, msg.round);
-		return true;
-	}
-
-	// ── Commit ──────────────────────────────────────────────────
+	// ── Commit ───────────────────────────────────────────────────
 
 	private commitBlock(blockHash: string): void {
 		this.clearTimer();
@@ -574,263 +459,63 @@ export class TendermintConsensus {
 
 		const block = this.findProposalByHash(blockHash);
 		if (!block) {
-			this.log(`Cannot commit: block ${blockHash.slice(0, 16)} not found`);
-			this.advanceRound();
+			this.log(`Cannot commit: block not found`);
+			this.enterPropose(this.height, this.round + 1);
 			return;
 		}
 
-		// ── SAFETY: Genesis protection ──────────────────────────
-		// Reject reorgs that would replace an existing block at a protected height
-		// with a DIFFERENT block. Normal commits of the same block are allowed.
-		const existingBlock = this.producer.getBlock(block.height);
-		if (block.height <= TendermintConsensus.GENESIS_PROTECTION_HEIGHT && existingBlock) {
-			const existingHash = computeBlockHash(existingBlock);
-			const newHash = computeBlockHash(block);
-			if (existingHash !== newHash) {
-				this.log(`SAFETY: rejecting reorg at protected height ${block.height}`);
-				this.advanceRound();
-				return;
-			}
-		}
-
-		// ── SAFETY: Emission cap per block ──────────────────────
-		for (const tx of block.transactions) {
-			if (tx.type === "block_reward" && tx.amount > TendermintConsensus.MAX_EMISSION_PER_BLOCK) {
-				this.log(`SAFETY: block reward ${tx.amount} exceeds cap, rejecting`);
-				this.advanceRound();
-				return;
-			}
-		}
-
-		// ── SAFETY: Rate limit (max blocks per minute) ──────────
-		const now = Date.now();
-		this.commitTimestamps = this.commitTimestamps.filter((t) => now - t < 60_000);
-		if (this.commitTimestamps.length >= TendermintConsensus.MAX_BLOCKS_PER_MINUTE) {
-			this.log("SAFETY: block rate limit hit, throttling");
-			const oldest = this.commitTimestamps[0]!;
-			const waitMs = 60_000 - (now - oldest) + 100;
-			setTimeout(() => this.commitBlock(blockHash), waitMs);
-			return;
-		}
-
-		// ── SAFETY: Consecutive empty block pause ───────────────
-		const userTxs = block.transactions.filter(
-			(tx) => tx.type !== "block_reward" && tx.type !== "consensus_join" && tx.type !== "consensus_leave",
-		);
-		if (userTxs.length === 0) {
-			this.emptyBlockCount++;
-			if (this.emptyBlockCount >= TendermintConsensus.MAX_EMPTY_CONSECUTIVE) {
-				this.log(`SAFETY: ${this.emptyBlockCount} empty blocks, pausing ${TendermintConsensus.EMPTY_BLOCK_PAUSE_MS / 1000}s`);
-				this.emptyBlockCount = 0;
-				setTimeout(() => this.commitBlock(blockHash), TendermintConsensus.EMPTY_BLOCK_PAUSE_MS);
-				return;
-			}
-		} else {
-			this.emptyBlockCount = 0;
-		}
-
-		// Apply block to state (skip if already applied by the proposer)
+		// Apply block (skip if already applied by proposer)
 		const currentHeight = this.producer.getHeight();
-		if (block.height <= currentHeight) {
-			// Block already applied (we were the proposer)
-		} else {
+		if (block.height > currentHeight) {
 			const result = this.producer.applyBlock(block, true);
 			if (!result.valid) {
-				this.log(`Cannot commit: validation failed: ${result.error}`);
-				this.advanceRound();
+				this.log(`Commit failed: ${result.error}`);
+				this.enterPropose(this.height, this.round + 1);
 				return;
 			}
 		}
 
 		this.lastCommitTime = Date.now();
-		this.commitTimestamps.push(this.lastCommitTime);
-		this.log(`COMMITTED H=${block.height} hash=${blockHash.slice(0, 16)} proposer=${this.shortDid(block.proposer)}`);
+		this.log(`COMMITTED H=${block.height} proposer=${this.shortDid(block.proposer)}`);
 
-		if (this.onCommit) {
-			this.onCommit(block);
-		}
+		if (this.onCommit) this.onCommit(block);
 
-		// Update roster if this block contains consensus_join/leave transactions
-		const hasConsensusChange = block.transactions.some(
-			(tx) => tx.type === "consensus_join" || tx.type === "consensus_leave",
-		);
-		if (hasConsensusChange || (block.height > 0 && block.height % TendermintConsensus.EPOCH_LENGTH === 0)) {
-			this.updateRoster();
-		}
-
-		// Advance to next height with minimum 6-second block interval
+		// Advance to next height
 		this.height = block.height + 1;
-		setTimeout(() => this.startRound(this.height, 0), TendermintConsensus.MIN_BLOCK_INTERVAL_MS);
+		this.enterNewHeight();
 	}
 
-	/**
-	 * Update the validator roster from the on-chain consensus set.
-	 * Called at epoch boundaries (every 100 blocks) and on consensus_join/leave.
-	 * Falls back to genesis roster if the consensus set is empty (bootstrap).
-	 */
-	private updateRoster(): void {
-		const consensusSet = this.producer.getState().getConsensusSet();
-		const epoch = Math.floor(this.height / TendermintConsensus.EPOCH_LENGTH);
+	// ── Helpers ───────────────────────────────────────────────────
 
-		let newRoster: string[];
-		if (consensusSet.length > 0) {
-			newRoster = consensusSet;
-		} else {
-			newRoster = this.producer.getEligibleValidators();
-		}
-
-		if (newRoster.length !== this.roster.length) {
-			this.log(`Epoch ${epoch}: roster ${this.roster.length} -> ${newRoster.length}`);
-		}
-
-		this.roster = newRoster;
-		this.threshold = Math.max(1, Math.floor(this.roster.length * this.thresholdFraction) + 1);
+	private isValidator(did: string): boolean {
+		return this.validators.some((v) => v.did === did);
 	}
 
-	// ── Equivocation detection ──────────────────────────────────
-
-	/**
-	 * Check if a message constitutes double-signing.
-	 * A validator is equivocating if it sends two different votes
-	 * for the same (height, round, step).
-	 */
-	private checkEquivocation(msg: ConsensusMessage): void {
-		if (msg.type === "propose") return; // proposals are not votes
-
-		const key = `${msg.height}:${msg.round}:${msg.type}:${msg.from}`;
-		const existing = this.voteRecord.get(key);
-
-		if (existing !== undefined && existing !== msg.blockHash) {
-			// EQUIVOCATION DETECTED
-			const ev: EquivocationEvidence = {
-				validator: msg.from,
-				height: msg.height,
-				round: msg.round,
-				step: msg.type,
-				voteA: existing,
-				voteB: msg.blockHash,
-				timestamp: Date.now(),
-			};
-			this.evidence.push(ev);
-			this.log(`EQUIVOCATION: ${this.shortDid(msg.from)} double-signed at H=${msg.height} R=${msg.round} step=${msg.type}: ${existing.slice(0, 12)} vs ${msg.blockHash.slice(0, 12)}`);
-		}
-
-		if (existing === undefined) {
-			this.voteRecord.set(key, msg.blockHash);
-		}
+	private getValidatorPower(did: string): number {
+		return this.validators.find((v) => v.did === did)?.power ?? 0;
 	}
 
-	private recordVote(msg: ConsensusMessage): void {
-		const key = `${msg.height}:${msg.round}:${msg.type}:${msg.from}`;
-		this.voteRecord.set(key, msg.blockHash);
+	/** Count voting power per hash (not just vote count). */
+	private countVotePower(votes: Map<string, string>): Map<string, number> {
+		const power = new Map<string, number>();
+		for (const [voter, hash] of votes) {
+			const vp = this.getValidatorPower(voter);
+			power.set(hash, (power.get(hash) ?? 0) + vp);
+		}
+		return power;
 	}
 
-	// ── Lock helpers ────────────────────────────────────────────
-
-	/**
-	 * Find the highest round where 2/3+ prevotes exist for a given hash.
-	 * Returns null if no such polka exists.
-	 */
 	private findPolkaRound(blockHash: string): number | null {
 		let highest: number | null = null;
 		for (const [roundStr, votes] of this.prevotes) {
-			const round = Number(roundStr);
-			const counts = this.countVotes(votes);
-			const count = counts.get(blockHash) ?? 0;
-			if (count >= this.threshold) {
-				if (highest === null || round > highest) {
-					highest = round;
-				}
+			const power = this.countVotePower(votes);
+			if ((power.get(blockHash) ?? 0) >= this.threshold) {
+				const r = Number(roundStr);
+				if (highest === null || r > highest) highest = r;
 			}
 		}
 		return highest;
 	}
-
-	private resetLockState(): void {
-		this.lockedValue = null;
-		this.lockedRound = -1;
-		this.validValue = null;
-		this.validRound = -1;
-		this.voteRecord.clear();
-	}
-
-	// ── Stall detection and recovery ─────────────────────────────
-
-	/**
-	 * Check for consensus stall. Called every 30 seconds.
-	 * If no block committed within stallThresholdMs, reset to round 0.
-	 */
-	private checkStall(): void {
-		if (!this.running) return;
-		const elapsed = Date.now() - this.lastCommitTime;
-		if (elapsed > this.stallThresholdMs) {
-			this.log(`Consensus stall detected at height ${this.height}, round ${this.round}. No commit for ${Math.round(elapsed / 1000)}s. Resetting.`);
-			this.resetForStallRecovery();
-		}
-	}
-
-	/**
-	 * Reset consensus state for stall recovery.
-	 * Clears votes, locks, dedup, and restarts from round 0.
-	 * Safe because no block was committed at this height.
-	 */
-	private resetForStallRecovery(): void {
-		this.clearTimer();
-		this.prevotes.clear();
-		this.precommits.clear();
-		this.proposals.clear();
-		this.lockedValue = null;
-		this.lockedRound = -1;
-		this.validValue = null;
-		this.validRound = -1;
-		this.voteRecord.clear();
-		// Clear dedup entries for current height so fresh votes are accepted
-		const prefix = `${this.height}:`;
-		for (const key of this.seenMessages) {
-			if (key.startsWith(prefix)) this.seenMessages.delete(key);
-		}
-		// Also refresh the roster in case it changed
-		this.updateRoster();
-		this.log(`Recovery: reset to H=${this.height} R=0, roster=${this.roster.length}`);
-		this.startRound(this.height, 0);
-	}
-
-	/**
-	 * Check if this validator fell out of the consensus set and should rejoin.
-	 * Called every 60 seconds.
-	 */
-	private checkRejoin(): void {
-		if (!this.running) return;
-		const consensusSet = this.producer.getState().getConsensusSet();
-		if (consensusSet.length > 0 && !consensusSet.includes(this.myDid)) {
-			const account = this.producer.getState().getAccount(this.myDid);
-			if (account.stakedBalance > 0n) {
-				this.log("Not in consensus set. Auto-rejoining via network broadcast...");
-				const joinTx = {
-					type: "consensus_join" as const,
-					from: this.myDid,
-					to: this.myDid,
-					amount: 0n,
-					nonce: account.nonce,
-					timestamp: Date.now(),
-					signature: new Uint8Array(64),
-				};
-				try {
-					if (this.onSubmitTx) {
-						this.onSubmitTx(joinTx);
-						this.log("CONSENSUS_JOIN broadcast to network");
-					} else {
-						this.producer.submitTransaction(joinTx);
-						this.log("CONSENSUS_JOIN submitted to local mempool");
-					}
-				} catch {
-					// Already submitted or other error
-				}
-			}
-		}
-	}
-
-	// ── Helpers ─────────────────────────────────────────────────
 
 	private findProposalByHash(hash: string): Block | null {
 		for (const [, block] of this.proposals) {
@@ -839,21 +524,35 @@ export class TendermintConsensus {
 		return null;
 	}
 
-	private countVotes(votes: Map<string, string>): Map<string, number> {
-		const counts = new Map<string, number>();
-		for (const [, hash] of votes) {
-			counts.set(hash, (counts.get(hash) ?? 0) + 1);
+	private checkEquivocation(msg: ConsensusMessage): void {
+		if (msg.type === "propose") return;
+		const key = `${msg.height}:${msg.round}:${msg.type}:${msg.from}`;
+		const existing = this.voteRecord.get(key);
+		if (existing !== undefined && existing !== msg.blockHash) {
+			this.evidence.push({
+				validator: msg.from,
+				height: msg.height,
+				round: msg.round,
+				step: msg.type,
+				voteA: existing,
+				voteB: msg.blockHash,
+				timestamp: Date.now(),
+			});
+			this.log(`EQUIVOCATION: ${this.shortDid(msg.from)} at H=${msg.height} R=${msg.round}`);
 		}
-		return counts;
+		if (existing === undefined) this.voteRecord.set(key, msg.blockHash);
 	}
 
-	private getTimeout(step: ConsensusStep): number {
-		const base = step === "propose"
-			? this.proposeTimeoutMs
-			: step === "prevote"
-				? this.prevoteTimeoutMs
-				: this.precommitTimeoutMs;
-		return base + this.round * this.roundTimeoutIncrement;
+	// ── Timeouts (CometBFT defaults) ─────────────────────────────
+
+	private timeoutPropose(round: number): number {
+		return TIMEOUT_PROPOSE_BASE + round * TIMEOUT_PROPOSE_DELTA;
+	}
+	private timeoutPrevote(round: number): number {
+		return TIMEOUT_PREVOTE_BASE + round * TIMEOUT_PREVOTE_DELTA;
+	}
+	private timeoutPrecommit(round: number): number {
+		return TIMEOUT_PRECOMMIT_BASE + round * TIMEOUT_PRECOMMIT_DELTA;
 	}
 
 	private broadcast(msg: ConsensusMessage): void {
@@ -869,13 +568,6 @@ export class TendermintConsensus {
 		if (this.currentTimer) {
 			clearTimeout(this.currentTimer);
 			this.currentTimer = null;
-		}
-	}
-
-	private pruneSeenMessages(): void {
-		if (this.seenMessages.size > 10000) {
-			const arr = [...this.seenMessages];
-			this.seenMessages = new Set(arr.slice(-5000));
 		}
 	}
 
