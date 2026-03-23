@@ -453,11 +453,15 @@ export class TendermintConsensus {
 		if (!this.prevotes.has(rk)) this.prevotes.set(rk, new Map());
 		this.prevotes.get(rk)!.set(msg.from, msg.blockHash);
 
-		// CometBFT catch-up: jump to a future round when we see votes for it
+		// CometBFT f+1 catch-up: jump to future round when f+1 validators
+		// have voted for it. f = floor(totalPower/3), so f+1 = floor(totalPower/3)+1.
+		// This prevents a single malicious validator from forcing round skips.
 		if (msg.round > this.round) {
-			this.log(`Catching up R=${this.round} -> R=${msg.round} (prevote from ${this.shortDid(msg.from)})`);
-			this.clearTimer();
-			this.enterPropose(msg.height, msg.round);
+			if (this.hasFPlus1ForRound(msg.round)) {
+				this.log(`Catching up R=${this.round} -> R=${msg.round} (f+1 votes)`);
+				this.clearTimer();
+				this.enterPropose(msg.height, msg.round);
+			}
 			return true;
 		}
 
@@ -472,16 +476,41 @@ export class TendermintConsensus {
 		if (!this.precommits.has(rk)) this.precommits.set(rk, new Map());
 		this.precommits.get(rk)!.set(msg.from, msg.blockHash);
 
-		// CometBFT catch-up: jump to a future round when we see votes for it
+		// CometBFT f+1 catch-up
 		if (msg.round > this.round) {
-			this.log(`Catching up R=${this.round} -> R=${msg.round} (precommit from ${this.shortDid(msg.from)})`);
-			this.clearTimer();
-			this.enterPropose(msg.height, msg.round);
+			if (this.hasFPlus1ForRound(msg.round)) {
+				this.log(`Catching up R=${this.round} -> R=${msg.round} (f+1 votes)`);
+				this.clearTimer();
+				this.enterPropose(msg.height, msg.round);
+			}
 			return true;
 		}
 
 		this.checkPrecommitQuorum(rk, msg.height, msg.round);
 		return true;
+	}
+
+	/**
+	 * Check if f+1 validators have voted (prevote or precommit) for a given round.
+	 * f = floor(totalPower / 3), so f+1 is the minimum voting power needed
+	 * to prove that at least one honest validator has moved to this round.
+	 */
+	private hasFPlus1ForRound(round: number): boolean {
+		const fPlus1 = Math.floor(this.totalPower / 3) + 1;
+		const rk = String(round);
+
+		// Count unique voting power across both prevotes and precommits
+		const voters = new Set<string>();
+		const prevotes = this.prevotes.get(rk);
+		if (prevotes) for (const v of prevotes.keys()) voters.add(v);
+		const precommits = this.precommits.get(rk);
+		if (precommits) for (const v of precommits.keys()) voters.add(v);
+
+		let power = 0;
+		for (const did of voters) {
+			power += this.getValidatorPower(did);
+		}
+		return power >= fPlus1;
 	}
 
 	// ── Quorum Checks ────────────────────────────────────────────
