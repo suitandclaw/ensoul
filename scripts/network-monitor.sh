@@ -236,9 +236,12 @@ check_tunnel() {
 check_agents() {
 	if [ -f "$LOG_DIR/agents-disabled" ]; then return; fi
 
-	# Twitter agent: check PID file instead of pgrep (avoids false negatives)
+	# Twitter/X agent: check PID file instead of pgrep (avoids false negatives)
+	# Skip if X agent is disabled via kill switch
 	local agent_pid_file="$LOG_DIR/pids.json"
-	if [ -d "$HOME/ensoul-agent/src" ] && [ -f "$HOME/ensoul-agent/.env" ]; then
+	if [ -f "$LOG_DIR/x-agent-disabled" ]; then
+		: # X agent disabled, do not restart
+	elif [ -d "$HOME/ensoul-agent/src" ] && [ -f "$HOME/ensoul-agent/.env" ]; then
 		local agent_pid
 		agent_pid=$(python3 -c "import json; print(json.load(open('$agent_pid_file')).get('agent', 0))" 2>/dev/null || echo 0)
 		if [ "$agent_pid" = "0" ] || ! kill -0 "$agent_pid" 2>/dev/null; then

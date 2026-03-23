@@ -249,8 +249,10 @@ do_start() {
 	log "API gateway started (pid $!)"
 	wait_for_port 5050 10 "api" || true
 
-	# 6. Twitter Agent
-	if [ -d "$AGENT_DIR/src" ] && [ -f "$AGENT_DIR/.env" ]; then
+	# 6. Twitter/X Agent (disabled via kill switch)
+	if [ -f "$LOG_DIR/x-agent-disabled" ]; then
+		log "Skipping X agent (disabled via ~/.ensoul/x-agent-disabled)"
+	elif [ -d "$AGENT_DIR/src" ] && [ -f "$AGENT_DIR/.env" ]; then
 		log "Starting Twitter agent..."
 		cd "$AGENT_DIR" && npx tsx src/agent.ts \
 			>"$LOG_DIR/agent.log" 2>&1 &
