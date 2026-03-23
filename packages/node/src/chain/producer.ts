@@ -288,8 +288,10 @@ export class NodeBlockProducer {
 	 * Returns null if myDid is not the selected proposer.
 	 * If force is true, skips the proposer check (used for fallback
 	 * production when the expected proposer is offline).
+	 * If dryRun is true, produces the block but rolls back the chain
+	 * state so it is not applied (used for consensus proposals).
 	 */
-	produceBlock(myDid: string, force = false): Block | null {
+	produceBlock(myDid: string, force = false, dryRun = false): Block | null {
 		const roster = this.getEligibleValidators();
 		if (roster.length === 0) return null;
 
@@ -334,12 +336,33 @@ export class NodeBlockProducer {
 		const origMempool = ledgerAny["mempool"];
 		ledgerAny["mempool"] = tempPool;
 
+		// Save state before production for dry-run rollback
+		const savedState = dryRun ? this.state.clone() : null;
+		const savedTotalEmitted = dryRun ? (this.ledger as unknown as { totalEmitted: bigint }).totalEmitted : 0n;
+
 		const block = this.ledger.produceBlock(
 			myDid,
 			this.config.maxTxPerBlock,
 		);
 
 		ledgerAny["mempool"] = origMempool;
+
+		if (dryRun) {
+			// Roll back: remove the block from the chain and restore state
+			const chainArr = (this.ledger as unknown as { chain: Block[] }).chain;
+			chainArr.pop();
+			// Restore account state
+			const stateRef = this.ledger as unknown as { state: AccountState };
+			stateRef.state = savedState!;
+			this.state = savedState!;
+			(this.ledger as unknown as { totalEmitted: bigint }).totalEmitted = savedTotalEmitted;
+			// Put txs back into mempool
+			for (const tx of candidates) {
+				const nonce = savedState!.getAccount(tx.from).nonce;
+				try { this.mempool.add(tx, nonce); } catch { /* dup */ }
+			}
+			return block;
+		}
 
 		this.watchdog.recordBlock();
 		this.watchdog.advanceProposer(roster.length);

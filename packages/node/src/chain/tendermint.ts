@@ -336,7 +336,7 @@ export class TendermintConsensus {
 
 		if (proposer === this.myDid) {
 			// I am the proposer
-			const block = this.validValue ?? this.producer.produceBlock(this.myDid, true);
+			const block = this.validValue ?? this.producer.produceBlock(this.myDid, true, true);
 			if (block) {
 				const hash = computeBlockHash(block);
 				this.proposals.set(String(round), block);
