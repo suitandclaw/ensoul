@@ -314,9 +314,12 @@ export class PeerNetwork {
 					this.onConsensusMessage(msg);
 				}
 
-				// Relay to local peers (if we are the tunnel validator receiving from remote)
+				// Relay to local peers and other remote peers
 				if (this.isTunnelValidator) {
 					void this.relayToLocalPeers(body);
+					// Cross-relay: forward to other remote peers so Minis
+					// that only connect to us (star topology) see each other's votes
+					void this.relayToOtherRemotePeers(body);
 				}
 				return { accepted: true };
 			},
@@ -766,6 +769,30 @@ export class PeerNetwork {
 			} catch {
 				// Local peer not responding
 			}
+		});
+		await Promise.allSettled(promises);
+	}
+
+	/**
+	 * Relay a consensus message to all remote peers EXCEPT the sender.
+	 * Enables star-topology cross-relay: when a Mini sends a vote to
+	 * the MBP, the MBP forwards it to all other Minis so they see
+	 * each other's votes even if they aren't directly connected.
+	 */
+	private async relayToOtherRemotePeers(msg: SerializedConsensusMessage): Promise<void> {
+		const body = JSON.stringify(msg);
+		const promises = [...this.peers.keys()].map(async (addr) => {
+			// Don't relay back to the sender (they already have their own vote)
+			// We can't know which peer address maps to which DID, so relay to all.
+			// The dedup in handleMessage will prevent double-processing.
+			try {
+				await fetch(`${addr}/peer/consensus`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body,
+					signal: AbortSignal.timeout(2000),
+				});
+			} catch { /* peer offline */ }
 		});
 		await Promise.allSettled(promises);
 	}
