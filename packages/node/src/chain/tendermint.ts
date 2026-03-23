@@ -233,6 +233,37 @@ export class TendermintConsensus {
 		return [...this.evidence];
 	}
 
+	/**
+	 * Get the latest vote this validator cast (for periodic re-broadcast).
+	 * Returns the prevote or precommit for the current height/round, or null.
+	 */
+	getLatestVote(): ConsensusMessage | null {
+		if (!this.running) return null;
+		const rk = String(this.round);
+		// Check precommits first (later step)
+		const precommits = this.precommits.get(rk);
+		if (precommits?.has(this.myDid)) {
+			return {
+				type: "precommit",
+				height: this.height,
+				round: this.round,
+				blockHash: precommits.get(this.myDid)!,
+				from: this.myDid,
+			};
+		}
+		const prevotes = this.prevotes.get(rk);
+		if (prevotes?.has(this.myDid)) {
+			return {
+				type: "prevote",
+				height: this.height,
+				round: this.round,
+				blockHash: prevotes.get(this.myDid)!,
+				from: this.myDid,
+			};
+		}
+		return null;
+	}
+
 	handleMessage(msg: ConsensusMessage): boolean {
 		if (!this.running) return false;
 

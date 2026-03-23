@@ -91,6 +91,9 @@ export class PeerNetwork {
 	/** Callback when blocks are synced from peers (to advance consensus height). */
 	onBlockSynced: ((height: number) => void) | null = null;
 
+	/** Callback to get the latest consensus vote for periodic re-broadcast. */
+	onGetLatestVote: (() => ConsensusMessage | null) | null = null;
+
 	constructor(
 		gossip: GossipNetwork,
 		myDid: string,
@@ -966,6 +969,15 @@ export class PeerNetwork {
 				}
 			} catch {
 				// Peer offline, keep it in the list for retry
+			}
+		}
+
+		// Re-broadcast our latest consensus vote so peers that connected
+		// after we voted still see it (CometBFT-style gossip)
+		if (this.onGetLatestVote) {
+			const vote = this.onGetLatestVote();
+			if (vote) {
+				void this.broadcastConsensus(vote);
 			}
 		}
 	}

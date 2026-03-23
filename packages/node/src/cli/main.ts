@@ -209,6 +209,7 @@ async function main(): Promise<void> {
 			peerNet.onBlockSynced = (height) => {
 				consensus.onBlockSynced(height);
 			};
+			peerNet.onGetLatestVote = () => consensus.getLatestVote();
 			console.log(`  Consensus: Tendermint (threshold=${consensus.getThreshold()})\n`);
 		}
 	} else {
