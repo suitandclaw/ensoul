@@ -706,26 +706,25 @@ export class PeerNetwork {
 
 		const body = JSON.stringify(serialized);
 
-		if (this.isTunnelValidator) {
-			// Tunnel validator: send to remote peers AND local validators
-			const promises = [...this.peers.keys()].map(async (addr) => {
-				try {
-					await fetch(`${addr}/peer/consensus`, {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body,
-						signal: AbortSignal.timeout(3000),
-					});
-				} catch { /* peer offline */ }
-			});
-			await Promise.allSettled(promises);
-			// Also relay to local validators on this machine
-			void this.relayToLocalPeers(serialized);
-		} else {
-			// Non-tunnel validator: send to tunnel validator for external broadcast
-			// AND send directly to local peers on the same machine
+		// Send to ALL connected remote peers
+		const promises = [...this.peers.keys()].map(async (addr) => {
+			try {
+				await fetch(`${addr}/peer/consensus`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body,
+					signal: AbortSignal.timeout(3000),
+				});
+			} catch { /* peer offline */ }
+		});
+		await Promise.allSettled(promises);
+
+		// Also relay to local validators on the same machine
+		void this.relayToLocalPeers(serialized);
+
+		// Non-tunnel validators also relay to tunnel for cross-machine broadcast
+		if (!this.isTunnelValidator) {
 			void this.relayToTunnel(serialized);
-			void this.relayToLocalPeers(serialized);
 		}
 	}
 
@@ -737,7 +736,11 @@ export class PeerNetwork {
 	 */
 	async discoverLocalPeers(): Promise<void> {
 		this.localPeers = [];
-		for (let port = 9000; port <= 9009; port++) {
+		// Scan standard validator ports and nearby ports for test environments
+		const basePort = Math.floor(this.myPort / 1000) * 1000;
+		const scanStart = basePort === 9000 ? 9000 : basePort;
+		const scanEnd = scanStart + 9;
+		for (let port = scanStart; port <= scanEnd; port++) {
 			if (port === this.myPort) continue;
 			try {
 				const resp = await fetch(`http://localhost:${port}/peer/status`, {

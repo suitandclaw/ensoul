@@ -353,10 +353,21 @@ export class TendermintConsensus {
 	private enterPropose(height: number, round: number): void {
 		if (!this.running || height !== this.height) return;
 
-		// Round cap: reset to round 0 if exceeded
+		// Round cap: reset to round 0 and clear lock state if exceeded.
+		// CometBFT has no round cap, but we add one to prevent unbounded
+		// round numbers. Clearing locks on reset is essential -- otherwise
+		// lockedRound stays higher than the new round and the validator
+		// votes nil forever (can never find a PoLC > lockedRound).
 		if (round > MAX_ROUND) {
 			this.log(`Round cap reached (R=${round} > ${MAX_ROUND}), resetting to R=0`);
 			round = 0;
+			this.lockedValue = null;
+			this.lockedRound = -1;
+			this.validValue = null;
+			this.validRound = -1;
+			this.prevotes.clear();
+			this.precommits.clear();
+			this.proposals.clear();
 		}
 
 		this.round = round;
@@ -479,7 +490,7 @@ export class TendermintConsensus {
 
 	private onPrevote(msg: ConsensusMessage): boolean {
 		if (msg.height !== this.height) return false;
-		if (msg.round < this.round) return false;
+		// Accept prevotes from ALL rounds (past-round prevotes contribute to PoLC)
 		const rk = String(msg.round);
 		if (!this.prevotes.has(rk)) this.prevotes.set(rk, new Map());
 		this.prevotes.get(rk)!.set(msg.from, msg.blockHash);
@@ -502,7 +513,8 @@ export class TendermintConsensus {
 
 	private onPrecommit(msg: ConsensusMessage): boolean {
 		if (msg.height !== this.height) return false;
-		if (msg.round < this.round) return false;
+		// Accept precommits from ALL rounds (not just current+future)
+		// because CometBFT commits on 2/3+ precommits for a block across any round
 		const rk = String(msg.round);
 		if (!this.precommits.has(rk)) this.precommits.set(rk, new Map());
 		this.precommits.get(rk)!.set(msg.from, msg.blockHash);
@@ -572,16 +584,36 @@ export class TendermintConsensus {
 	}
 
 	private checkPrecommitQuorum(rk: string, height: number, round: number): void {
+		// First check this specific round
 		const votes = this.precommits.get(rk);
-		if (!votes) return;
-
-		for (const [hash, power] of this.countVotePower(votes)) {
-			if (power >= this.threshold) {
-				if (hash === "nil") {
-					this.clearTimer();
-					this.enterPropose(height, round + 1);
+		if (votes) {
+			for (const [hash, power] of this.countVotePower(votes)) {
+				if (power >= this.threshold) {
+					if (hash === "nil") {
+						this.clearTimer();
+						this.enterPropose(height, round + 1);
+						return;
+					}
+					this.commitBlock(hash);
 					return;
 				}
+			}
+		}
+
+		// CometBFT: also check if 2/3+ precommits exist for any single block
+		// across ALL rounds at this height. Votes from different rounds for
+		// the same block hash count toward commit.
+		const allPower = new Map<string, number>();
+		for (const [, roundVotes] of this.precommits) {
+			for (const [voter, hash] of roundVotes) {
+				if (hash === "nil") continue;
+				const vp = this.getValidatorPower(voter);
+				allPower.set(hash, (allPower.get(hash) ?? 0) + vp);
+			}
+		}
+		for (const [hash, power] of allPower) {
+			if (power >= this.threshold) {
+				this.log(`Cross-round commit: ${power}/${this.threshold} precommit power for block`);
 				this.commitBlock(hash);
 				return;
 			}
