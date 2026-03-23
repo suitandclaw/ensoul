@@ -54,6 +54,8 @@ function makeConsensus(
 		prevoteTimeoutMs: opts?.timeout ?? 100,
 		precommitTimeoutMs: opts?.timeout ?? 100,
 		roundTimeoutIncrement: 10,
+		commitTimeoutMs: 0,
+		minBlockIntervalMs: 0,
 	});
 }
 
@@ -76,18 +78,20 @@ describe("TendermintConsensus", () => {
 	// ── Threshold ────────────────────────────────────────────────
 
 	describe("threshold calculation", () => {
-		it("default 2/3+1: 3 validators -> threshold 3", () => {
+		it("default 2/3+1: 3 validators (power 10 each) -> threshold 21", () => {
 			const dids = [v1.did, v2.did, v3.did];
 			const producer = makeProducer(dids);
 			const c = new TendermintConsensus(producer, v1.did);
-			expect(c.getThreshold()).toBe(3); // floor(3 * 2/3) + 1 = 3
+			// 3 validators * power 10 = total 30, floor(30 * 2/3) + 1 = 21
+			expect(c.getThreshold()).toBe(21);
 		});
 
-		it("custom threshold 0.5: 3 validators -> threshold 2", () => {
+		it("custom threshold 0.5: 3 validators (power 10 each) -> threshold 15", () => {
 			const dids = [v1.did, v2.did, v3.did];
 			const producer = makeProducer(dids);
 			const c = new TendermintConsensus(producer, v1.did, { thresholdFraction: 0.5 });
-			expect(c.getThreshold()).toBe(2);
+			// ceil(30 * 0.5) = 15
+			expect(c.getThreshold()).toBe(15);
 		});
 	});
 

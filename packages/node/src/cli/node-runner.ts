@@ -309,6 +309,9 @@ export class EnsoulNodeRunner {
 			this.producer,
 			this.identity.did,
 			genesisValidators.length > 0 ? genesisValidators : undefined,
+			{
+				thresholdFraction: this.args.consensusThreshold,
+			},
 		);
 
 		this.consensus.onLog = (msg) => this.log(`[consensus] ${msg}`);

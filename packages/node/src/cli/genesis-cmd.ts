@@ -30,14 +30,9 @@ interface GenesisConfigJson {
 }
 
 /**
- * Load a GenesisConfig from a JSON file (bigints stored as strings).
+ * Parse a GenesisConfigJson into a GenesisConfig (bigint conversion).
  */
-export async function loadGenesisConfig(
-	path: string,
-): Promise<GenesisConfig> {
-	const raw = await readFile(path, "utf-8");
-	const json = JSON.parse(raw) as GenesisConfigJson;
-
+function parseGenesisConfig(json: GenesisConfigJson): GenesisConfig {
 	return {
 		chainId: json.chainId,
 		timestamp: json.timestamp,
@@ -59,6 +54,17 @@ export async function loadGenesisConfig(
 			txBaseFee: BigInt(json.protocolFees.txBaseFee),
 		},
 	};
+}
+
+/**
+ * Load a GenesisConfig from a JSON file (bigints stored as strings).
+ */
+export async function loadGenesisConfig(
+	path: string,
+): Promise<GenesisConfig> {
+	const raw = await readFile(path, "utf-8");
+	const json = JSON.parse(raw) as GenesisConfigJson;
+	return parseGenesisConfig(json);
 }
 
 /** Serialized genesis block for JSON storage. */
@@ -158,16 +164,39 @@ export async function loadGenesisBlock(
 	path: string,
 ): Promise<{ block: Block; config: GenesisConfig }> {
 	const raw = await readFile(path, "utf-8");
-	const data = JSON.parse(raw) as SerializedGenesisBlock;
+	const data = JSON.parse(raw) as Record<string, unknown>;
+
+	// Detect format: config files have "allocations", block files have "transactions"
+	if (
+		"allocations" in data &&
+		!("transactions" in data)
+	) {
+		// Config format (genesis-config-v*.json) - build the block from config
+		const config = parseGenesisConfig(data as unknown as GenesisConfigJson);
+		const state = new AccountState();
+		const pool = new Mempool();
+		const producer = new BlockProducer(state, pool, config);
+		const block = producer.initGenesis();
+		return { block, config };
+	}
+
+	// Block format (genesis.json / genesis-v*.json)
+	const blockData = data as unknown as SerializedGenesisBlock;
+
+	if (!blockData.transactions) {
+		throw new Error(
+			`Invalid genesis file at ${path}: missing both "transactions" and "allocations"`,
+		);
+	}
 
 	const block: Block = {
-		height: data.height,
-		previousHash: data.previousHash,
-		stateRoot: data.stateRoot,
-		transactionsRoot: data.transactionsRoot,
-		timestamp: data.timestamp,
-		proposer: data.proposer,
-		transactions: data.transactions.map((tx) => {
+		height: blockData.height,
+		previousHash: blockData.previousHash,
+		stateRoot: blockData.stateRoot,
+		transactionsRoot: blockData.transactionsRoot,
+		timestamp: blockData.timestamp,
+		proposer: blockData.proposer,
+		transactions: blockData.transactions.map((tx) => {
 			const base = {
 				type: tx.type as Block["transactions"][0]["type"],
 				from: tx.from,
@@ -182,35 +211,15 @@ export async function loadGenesisBlock(
 			}
 			return base;
 		}),
-		attestations: data.attestations.map((a) => ({
+		attestations: blockData.attestations.map((a) => ({
 			validatorDid: a.validatorDid,
 			signature: new Uint8Array(a.signature),
 			timestamp: a.timestamp,
 		})),
 	};
 
-	const cfg = data.genesisConfig;
-	const config: GenesisConfig = {
-		chainId: cfg.chainId,
-		timestamp: cfg.timestamp,
-		totalSupply: BigInt(cfg.totalSupply),
-		allocations: cfg.allocations.map((a): GenesisAllocation => {
-			const alloc: GenesisAllocation = {
-				label: a.label,
-				percentage: a.percentage,
-				tokens: BigInt(a.tokens),
-				recipient: a.recipient,
-			};
-			if (a.autoStake) alloc.autoStake = true;
-			return alloc;
-		}),
-		emissionPerBlock: BigInt(cfg.emissionPerBlock),
-		networkRewardsPool: BigInt(cfg.networkRewardsPool),
-		protocolFees: {
-			storageFeeProtocolShare: cfg.protocolFees.storageFeeProtocolShare,
-			txBaseFee: BigInt(cfg.protocolFees.txBaseFee),
-		},
-	};
+	const cfg = blockData.genesisConfig;
+	const config = parseGenesisConfig(cfg);
 
 	return { block, config };
 }

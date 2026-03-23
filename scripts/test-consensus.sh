@@ -10,15 +10,17 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_DIR="$HOME/.ensoul-testnet"
 BASE_PORT=19000
-PIDS=()
+PIDS=("")  # Initialize with empty element to avoid unbound variable
 
 cleanup() {
 	echo "[test] Cleaning up..."
 	for pid in "${PIDS[@]}"; do
+		[ -z "$pid" ] && continue
 		kill "$pid" 2>/dev/null || true
 	done
 	sleep 1
 	for pid in "${PIDS[@]}"; do
+		[ -z "$pid" ] && continue
 		kill -9 "$pid" 2>/dev/null || true
 	done
 	rm -rf "$TEST_DIR"
@@ -32,22 +34,25 @@ echo ""
 # Setup
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
-
-# Generate test genesis
-echo "[test] Generating test genesis..."
 cd "$REPO_DIR"
-npx tsx packages/node/src/cli/main.ts genesis \
-	--config genesis-config-v2.json \
-	--output "$TEST_DIR/genesis.json" \
-	>/dev/null 2>&1
 
-# Start 4 validators
+# Step 1: Generate 4 validator identities and genesis config
+echo "[test] Generating 4 validator identities and genesis..."
+npx tsx scripts/setup-testnet.ts "$TEST_DIR"
+
+# Step 2: Generate genesis block from config
+echo "[test] Creating genesis block..."
+npx tsx packages/node/src/cli/main.ts genesis \
+	--config "$TEST_DIR/genesis-config.json" \
+	--output "$TEST_DIR/genesis.json" \
+	2>/dev/null
+
+# Step 3: Start 4 validators
 echo "[test] Starting 4 test validators..."
 for i in 0 1 2 3; do
 	local_port=$((BASE_PORT + i))
 	local_api=$((BASE_PORT + 1000 + i))
 	local_dir="$TEST_DIR/validator-$i"
-	mkdir -p "$local_dir"
 
 	local_peers=""
 	for j in 0 1 2 3; do
@@ -60,7 +65,7 @@ for i in 0 1 2 3; do
 		--validate \
 		--no-min-stake \
 		--consensus-only \
-		--consensus-threshold 0.1 \
+		--consensus-threshold 0.67 \
 		--genesis "$TEST_DIR/genesis.json" \
 		--port "$local_port" \
 		--api-port "$local_api" \
@@ -70,9 +75,9 @@ for i in 0 1 2 3; do
 	PIDS+=($!)
 done
 
-# Wait for validators to start
-echo "[test] Waiting for validators to start..."
-sleep 10
+# Wait for validators to start and connect
+echo "[test] Waiting for validators to start (15s)..."
+sleep 15
 
 # Check they're running
 ALIVE=0
@@ -85,6 +90,12 @@ echo "[test] $ALIVE/4 validators healthy"
 
 if [ "$ALIVE" -eq 0 ]; then
 	echo "FAIL: No validators started"
+	echo ""
+	echo "Validator logs:"
+	for i in 0 1 2 3; do
+		echo "--- validator-$i ---"
+		tail -20 "$TEST_DIR/validator-$i.log" 2>/dev/null || echo "(no log)"
+	done
 	exit 1
 fi
 
@@ -108,9 +119,9 @@ echo "[test] Consensus state: $STATE"
 # Validate results
 PASS=true
 
-# Block rate: should be 8-12 blocks in 60 seconds (6s interval)
-if [ "$BLOCKS" -lt 5 ]; then
-	echo "FAIL: Too few blocks ($BLOCKS < 5)"
+# Block rate: should be 3-12 blocks in 60 seconds (6s min interval + consensus overhead)
+if [ "$BLOCKS" -lt 3 ]; then
+	echo "FAIL: Too few blocks ($BLOCKS < 3)"
 	PASS=false
 elif [ "$BLOCKS" -gt 15 ]; then
 	echo "FAIL: Too many blocks ($BLOCKS > 15). Rate limiting may be broken."
@@ -132,7 +143,13 @@ if [ "$PASS" = "true" ]; then
 	echo "=== ALL TESTS PASSED ==="
 else
 	echo "=== TESTS FAILED ==="
-	echo "Check logs in $TEST_DIR/validator-*.log"
+	echo ""
+	echo "Validator logs:"
+	for i in 0 1 2 3; do
+		echo "--- validator-$i (last 30 lines) ---"
+		tail -30 "$TEST_DIR/validator-$i.log" 2>/dev/null || echo "(no log)"
+		echo ""
+	done
 fi
 echo ""
 

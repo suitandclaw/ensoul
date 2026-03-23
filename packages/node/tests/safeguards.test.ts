@@ -64,6 +64,8 @@ describe("Protocol Safety Invariants", () => {
 				prevoteTimeoutMs: 10,
 				precommitTimeoutMs: 10,
 				roundTimeoutIncrement: 1,
+				commitTimeoutMs: 0,
+				minBlockIntervalMs: 0,
 			});
 
 			consensus.onBroadcast = () => {};

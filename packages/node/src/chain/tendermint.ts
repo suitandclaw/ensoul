@@ -61,14 +61,27 @@ interface ValidatorState {
 
 // ── Timeouts (matching CometBFT defaults) ────────────────────────────
 
-const TIMEOUT_PROPOSE_BASE = 3000;     // 3s
-const TIMEOUT_PROPOSE_DELTA = 500;     // +500ms per round
-const TIMEOUT_PREVOTE_BASE = 1000;     // 1s
-const TIMEOUT_PREVOTE_DELTA = 500;     // +500ms per round
-const TIMEOUT_PRECOMMIT_BASE = 1000;   // 1s
-const TIMEOUT_PRECOMMIT_DELTA = 500;   // +500ms per round
-const TIMEOUT_COMMIT = 1000;           // 1s between blocks
-const MIN_BLOCK_INTERVAL = 6000;       // 6s minimum (Ensoul-specific safety)
+const DEFAULT_PROPOSE_BASE = 3000;     // 3s
+const DEFAULT_PROPOSE_DELTA = 500;     // +500ms per round
+const DEFAULT_PREVOTE_BASE = 1000;     // 1s
+const DEFAULT_PREVOTE_DELTA = 500;     // +500ms per round
+const DEFAULT_PRECOMMIT_BASE = 1000;   // 1s
+const DEFAULT_PRECOMMIT_DELTA = 500;   // +500ms per round
+const DEFAULT_COMMIT_TIMEOUT = 1000;   // 1s between blocks
+const DEFAULT_MIN_BLOCK_INTERVAL = 6000; // 6s minimum (Ensoul-specific safety)
+const MAX_ROUND = 50;
+
+/** Optional config for timeouts and threshold (primarily for testing). */
+export interface ConsensusConfig {
+	thresholdFraction?: number;
+	proposeTimeoutMs?: number;
+	prevoteTimeoutMs?: number;
+	precommitTimeoutMs?: number;
+	roundTimeoutIncrement?: number;
+	commitTimeoutMs?: number;
+	minBlockIntervalMs?: number;
+	stallThresholdMs?: number;
+}
 
 // ── Consensus engine ────────────────────────────────────────────────
 
@@ -115,13 +128,45 @@ export class TendermintConsensus {
 	private seenMessages: Set<string> = new Set();
 	private running = false;
 
+	// ── Configurable timeouts ────────────────────────────────────
+	private proposeBase: number;
+	private proposeDelta: number;
+	private prevoteBase: number;
+	private prevoteDelta: number;
+	private precommitBase: number;
+	private precommitDelta: number;
+	private commitTimeout: number;
+	private minBlockInterval: number;
+
 	constructor(
 		producer: NodeBlockProducer,
 		myDid: string,
-		validatorSet?: Array<{ did: string; power: number }>,
+		validatorSetOrConfig?: Array<{ did: string; power: number }> | ConsensusConfig,
+		config?: ConsensusConfig,
 	) {
 		this.producer = producer;
 		this.myDid = myDid;
+
+		// Parse arguments: third arg can be validator set array or config object
+		let validatorSet: Array<{ did: string; power: number }> | undefined;
+		let cfg: ConsensusConfig | undefined;
+
+		if (Array.isArray(validatorSetOrConfig)) {
+			validatorSet = validatorSetOrConfig;
+			cfg = config;
+		} else if (validatorSetOrConfig && typeof validatorSetOrConfig === "object") {
+			cfg = validatorSetOrConfig;
+		}
+
+		// Apply timeout config (defaults to CometBFT standard values)
+		this.proposeBase = cfg?.proposeTimeoutMs ?? DEFAULT_PROPOSE_BASE;
+		this.proposeDelta = cfg?.roundTimeoutIncrement ?? DEFAULT_PROPOSE_DELTA;
+		this.prevoteBase = cfg?.prevoteTimeoutMs ?? DEFAULT_PREVOTE_BASE;
+		this.prevoteDelta = cfg?.roundTimeoutIncrement ?? DEFAULT_PREVOTE_DELTA;
+		this.precommitBase = cfg?.precommitTimeoutMs ?? DEFAULT_PRECOMMIT_BASE;
+		this.precommitDelta = cfg?.roundTimeoutIncrement ?? DEFAULT_PRECOMMIT_DELTA;
+		this.commitTimeout = cfg?.commitTimeoutMs ?? DEFAULT_COMMIT_TIMEOUT;
+		this.minBlockInterval = cfg?.minBlockIntervalMs ?? DEFAULT_MIN_BLOCK_INTERVAL;
 
 		// Build validator set from parameter, consensus set, or genesis
 		if (validatorSet && validatorSet.length > 0) {
@@ -133,8 +178,13 @@ export class TendermintConsensus {
 		}
 
 		this.totalPower = this.validators.reduce((s, v) => s + v.power, 0);
-		// 2/3+1 of total power
-		this.threshold = Math.floor(this.totalPower * 2 / 3) + 1;
+
+		// Threshold: custom fraction or default 2/3+1
+		if (cfg?.thresholdFraction !== undefined) {
+			this.threshold = Math.ceil(this.totalPower * cfg.thresholdFraction);
+		} else {
+			this.threshold = Math.floor(this.totalPower * 2 / 3) + 1;
+		}
 	}
 
 	// ── Public API ───────────────────────────────────────────────
@@ -264,13 +314,20 @@ export class TendermintConsensus {
 
 		// Wait timeoutCommit (minimum block interval) before starting new round
 		const elapsed = Date.now() - this.lastCommitTime;
-		const wait = Math.max(0, Math.max(TIMEOUT_COMMIT, MIN_BLOCK_INTERVAL) - elapsed);
+		const wait = Math.max(0, Math.max(this.commitTimeout, this.minBlockInterval) - elapsed);
 		this.startTimer(wait, () => this.enterPropose(this.height, 0));
 	}
 
 	/** Propose step: proposer creates block, others wait */
 	private enterPropose(height: number, round: number): void {
 		if (!this.running || height !== this.height) return;
+
+		// Round cap: reset to round 0 if exceeded
+		if (round > MAX_ROUND) {
+			this.log(`Round cap reached (R=${round} > ${MAX_ROUND}), resetting to R=0`);
+			round = 0;
+		}
+
 		this.round = round;
 		this.step = "propose";
 
@@ -546,13 +603,13 @@ export class TendermintConsensus {
 	// ── Timeouts (CometBFT defaults) ─────────────────────────────
 
 	private timeoutPropose(round: number): number {
-		return TIMEOUT_PROPOSE_BASE + round * TIMEOUT_PROPOSE_DELTA;
+		return this.proposeBase + round * this.proposeDelta;
 	}
 	private timeoutPrevote(round: number): number {
-		return TIMEOUT_PREVOTE_BASE + round * TIMEOUT_PREVOTE_DELTA;
+		return this.prevoteBase + round * this.prevoteDelta;
 	}
 	private timeoutPrecommit(round: number): number {
-		return TIMEOUT_PRECOMMIT_BASE + round * TIMEOUT_PRECOMMIT_DELTA;
+		return this.precommitBase + round * this.precommitDelta;
 	}
 
 	private broadcast(msg: ConsensusMessage): void {
