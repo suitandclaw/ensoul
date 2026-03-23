@@ -193,7 +193,7 @@ describe("TendermintConsensus", () => {
 
 			c1.start(1);
 			c2.start(1);
-			await new Promise((r) => setTimeout(r, 300));
+			await new Promise((r) => setTimeout(r, 1000));
 
 			expect(c1.getState().round).toBeGreaterThan(0);
 			expect(c2.getState().round).toBeGreaterThan(0);

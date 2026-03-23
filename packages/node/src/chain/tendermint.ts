@@ -448,26 +448,17 @@ export class TendermintConsensus {
 
 	private onPrevote(msg: ConsensusMessage): boolean {
 		if (msg.height !== this.height) return false;
-		// Accept votes from current and future rounds (CometBFT stores future round votes)
 		if (msg.round < this.round) return false;
 		const rk = String(msg.round);
 		if (!this.prevotes.has(rk)) this.prevotes.set(rk, new Map());
 		this.prevotes.get(rk)!.set(msg.from, msg.blockHash);
 
-		// If we received enough prevotes for a future round, jump to it
+		// CometBFT catch-up: jump to a future round when we see votes for it
 		if (msg.round > this.round) {
-			const votes = this.prevotes.get(rk)!;
-			const totalPower = this.countVotePower(votes);
-			for (const [, power] of totalPower) {
-				if (power >= this.threshold) {
-					this.log(`Jumping to R=${msg.round} (prevote quorum from future round)`);
-					this.clearTimer();
-					this.round = msg.round;
-					this.checkPrevoteQuorum(rk, msg.height, msg.round);
-					return true;
-				}
-			}
-			return true; // stored but not yet at quorum
+			this.log(`Catching up R=${this.round} -> R=${msg.round} (prevote from ${this.shortDid(msg.from)})`);
+			this.clearTimer();
+			this.enterPropose(msg.height, msg.round);
+			return true;
 		}
 
 		this.checkPrevoteQuorum(rk, msg.height, msg.round);
@@ -481,19 +472,11 @@ export class TendermintConsensus {
 		if (!this.precommits.has(rk)) this.precommits.set(rk, new Map());
 		this.precommits.get(rk)!.set(msg.from, msg.blockHash);
 
-		// If we received enough precommits for a future round, jump to it
+		// CometBFT catch-up: jump to a future round when we see votes for it
 		if (msg.round > this.round) {
-			const votes = this.precommits.get(rk)!;
-			const totalPower = this.countVotePower(votes);
-			for (const [, power] of totalPower) {
-				if (power >= this.threshold) {
-					this.log(`Jumping to R=${msg.round} (precommit quorum from future round)`);
-					this.clearTimer();
-					this.round = msg.round;
-					this.checkPrecommitQuorum(rk, msg.height, msg.round);
-					return true;
-				}
-			}
+			this.log(`Catching up R=${this.round} -> R=${msg.round} (precommit from ${this.shortDid(msg.from)})`);
+			this.clearTimer();
+			this.enterPropose(msg.height, msg.round);
 			return true;
 		}
 
