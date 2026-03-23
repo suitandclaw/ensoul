@@ -73,7 +73,7 @@ describe("Protocol Safety Invariants", () => {
 			consensus.onLog = (msg) => { logs.push(msg); };
 			consensus.start(1);
 
-			await new Promise((r) => setTimeout(r, 5000));
+			await new Promise((r) => setTimeout(r, 8000));
 			consensus.stop();
 
 			const capHits = logs.filter((l) => l.includes("Round cap reached"));

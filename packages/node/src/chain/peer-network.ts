@@ -935,10 +935,6 @@ export class PeerNetwork {
 								this.log(`Sync block error: ${e}`);
 							}
 						}
-						// Notify consensus engine of new height
-						if (result.applied > 0 && this.onBlockSynced) {
-							this.onBlockSynced(this.gossip.getProducer().getHeight());
-						}
 					}
 				}
 			} catch {

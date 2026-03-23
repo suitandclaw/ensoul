@@ -1,2 +1,2 @@
 /** Current ensoul-node version. Keep in sync with package.json. */
-export const VERSION = "1.1.3";
+export const VERSION = "1.2.0";
