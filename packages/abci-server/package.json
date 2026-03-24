@@ -1,0 +1,22 @@
+{
+  "name": "@ensoul/abci-server",
+  "version": "0.1.0",
+  "description": "ABCI 2.0 server for CometBFT integration",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "proto": "pbjs -t static-module -w es6 -o src/generated/proto.js proto/tendermint/abci/types.proto proto/tendermint/crypto/keys.proto proto/tendermint/crypto/proof.proto proto/tendermint/types/params.proto proto/tendermint/types/validator.proto && pbts -o src/generated/proto.d.ts src/generated/proto.js"
+  },
+  "dependencies": {
+    "protobufjs": "^7.4.0",
+    "@ensoul/ledger": "workspace:*",
+    "@ensoul/identity": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^25.0.0"
+  }
+}
