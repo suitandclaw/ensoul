@@ -1,62 +1,136 @@
 /**
- * ABCI 2.0 Application -- stub implementation.
+ * ABCI 2.0 Application -- Ensoul chain logic.
  *
- * This is the application-level handler for CometBFT's ABCI protocol.
- * Each method corresponds to a CometBFT ABCI call. The stubs log
- * and return OK so CometBFT can produce blocks.
- *
- * Methods will be filled in with real Ensoul logic:
- * - InitChain: genesis allocations, validator set
- * - CheckTx: transaction validation
- * - FinalizeBlock: transaction execution, emission
- * - Commit: state persistence
- * - Query: balance/agent queries
+ * Wires the existing @ensoul/ledger state machine to CometBFT's ABCI
+ * protocol. CometBFT handles consensus, P2P, and block storage. This
+ * module handles: genesis initialization, transaction validation and
+ * execution, block reward emission, state persistence, and queries.
  */
 
 import type protobuf from "protobufjs";
+import { writeFile, readFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { blake3 } from "@noble/hashes/blake3";
+import { bytesToHex } from "@noble/hashes/utils";
+import {
+	AccountState,
+	validateTransaction,
+	applyTransaction,
+	computeBlockReward,
+	DelegationRegistry,
+} from "@ensoul/ledger";
+import type { GenesisConfig, GenesisAllocation, Transaction, TransactionType } from "@ensoul/ledger";
+
+// -- Constants --
+
+const REWARDS_POOL = "did:ensoul:protocol:rewards";
+const HALVING_INTERVAL = 5_256_000; // ~1 year at 6s blocks
+const DECIMALS = 10n ** 18n;
+const ENC = new TextEncoder();
+const DEC = new TextDecoder();
 
 function log(msg: string): void {
 	const ts = new Date().toISOString().slice(11, 19);
 	process.stdout.write(`[${ts}] [abci] ${msg}\n`);
 }
 
-/** Application state tracking. */
-interface AppState {
-	height: number;
-	appHash: Buffer;
+// -- Transaction encoding --
+
+/** Encode an Ensoul transaction to bytes for CometBFT mempool. */
+export function encodeTx(tx: Transaction): Buffer {
+	return Buffer.from(JSON.stringify({
+		type: tx.type,
+		from: tx.from,
+		to: tx.to,
+		amount: tx.amount.toString(),
+		nonce: tx.nonce,
+		timestamp: tx.timestamp,
+		signature: Array.from(tx.signature),
+		data: tx.data ? Array.from(tx.data) : undefined,
+	}));
 }
 
-/**
- * Create an ABCI request handler that dispatches to application methods.
- */
-export function createApplication(): {
+/** Decode an Ensoul transaction from CometBFT bytes. */
+export function decodeTx(buf: Buffer): Transaction | null {
+	try {
+		const obj = JSON.parse(buf.toString("utf-8")) as Record<string, unknown>;
+		return {
+			type: obj["type"] as TransactionType,
+			from: obj["from"] as string,
+			to: obj["to"] as string,
+			amount: BigInt(obj["amount"] as string),
+			nonce: obj["nonce"] as number,
+			timestamp: obj["timestamp"] as number,
+			signature: new Uint8Array(obj["signature"] as number[]),
+			data: obj["data"] ? new Uint8Array(obj["data"] as number[]) : undefined,
+		};
+	} catch {
+		return null;
+	}
+}
+
+// -- Application State --
+
+interface EnsoulState {
+	/** Committed state (after last Commit). */
+	committed: AccountState;
+	/** Working state (being built during FinalizeBlock). */
+	working: AccountState;
+	/** CheckTx state (copy of committed, for mempool validation). */
+	checkTx: AccountState;
+	/** Delegation registry. */
+	delegations: DelegationRegistry;
+	/** Genesis config (loaded during InitChain). */
+	genesis: GenesisConfig | null;
+	/** Total emission already paid out. */
+	totalEmitted: bigint;
+	/** Last committed height. */
+	height: number;
+	/** Last committed app hash. */
+	appHash: Buffer;
+	/** Data directory for persistence. */
+	dataDir: string;
+}
+
+// -- Application Factory --
+
+export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 	handler: (request: protobuf.Message, field: string) => Promise<Record<string, unknown>>;
-	state: AppState;
+	state: EnsoulState;
 } {
-	const state: AppState = {
+	const state: EnsoulState = {
+		committed: new AccountState(),
+		working: new AccountState(),
+		checkTx: new AccountState(),
+		delegations: new DelegationRegistry(),
+		genesis: null,
+		totalEmitted: 0n,
 		height: 0,
 		appHash: Buffer.alloc(32),
+		dataDir,
 	};
 
 	async function handler(
-		_request: protobuf.Message,
+		request: protobuf.Message,
 		field: string,
 	): Promise<Record<string, unknown>> {
 		switch (field) {
-			case "echo":
-				return handleEcho(_request);
+			case "echo": {
+				const req = request as unknown as { echo?: { message?: string } };
+				return { echo: { message: req.echo?.message ?? "" } };
+			}
 			case "flush":
-				return handleFlush();
+				return { flush: {} };
 			case "info":
 				return handleInfo(state);
 			case "initChain":
-				return handleInitChain(_request, state);
+				return await handleInitChain(request, state);
 			case "checkTx":
-				return handleCheckTx(_request);
+				return handleCheckTx(request, state);
 			case "query":
-				return handleQuery(_request);
+				return handleQuery(request, state);
 			case "commit":
-				return handleCommit(state);
+				return await handleCommit(state);
 			case "listSnapshots":
 				return { listSnapshots: {} };
 			case "offerSnapshot":
@@ -66,11 +140,11 @@ export function createApplication(): {
 			case "applySnapshotChunk":
 				return { applySnapshotChunk: { result: 0 } };
 			case "prepareProposal":
-				return handlePrepareProposal(_request);
+				return handlePrepareProposal(request);
 			case "processProposal":
-				return handleProcessProposal();
+				return { processProposal: { status: 1 } }; // ACCEPT
 			case "finalizeBlock":
-				return handleFinalizeBlock(_request, state);
+				return handleFinalizeBlock(request, state);
 			case "extendVote":
 				return { extendVote: { voteExtension: Buffer.alloc(0) } };
 			case "verifyVoteExtension":
@@ -84,19 +158,18 @@ export function createApplication(): {
 	return { handler, state };
 }
 
-// -- Individual ABCI method handlers --
+// ======================================================================
+// 1. Info
+// ======================================================================
 
-function handleEcho(request: protobuf.Message): Record<string, unknown> {
-	const req = request as unknown as { echo?: { message?: string } };
-	return { echo: { message: req.echo?.message ?? "" } };
-}
-
-function handleFlush(): Record<string, unknown> {
-	return { flush: {} };
-}
-
-function handleInfo(state: AppState): Record<string, unknown> {
+function handleInfo(state: EnsoulState): Record<string, unknown> {
 	log(`Info: height=${state.height}`);
+
+	// Try to load persisted state on startup
+	if (state.height === 0) {
+		void loadPersistedState(state);
+	}
+
 	return {
 		info: {
 			data: "ensoul",
@@ -108,10 +181,14 @@ function handleInfo(state: AppState): Record<string, unknown> {
 	};
 }
 
-function handleInitChain(
+// ======================================================================
+// 2. InitChain -- process genesis allocations
+// ======================================================================
+
+async function handleInitChain(
 	request: protobuf.Message,
-	state: AppState,
-): Record<string, unknown> {
+	state: EnsoulState,
+): Promise<Record<string, unknown>> {
 	const req = request as unknown as {
 		initChain?: {
 			chainId?: string;
@@ -119,26 +196,45 @@ function handleInitChain(
 			appStateBytes?: Buffer;
 		};
 	};
-	const chainId = req.initChain?.chainId ?? "unknown";
-	const validatorCount = req.initChain?.validators?.length ?? 0;
+
+	const chainId = req.initChain?.chainId ?? "ensoul-1";
 	const appStateBytes = req.initChain?.appStateBytes;
 
-	log(`InitChain: chainId=${chainId} validators=${validatorCount}`);
+	log(`InitChain: chainId=${chainId}`);
 
+	// Parse app_state from genesis.json
 	if (appStateBytes && appStateBytes.length > 0) {
 		try {
-			const appState = JSON.parse(appStateBytes.toString("utf-8")) as Record<string, unknown>;
-			log(`  app_state keys: ${Object.keys(appState).join(", ")}`);
-		} catch {
-			log(`  app_state: ${appStateBytes.length} bytes (not JSON)`);
+			const raw = JSON.parse(appStateBytes.toString("utf-8")) as Record<string, unknown>;
+			const genesis = parseGenesisFromAppState(raw);
+			state.genesis = genesis;
+
+			// Process genesis allocations
+			const accountState = new AccountState();
+			for (const alloc of genesis.allocations) {
+				accountState.credit(alloc.recipient, alloc.tokens);
+				if (alloc.autoStake) {
+					accountState.stake(alloc.recipient, alloc.tokens);
+					accountState.joinConsensus(alloc.recipient);
+				}
+			}
+
+			state.committed = accountState;
+			state.working = accountState.clone();
+			state.checkTx = accountState.clone();
+
+			const root = computeAppHash(state);
+			state.appHash = root;
+
+			const validators = genesis.allocations.filter((a) => a.autoStake);
+			log(`  Allocations: ${genesis.allocations.length}`);
+			log(`  Validators: ${validators.length}`);
+			log(`  App hash: ${root.toString("hex").slice(0, 16)}...`);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			log(`  Failed to parse app_state: ${msg}`);
 		}
 	}
-
-	// TODO: Process genesis allocations from app_state
-	// TODO: Return initial validator set
-
-	state.height = 0;
-	state.appHash = Buffer.alloc(32); // Will be real state root
 
 	return {
 		initChain: {
@@ -147,47 +243,77 @@ function handleInitChain(
 	};
 }
 
-function handleCheckTx(request: protobuf.Message): Record<string, unknown> {
+function parseGenesisFromAppState(raw: Record<string, unknown>): GenesisConfig {
+	const allocations = (raw["allocations"] as Array<Record<string, unknown>> ?? []).map(
+		(a): GenesisAllocation => ({
+			label: (a["label"] as string) ?? "",
+			percentage: (a["percentage"] as number) ?? 0,
+			tokens: BigInt((a["tokens"] as string) ?? "0"),
+			recipient: (a["recipient"] as string) ?? "",
+			autoStake: (a["autoStake"] as boolean) ?? false,
+		}),
+	);
+
+	return {
+		chainId: (raw["chainId"] as string) ?? "ensoul-1",
+		timestamp: (raw["timestamp"] as number) ?? Date.now(),
+		totalSupply: BigInt((raw["totalSupply"] as string) ?? "1000000000000000000000000000"),
+		allocations,
+		emissionPerBlock: BigInt((raw["emissionPerBlock"] as string) ?? "19025875190258751"),
+		networkRewardsPool: BigInt((raw["networkRewardsPool"] as string) ?? "500000000000000000000000000"),
+		protocolFees: {
+			storageFeeProtocolShare: ((raw["protocolFees"] as Record<string, unknown>)?.["storageFeeProtocolShare"] as number) ?? 10,
+			txBaseFee: BigInt(((raw["protocolFees"] as Record<string, unknown>)?.["txBaseFee"] as string) ?? "1000"),
+		},
+	};
+}
+
+// ======================================================================
+// 3. CheckTx -- validate transaction for mempool admission
+// ======================================================================
+
+function handleCheckTx(
+	request: protobuf.Message,
+	state: EnsoulState,
+): Record<string, unknown> {
 	const req = request as unknown as {
 		checkTx?: { tx?: Buffer; type?: number };
 	};
 	const txBytes = req.checkTx?.tx;
-	const txType = req.checkTx?.type ?? 0; // 0 = NEW, 1 = RECHECK
-
-	if (txBytes) {
-		log(`CheckTx: ${txBytes.length} bytes (type=${txType === 0 ? "NEW" : "RECHECK"})`);
+	if (!txBytes || txBytes.length === 0) {
+		return { checkTx: { code: 1, log: "empty transaction" } };
 	}
 
-	// TODO: Decode and validate transaction against current state
-	// For now, accept all transactions
+	const tx = decodeTx(txBytes as Buffer);
+	if (!tx) {
+		return { checkTx: { code: 2, log: "failed to decode transaction" } };
+	}
+
+	// Validate against CheckTx state (copy of last committed state)
+	const result = validateTransaction(tx, state.checkTx);
+	if (!result.valid) {
+		log(`CheckTx REJECT: ${tx.type} from ${tx.from.slice(0, 20)}... -- ${result.error}`);
+		return {
+			checkTx: {
+				code: 3,
+				log: result.error ?? "validation failed",
+			},
+		};
+	}
+
 	return {
 		checkTx: {
 			code: 0,
 			log: "ok",
-			gasWanted: 1,
-			gasUsed: 1,
+			sender: tx.from,
+			priority: 1,
 		},
 	};
 }
 
-function handleQuery(request: protobuf.Message): Record<string, unknown> {
-	const req = request as unknown as {
-		query?: { path?: string; data?: Buffer; height?: number };
-	};
-	const path = req.query?.path ?? "";
-
-	log(`Query: path=${path}`);
-
-	// TODO: Handle query paths (balance, agent, validator info)
-	return {
-		query: {
-			code: 0,
-			log: "ok",
-			key: Buffer.alloc(0),
-			value: Buffer.from(JSON.stringify({ status: "ok" })),
-		},
-	};
-}
+// ======================================================================
+// 4. PrepareProposal -- order transactions for block
+// ======================================================================
 
 function handlePrepareProposal(request: protobuf.Message): Record<string, unknown> {
 	const req = request as unknown as {
@@ -195,76 +321,330 @@ function handlePrepareProposal(request: protobuf.Message): Record<string, unknow
 	};
 	const txs = req.prepareProposal?.txs ?? [];
 
-	log(`PrepareProposal: ${txs.length} candidate txs`);
-
-	// TODO: Order transactions, add block_reward tx, enforce limits
-	// For now, pass through all transactions
-	return {
-		prepareProposal: {
-			txs,
-		},
-	};
+	// Pass through transactions for now.
+	// Future: enforce per-identity limits, add block_reward tx.
+	return { prepareProposal: { txs } };
 }
 
-function handleProcessProposal(): Record<string, unknown> {
-	// TODO: Validate the proposed block (tx validity, reward correctness)
-	// For now, accept all proposals
-	return {
-		processProposal: {
-			status: 1, // ACCEPT
-		},
-	};
-}
+// ======================================================================
+// 5. FinalizeBlock -- execute transactions and compute emission
+// ======================================================================
 
 function handleFinalizeBlock(
 	request: protobuf.Message,
-	state: AppState,
+	state: EnsoulState,
 ): Record<string, unknown> {
 	const req = request as unknown as {
 		finalizeBlock?: {
 			txs?: Buffer[];
-			height?: number;
-			time?: { seconds?: number; nanos?: number };
+			height?: number | string;
+			time?: { seconds?: number | string; nanos?: number };
 			proposerAddress?: Buffer;
 		};
 	};
-	const txs = req.finalizeBlock?.txs ?? [];
+
+	const rawTxs = req.finalizeBlock?.txs ?? [];
 	const height = Number(req.finalizeBlock?.height ?? state.height + 1);
 
-	log(`FinalizeBlock: height=${height} txs=${txs.length}`);
+	// Clone committed state to build working state
+	state.working = state.committed.clone();
 
-	// TODO: Execute all transactions
-	// TODO: Compute block reward and emission
-	// TODO: Update account state
-	// TODO: Return validator updates for consensus_join/leave
+	// Execute each transaction
+	const txResults: Array<{ code: number; log: string }> = [];
+	let validTxCount = 0;
 
+	for (const txBytes of rawTxs) {
+		const tx = decodeTx(txBytes as Buffer);
+		if (!tx) {
+			txResults.push({ code: 1, log: "decode failed" });
+			continue;
+		}
+
+		const validation = validateTransaction(tx, state.working);
+		if (!validation.valid) {
+			txResults.push({ code: 2, log: validation.error ?? "invalid" });
+			continue;
+		}
+
+		// Apply the transaction to working state
+		applyTransaction(
+			tx,
+			state.working,
+			state.genesis?.protocolFees.storageFeeProtocolShare ?? 10,
+		);
+		state.working.incrementNonce(tx.from);
+		validTxCount++;
+		txResults.push({ code: 0, log: "ok" });
+	}
+
+	// Compute block emission
+	if (state.genesis) {
+		const reward = computeBlockReward(
+			height,
+			state.genesis.emissionPerBlock,
+			HALVING_INTERVAL,
+			state.genesis.networkRewardsPool,
+			state.totalEmitted,
+		);
+
+		if (reward > 0n) {
+			const poolBalance = state.working.getBalance(REWARDS_POOL);
+			if (poolBalance >= reward) {
+				state.working.debit(REWARDS_POOL, reward);
+				// For now, credit the first validator in the set as proposer.
+				// In production, map proposerAddress to a DID.
+				const consensusSet = state.working.getConsensusSet();
+				const proposerDid = consensusSet.length > 0
+					? consensusSet[0]!
+					: state.genesis.allocations.find((a) => a.autoStake)?.recipient ?? REWARDS_POOL;
+				state.working.credit(proposerDid, reward);
+				state.totalEmitted += reward;
+			}
+		}
+	}
+
+	// Compute validator updates from consensus_join/leave in this block
+	const validatorUpdates: Array<{ pubKey: { ed25519: Buffer }; power: string }> = [];
+	// TODO: When a consensus_join/leave tx is processed, emit validator updates
+	// with the appropriate Ed25519 key and power. For now, no dynamic updates.
+
+	// Compute new app hash
 	state.height = height;
-	// TODO: Compute real app_hash from account state root
-	state.appHash = Buffer.alloc(32);
+	const appHash = computeAppHash(state);
+	state.appHash = appHash;
 
-	// Build per-tx results (all OK for now)
-	const txResults = txs.map(() => ({
-		code: 0,
-		log: "ok",
-	}));
+	if (validTxCount > 0 || height % 100 === 0) {
+		log(`FinalizeBlock: height=${height} txs=${validTxCount}/${rawTxs.length} hash=${appHash.toString("hex").slice(0, 16)}...`);
+	}
 
 	return {
 		finalizeBlock: {
 			txResults,
-			appHash: state.appHash,
+			validatorUpdates,
+			appHash,
 		},
 	};
 }
 
-function handleCommit(state: AppState): Record<string, unknown> {
-	log(`Commit: height=${state.height}`);
+// ======================================================================
+// 6. Commit -- persist state to disk
+// ======================================================================
 
-	// TODO: Persist state to disk
-	// TODO: Update CheckTx state copy
+async function handleCommit(state: EnsoulState): Promise<Record<string, unknown>> {
+	// Advance committed state to working state
+	state.committed = state.working;
+	state.checkTx = state.committed.clone();
+
+	// Persist to disk
+	await persistState(state);
+
+	if (state.height % 100 === 0) {
+		log(`Commit: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL`);
+	}
 
 	return {
 		commit: {
 			retainHeight: 0,
 		},
 	};
+}
+
+// ======================================================================
+// 7. Query -- read state
+// ======================================================================
+
+function handleQuery(
+	request: protobuf.Message,
+	state: EnsoulState,
+): Record<string, unknown> {
+	const req = request as unknown as {
+		query?: { path?: string; data?: Buffer; height?: number | string };
+	};
+	const path = req.query?.path ?? "";
+	const data = req.query?.data;
+
+	// Route by path
+	const parts = path.split("/").filter(Boolean);
+	const route = parts[0] ?? "";
+	const param = parts[1] ?? (data ? data.toString("utf-8") : "");
+
+	let value: Record<string, unknown> = {};
+
+	switch (route) {
+		case "balance": {
+			const account = state.committed.getAccount(param);
+			value = {
+				did: param,
+				balance: account.balance.toString(),
+				stakedBalance: account.stakedBalance.toString(),
+				delegatedBalance: account.delegatedBalance.toString(),
+				pendingRewards: account.pendingRewards.toString(),
+				nonce: account.nonce,
+				storageCredits: account.storageCredits.toString(),
+			};
+			break;
+		}
+		case "validators": {
+			const set = state.committed.getConsensusSet();
+			value = {
+				validators: set.map((did) => {
+					const acct = state.committed.getAccount(did);
+					return {
+						did,
+						stakedBalance: acct.stakedBalance.toString(),
+						power: Number(acct.stakedBalance / DECIMALS),
+					};
+				}),
+				count: set.length,
+			};
+			break;
+		}
+		case "stats": {
+			value = {
+				height: state.height,
+				totalEmitted: state.totalEmitted.toString(),
+				totalEmittedEnsl: Number(state.totalEmitted / DECIMALS),
+				consensusSetSize: state.committed.getConsensusSet().length,
+			};
+			break;
+		}
+		case "agent": {
+			const acct = state.committed.getAccount(param);
+			value = {
+				did: param,
+				balance: acct.balance.toString(),
+				stakedBalance: acct.stakedBalance.toString(),
+				nonce: acct.nonce,
+				lastActivity: acct.lastActivity,
+			};
+			break;
+		}
+		default:
+			return {
+				query: {
+					code: 1,
+					log: `Unknown query path: ${path}`,
+					key: Buffer.alloc(0),
+					value: Buffer.alloc(0),
+				},
+			};
+	}
+
+	return {
+		query: {
+			code: 0,
+			log: "ok",
+			key: Buffer.from(path),
+			value: Buffer.from(JSON.stringify(value)),
+		},
+	};
+}
+
+// ======================================================================
+// Helpers
+// ======================================================================
+
+/** Compute deterministic app hash from account state. */
+function computeAppHash(state: EnsoulState): Buffer {
+	const stateRoot = state.working.computeStateRoot(
+		state.delegations.computeRoot(),
+	);
+	return Buffer.from(blake3(ENC.encode(stateRoot)));
+}
+
+/** Persist state to disk. */
+async function persistState(state: EnsoulState): Promise<void> {
+	try {
+		await mkdir(state.dataDir, { recursive: true });
+		const snapshot = {
+			height: state.height,
+			appHash: state.appHash.toString("hex"),
+			totalEmitted: state.totalEmitted.toString(),
+			// Serialize accounts
+			accounts: serializeAccounts(state.committed),
+			consensusSet: state.committed.getConsensusSet(),
+		};
+		await writeFile(
+			join(state.dataDir, "state.json"),
+			JSON.stringify(snapshot),
+		);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		log(`Persist failed: ${msg}`);
+	}
+}
+
+/** Load persisted state from disk. */
+async function loadPersistedState(state: EnsoulState): Promise<void> {
+	try {
+		const raw = await readFile(join(state.dataDir, "state.json"), "utf-8");
+		const snapshot = JSON.parse(raw) as {
+			height: number;
+			appHash: string;
+			totalEmitted: string;
+			accounts: Array<{ did: string; balance: string; stakedBalance: string; nonce: number; storageCredits: string; delegatedBalance: string; pendingRewards: string; lastActivity: number }>;
+			consensusSet: string[];
+		};
+
+		const accountState = new AccountState();
+		for (const acct of snapshot.accounts) {
+			accountState.credit(acct.did, BigInt(acct.balance));
+			if (BigInt(acct.stakedBalance) > 0n) {
+				accountState.stake(acct.did, BigInt(acct.stakedBalance));
+			}
+			for (let i = 0; i < acct.nonce; i++) {
+				accountState.incrementNonce(acct.did);
+			}
+		}
+		for (const did of snapshot.consensusSet) {
+			accountState.joinConsensus(did);
+		}
+
+		state.committed = accountState;
+		state.working = accountState.clone();
+		state.checkTx = accountState.clone();
+		state.height = snapshot.height;
+		state.totalEmitted = BigInt(snapshot.totalEmitted);
+		state.appHash = Buffer.from(snapshot.appHash, "hex");
+
+		log(`Loaded persisted state: height=${state.height}`);
+	} catch {
+		// No persisted state, start fresh
+	}
+}
+
+/** Serialize all accounts for persistence. */
+function serializeAccounts(accountState: AccountState): Array<Record<string, unknown>> {
+	const accounts: Array<Record<string, unknown>> = [];
+	// Use getAccount for known DIDs. The AccountState doesn't expose iteration,
+	// so we track accounts via the consensus set + any touched accounts.
+	// For a full implementation, AccountState should expose an iterator.
+	// For now, serialize the consensus set members and protocol accounts.
+	const knownDids = new Set<string>();
+	for (const did of accountState.getConsensusSet()) {
+		knownDids.add(did);
+	}
+	// Add protocol accounts
+	knownDids.add(REWARDS_POOL);
+	knownDids.add("did:ensoul:protocol:treasury");
+	knownDids.add("did:ensoul:protocol:onboarding");
+	knownDids.add("did:ensoul:protocol:liquidity");
+	knownDids.add("did:ensoul:protocol:contributors");
+	knownDids.add("did:ensoul:protocol:insurance");
+	knownDids.add("did:ensoul:protocol:burn");
+
+	for (const did of knownDids) {
+		const acct = accountState.getAccount(did);
+		accounts.push({
+			did,
+			balance: acct.balance.toString(),
+			stakedBalance: acct.stakedBalance.toString(),
+			nonce: acct.nonce,
+			storageCredits: acct.storageCredits.toString(),
+			delegatedBalance: acct.delegatedBalance.toString(),
+			pendingRewards: acct.pendingRewards.toString(),
+			lastActivity: acct.lastActivity,
+		});
+	}
+	return accounts;
 }

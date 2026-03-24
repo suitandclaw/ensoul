@@ -112,11 +112,23 @@ export function startTSPServer(
 		logger(`Connection from ${socket.remoteAddress}:${socket.remotePort}`);
 
 		let buffer = Buffer.alloc(0);
+		let processing = false;
+		const pendingChunks: Buffer[] = [];
 
 		socket.on("data", (chunk: Buffer) => {
-			buffer = Buffer.concat([buffer, chunk]);
-			void processBuffer();
+			pendingChunks.push(chunk);
+			if (!processing) {
+				processing = true;
+				void drainAndProcess().finally(() => { processing = false; });
+			}
 		});
+
+		async function drainAndProcess(): Promise<void> {
+			while (pendingChunks.length > 0) {
+				buffer = Buffer.concat([buffer, ...pendingChunks.splice(0)]);
+				await processBuffer();
+			}
+		}
 
 		async function processBuffer(): Promise<void> {
 			while (buffer.length > 0) {
@@ -136,18 +148,29 @@ export function startTSPServer(
 				try {
 					// Decode the Request wrapper
 					const request = RequestType.decode(msgBytes);
-					const requestObj = RequestType.toObject(request, {
-						longs: Number,
-						bytes: Buffer,
-						defaults: true,
-					}) as Record<string, unknown>;
 
-					// Find which oneof field is set
+					// Find which oneof field is actually set.
+					// Use the protobufjs internal representation: the "value"
+					// field name is stored on the decoded message object.
+					// We check which field has a non-default value by looking
+					// at the raw decoded message (NOT toObject with defaults).
+					const reqAny = request as unknown as Record<string, unknown>;
 					let requestField = "";
-					for (const key of Object.keys(requestObj)) {
-						if (requestObj[key] !== null && requestObj[key] !== undefined) {
-							requestField = key;
+					const oneofFields = RequestType.oneofs?.["value"]?.fieldsArray ?? [];
+					for (const field of oneofFields) {
+						if (reqAny[field.name] != null) {
+							requestField = field.name;
 							break;
+						}
+					}
+
+					// Fallback: iterate fields if oneof not found
+					if (!requestField) {
+						for (const field of RequestType.fieldsArray) {
+							if (reqAny[field.name] != null) {
+								requestField = field.name;
+								break;
+							}
 						}
 					}
 
