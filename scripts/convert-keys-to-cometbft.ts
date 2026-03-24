@@ -144,10 +144,29 @@ async function main(): Promise<void> {
 	log("");
 
 	// Find all validator directories
+	// Load genesis to validate keys against the foundation validator set
+	let genesisDids: Set<string> | null = null;
+	const genesisPath = args.find((_, idx, arr) => arr[idx - 1] === "--genesis") ?? join(ENSOUL_DIR, "..", "ensoul", "genesis-config-v3.json");
+	try {
+		const raw = await readFile(genesisPath, "utf-8");
+		const genesis = JSON.parse(raw) as { allocations: Array<{ recipient: string; label: string }> };
+		genesisDids = new Set(
+			genesis.allocations
+				.filter((a) => a.label === "Foundation Validator")
+				.map((a) => a.recipient),
+		);
+		log(`Genesis loaded: ${genesisDids.size} foundation validators`);
+	} catch {
+		log("WARNING: Could not load genesis config, skipping DID validation");
+	}
+
+	// Scan for validator directories
+	const maxIndex = Number(args.find((_, idx, arr) => arr[idx - 1] === "--max-index") ?? 15);
 	const results: ConversionResult[] = [];
 	let found = 0;
+	let skippedNotInGenesis = 0;
 
-	for (let i = 0; i < 35; i++) {
+	for (let i = 0; i <= maxIndex; i++) {
 		const idPath = join(ENSOUL_DIR, `validator-${i}`, "identity.json");
 		let identity: EnsoulIdentity;
 
@@ -157,6 +176,13 @@ async function main(): Promise<void> {
 			found++;
 		} catch {
 			continue; // No identity at this index
+		}
+
+		// Validate against genesis if available
+		if (genesisDids && !genesisDids.has(identity.did)) {
+			log(`validator-${i}: SKIP (not in genesis) ${identity.did.slice(0, 40)}...`);
+			skippedNotInGenesis++;
+			continue;
 		}
 
 		const result: ConversionResult = {
@@ -237,6 +263,7 @@ async function main(): Promise<void> {
 	log("");
 	log("=== SUMMARY ===");
 	log(`Found: ${found} validator keys`);
+	log(`Skipped (not in genesis): ${skippedNotInGenesis}`);
 	log(`Converted: ${results.filter((r) => r.success).length}`);
 	log(`Failed: ${results.filter((r) => !r.success).length}`);
 
