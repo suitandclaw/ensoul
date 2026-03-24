@@ -283,6 +283,28 @@ This is identical to how Cosmos Hub validators onboard -- standard, documented, 
 | Buffer | 1.5 days | Unexpected issues, edge cases |
 | **Total** | **~10 days** | |
 
+## Phase 3 Integration Test Results (2026-03-24)
+
+All tests passed. Summary:
+
+| Test | Result |
+|---|---|
+| Transaction validation (transfer, stake, consensus_join, storage) | PASS: all correctly rejected with proper errors when accounts lack funds |
+| State queries (/stats, /validators, /balance) | PASS: correct data returned via CometBFT ABCI query |
+| Validator count | PASS: 4 validators in consensus set |
+| Block production (30 second window) | PASS: 29 blocks produced (stable ~1 block/sec) |
+| Emission verification | PASS: ratio 0.999 (1065 emitted vs ~1066 expected at height 56) |
+| 250+ block stability | PASS: 4756 ENSL emitted over 250 blocks, zero crashes |
+| State persistence | PASS: state.json written with all account data |
+| Restart recovery | PASS: loaded height=58 from disk, CometBFT continued at 59 (no full replay) |
+| Deterministic replay | PASS: full block replay produces identical state (no app_hash mismatches) |
+
+### Validator Key Conversion
+
+10 Ensoul Ed25519 keys converted to CometBFT priv_validator_key.json format.
+Round-trip verified: CometBFT produced blocks using converted key.
+Script: `scripts/convert-keys-to-cometbft.ts`
+
 ## Key Risks
 
 1. **Protobuf compatibility**: CometBFT's protobuf schema evolves between versions. Pin to v0.38.x exactly.

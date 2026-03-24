@@ -122,7 +122,7 @@ export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 			case "flush":
 				return { flush: {} };
 			case "info":
-				return handleInfo(state);
+				return await handleInfo(state);
 			case "initChain":
 				return await handleInitChain(request, state);
 			case "checkTx":
@@ -162,13 +162,13 @@ export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 // 1. Info
 // ======================================================================
 
-function handleInfo(state: EnsoulState): Record<string, unknown> {
-	log(`Info: height=${state.height}`);
-
-	// Try to load persisted state on startup
+async function handleInfo(state: EnsoulState): Promise<Record<string, unknown>> {
+	// Load persisted state on first Info call (CometBFT calls this at startup)
 	if (state.height === 0) {
-		void loadPersistedState(state);
+		await loadPersistedState(state);
 	}
+
+	log(`Info: height=${state.height}`);
 
 	return {
 		info: {
@@ -560,9 +560,13 @@ async function persistState(state: EnsoulState): Promise<void> {
 			height: state.height,
 			appHash: state.appHash.toString("hex"),
 			totalEmitted: state.totalEmitted.toString(),
-			// Serialize accounts
 			accounts: serializeAccounts(state.committed),
 			consensusSet: state.committed.getConsensusSet(),
+			genesis: state.genesis ? {
+				emissionPerBlock: state.genesis.emissionPerBlock.toString(),
+				networkRewardsPool: state.genesis.networkRewardsPool.toString(),
+				storageFeeProtocolShare: state.genesis.protocolFees.storageFeeProtocolShare,
+			} : null,
 		};
 		await writeFile(
 			join(state.dataDir, "state.json"),
@@ -588,13 +592,21 @@ async function loadPersistedState(state: EnsoulState): Promise<void> {
 
 		const accountState = new AccountState();
 		for (const acct of snapshot.accounts) {
-			accountState.credit(acct.did, BigInt(acct.balance));
-			if (BigInt(acct.stakedBalance) > 0n) {
-				accountState.stake(acct.did, BigInt(acct.stakedBalance));
-			}
-			for (let i = 0; i < acct.nonce; i++) {
-				accountState.incrementNonce(acct.did);
-			}
+			// Set account fields directly to avoid balance check issues
+			// (stake() would fail because it requires balance >= amount)
+			accountState.setAccount({
+				did: acct.did,
+				balance: BigInt(acct.balance),
+				stakedBalance: BigInt(acct.stakedBalance),
+				unstakingBalance: 0n,
+				unstakingCompleteAt: 0,
+				stakeLockedUntil: 0,
+				delegatedBalance: BigInt(acct.delegatedBalance),
+				pendingRewards: BigInt(acct.pendingRewards),
+				nonce: acct.nonce,
+				storageCredits: BigInt(acct.storageCredits),
+				lastActivity: acct.lastActivity,
+			});
 		}
 		for (const did of snapshot.consensusSet) {
 			accountState.joinConsensus(did);
@@ -607,9 +619,27 @@ async function loadPersistedState(state: EnsoulState): Promise<void> {
 		state.totalEmitted = BigInt(snapshot.totalEmitted);
 		state.appHash = Buffer.from(snapshot.appHash, "hex");
 
-		log(`Loaded persisted state: height=${state.height}`);
-	} catch {
-		// No persisted state, start fresh
+		// Restore genesis config for emission calculations
+		const gen = (snapshot as Record<string, unknown>)["genesis"] as Record<string, unknown> | null;
+		if (gen) {
+			state.genesis = {
+				chainId: "ensoul-1",
+				timestamp: 0,
+				totalSupply: 1_000_000_000n * DECIMALS,
+				allocations: [],
+				emissionPerBlock: BigInt(gen["emissionPerBlock"] as string),
+				networkRewardsPool: BigInt(gen["networkRewardsPool"] as string),
+				protocolFees: {
+					storageFeeProtocolShare: gen["storageFeeProtocolShare"] as number,
+					txBaseFee: 1000n,
+				},
+			};
+		}
+
+		log(`Loaded persisted state: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL`);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		log(`No persisted state (${msg}), starting fresh`);
 	}
 }
 
