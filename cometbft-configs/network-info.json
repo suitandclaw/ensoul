@@ -1,0 +1,282 @@
+[
+  {
+    "validatorIndex": 0,
+    "machine": "mbp",
+    "localIndex": 0,
+    "nodeId": "d642bed30970c51a9f46ca42690b61d648d40788",
+    "ip": "100.67.81.90",
+    "p2pPort": 26656
+  },
+  {
+    "validatorIndex": 1,
+    "machine": "mbp",
+    "localIndex": 1,
+    "nodeId": "81cd95a002b6ecf5978d399627f51929399f31c3",
+    "ip": "100.67.81.90",
+    "p2pPort": 26666
+  },
+  {
+    "validatorIndex": 2,
+    "machine": "mbp",
+    "localIndex": 2,
+    "nodeId": "b575a3bee04f2ab00b335837544c0b7007d8bf50",
+    "ip": "100.67.81.90",
+    "p2pPort": 26676
+  },
+  {
+    "validatorIndex": 3,
+    "machine": "mbp",
+    "localIndex": 3,
+    "nodeId": "596960a75f30df98acb94f23bbff1b284380b844",
+    "ip": "100.67.81.90",
+    "p2pPort": 26686
+  },
+  {
+    "validatorIndex": 4,
+    "machine": "mbp",
+    "localIndex": 4,
+    "nodeId": "2f9d6c668ba2a9332d4e4b4fd1129f996cf39a31",
+    "ip": "100.67.81.90",
+    "p2pPort": 26696
+  },
+  {
+    "validatorIndex": 5,
+    "machine": "mini1",
+    "localIndex": 0,
+    "nodeId": "03675d846dff7583a679c1c4f850ee57de16608d",
+    "ip": "100.86.108.114",
+    "p2pPort": 26656
+  },
+  {
+    "validatorIndex": 6,
+    "machine": "mini1",
+    "localIndex": 1,
+    "nodeId": "19b7d82c6422a5a51ce2dcb403379751b0d0e926",
+    "ip": "100.86.108.114",
+    "p2pPort": 26666
+  },
+  {
+    "validatorIndex": 7,
+    "machine": "mini1",
+    "localIndex": 2,
+    "nodeId": "944cc7faef59e9a2029fe18b82ccd3f925e1dab8",
+    "ip": "100.86.108.114",
+    "p2pPort": 26676
+  },
+  {
+    "validatorIndex": 8,
+    "machine": "mini1",
+    "localIndex": 3,
+    "nodeId": "6c75e84cd2bd5269495bb794d32ed564fa5b5ab4",
+    "ip": "100.86.108.114",
+    "p2pPort": 26686
+  },
+  {
+    "validatorIndex": 9,
+    "machine": "mini1",
+    "localIndex": 4,
+    "nodeId": "b703c59160272dc5d7f423fd0ecc7611a30c6e1d",
+    "ip": "100.86.108.114",
+    "p2pPort": 26696
+  },
+  {
+    "validatorIndex": 10,
+    "machine": "mini1",
+    "localIndex": 5,
+    "nodeId": "63c835d7c49f802f96836e3a6d9130dee126edbf",
+    "ip": "100.86.108.114",
+    "p2pPort": 26706
+  },
+  {
+    "validatorIndex": 11,
+    "machine": "mini1",
+    "localIndex": 6,
+    "nodeId": "d61596f2412903d98d3bb399a154517033d0074a",
+    "ip": "100.86.108.114",
+    "p2pPort": 26716
+  },
+  {
+    "validatorIndex": 12,
+    "machine": "mini1",
+    "localIndex": 7,
+    "nodeId": "118d3d9fdf5d60fb145bab1d8fed4f2b2c038d9b",
+    "ip": "100.86.108.114",
+    "p2pPort": 26726
+  },
+  {
+    "validatorIndex": 13,
+    "machine": "mini1",
+    "localIndex": 8,
+    "nodeId": "619f7143c7ca4476593edb04b454cf2af4896153",
+    "ip": "100.86.108.114",
+    "p2pPort": 26736
+  },
+  {
+    "validatorIndex": 14,
+    "machine": "mini1",
+    "localIndex": 9,
+    "nodeId": "c765827b0c5b23c71c8e81c332c21eb6d8c14bc5",
+    "ip": "100.86.108.114",
+    "p2pPort": 26746
+  },
+  {
+    "validatorIndex": 15,
+    "machine": "mini2",
+    "localIndex": 0,
+    "nodeId": "d45b21622316bde487aa0920c420e280047fc625",
+    "ip": "100.117.84.28",
+    "p2pPort": 26656
+  },
+  {
+    "validatorIndex": 16,
+    "machine": "mini2",
+    "localIndex": 1,
+    "nodeId": "4aff1954e8e1f4da6ddd2b0aa384519c07fd6519",
+    "ip": "100.117.84.28",
+    "p2pPort": 26666
+  },
+  {
+    "validatorIndex": 17,
+    "machine": "mini2",
+    "localIndex": 2,
+    "nodeId": "129813fb166ad96fb98913f6bbe7082f24bfed21",
+    "ip": "100.117.84.28",
+    "p2pPort": 26676
+  },
+  {
+    "validatorIndex": 18,
+    "machine": "mini2",
+    "localIndex": 3,
+    "nodeId": "e05398940b811a48ddc8e1b168ed62485eed03de",
+    "ip": "100.117.84.28",
+    "p2pPort": 26686
+  },
+  {
+    "validatorIndex": 19,
+    "machine": "mini2",
+    "localIndex": 4,
+    "nodeId": "7d333ab208efd47724dafbf0abfa0a3d971a0c4b",
+    "ip": "100.117.84.28",
+    "p2pPort": 26696
+  },
+  {
+    "validatorIndex": 20,
+    "machine": "mini2",
+    "localIndex": 5,
+    "nodeId": "dc8522bac154637b23926cf2a420200793f8c2e7",
+    "ip": "100.117.84.28",
+    "p2pPort": 26706
+  },
+  {
+    "validatorIndex": 21,
+    "machine": "mini2",
+    "localIndex": 6,
+    "nodeId": "2c46d38e2dc1240f047beaa1d8f91f312b060d5e",
+    "ip": "100.117.84.28",
+    "p2pPort": 26716
+  },
+  {
+    "validatorIndex": 22,
+    "machine": "mini2",
+    "localIndex": 7,
+    "nodeId": "9f40079ea7d628369e4dd399d0ba7a52fd91e4c2",
+    "ip": "100.117.84.28",
+    "p2pPort": 26726
+  },
+  {
+    "validatorIndex": 23,
+    "machine": "mini2",
+    "localIndex": 8,
+    "nodeId": "107a0aacdba32b09c144115271745efe9d499718",
+    "ip": "100.117.84.28",
+    "p2pPort": 26736
+  },
+  {
+    "validatorIndex": 24,
+    "machine": "mini2",
+    "localIndex": 9,
+    "nodeId": "3ea9d1c4556802da97d7c2dee31f7b3ee725f586",
+    "ip": "100.117.84.28",
+    "p2pPort": 26746
+  },
+  {
+    "validatorIndex": 25,
+    "machine": "mini3",
+    "localIndex": 0,
+    "nodeId": "e1e1802aa137b192dbcfbbd747c1397ed45d72e3",
+    "ip": "100.127.140.26",
+    "p2pPort": 26656
+  },
+  {
+    "validatorIndex": 26,
+    "machine": "mini3",
+    "localIndex": 1,
+    "nodeId": "377dc0cac74028ffd92e3f82b2b058e18dd4a66b",
+    "ip": "100.127.140.26",
+    "p2pPort": 26666
+  },
+  {
+    "validatorIndex": 27,
+    "machine": "mini3",
+    "localIndex": 2,
+    "nodeId": "6081eb5406026f639777ea0cd9e74d0d8d927229",
+    "ip": "100.127.140.26",
+    "p2pPort": 26676
+  },
+  {
+    "validatorIndex": 28,
+    "machine": "mini3",
+    "localIndex": 3,
+    "nodeId": "bdfef3a03932b79515226cec5b12f4aa0338de80",
+    "ip": "100.127.140.26",
+    "p2pPort": 26686
+  },
+  {
+    "validatorIndex": 29,
+    "machine": "mini3",
+    "localIndex": 4,
+    "nodeId": "9440c55b40b1c0d2c2755d840928192114154fa3",
+    "ip": "100.127.140.26",
+    "p2pPort": 26696
+  },
+  {
+    "validatorIndex": 30,
+    "machine": "mini3",
+    "localIndex": 5,
+    "nodeId": "a11b111cf1ae0fde11943641d679e830feeb77a7",
+    "ip": "100.127.140.26",
+    "p2pPort": 26706
+  },
+  {
+    "validatorIndex": 31,
+    "machine": "mini3",
+    "localIndex": 6,
+    "nodeId": "c70047f4bf2e5f8909345322bb4d801745ddd441",
+    "ip": "100.127.140.26",
+    "p2pPort": 26716
+  },
+  {
+    "validatorIndex": 32,
+    "machine": "mini3",
+    "localIndex": 7,
+    "nodeId": "5d895094ac33806a034d5f3d918f80e52c9703a4",
+    "ip": "100.127.140.26",
+    "p2pPort": 26726
+  },
+  {
+    "validatorIndex": 33,
+    "machine": "mini3",
+    "localIndex": 8,
+    "nodeId": "e845b978077e40cf5c013f10dfd2708b01e58374",
+    "ip": "100.127.140.26",
+    "p2pPort": 26736
+  },
+  {
+    "validatorIndex": 34,
+    "machine": "mini3",
+    "localIndex": 9,
+    "nodeId": "8a20e1794b4b3fd7a30fb2a00365cb6de892a8bb",
+    "ip": "100.127.140.26",
+    "p2pPort": 26746
+  }
+]
