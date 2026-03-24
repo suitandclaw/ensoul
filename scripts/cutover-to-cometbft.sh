@@ -150,8 +150,12 @@ stop_old_validators() {
 start_cometbft() {
 	log "Starting CometBFT ABCI server..."
 
+	# Clear stale ABCI state (fresh genesis needs fresh state)
+	rm -rf /tmp/ensoul-abci
+
 	# Start the ABCI server (single process for all validators on this machine)
 	local abci_port=26658
+	cd "$REPO_DIR"
 	npx tsx "$REPO_DIR/packages/abci-server/src/index.ts" --port "$abci_port" \
 		> "$LOG_DIR/abci-server.log" 2>&1 &
 	local abci_pid=$!
@@ -164,31 +168,34 @@ start_cometbft() {
 	rm -rf "$cmt_home"
 	mkdir -p "$cmt_home/config" "$cmt_home/data"
 
-	# Copy genesis, key, and generate node key
-	cp "$COMETBFT_DIR/genesis.json" "$cmt_home/config/"
+	# Initialize with defaults then overwrite
+	"$COMETBFT_BIN" init --home "$cmt_home" 2>/dev/null || true
+
+	# Copy production genesis (4 validators) and this machine's key
+	if [ -f "$REPO_DIR/cometbft-genesis.json" ]; then
+		cp "$REPO_DIR/cometbft-genesis.json" "$cmt_home/config/genesis.json"
+	elif [ -f "$COMETBFT_DIR/genesis-production.json" ]; then
+		cp "$COMETBFT_DIR/genesis-production.json" "$cmt_home/config/genesis.json"
+	else
+		log "ERROR: No production genesis found"
+		return 1
+	fi
+
 	cp "$COMETBFT_DIR/validator-0/config/priv_validator_key.json" "$cmt_home/config/"
 	echo '{"height":"0","round":0,"step":0}' > "$cmt_home/data/priv_validator_state.json"
-	"$COMETBFT_BIN" gen-node-key --home "$cmt_home" 2>/dev/null
-
-	# Create config
-	"$COMETBFT_BIN" init --home "$cmt_home" 2>/dev/null || true
-	# Overwrite genesis (init creates a default one)
-	cp "$COMETBFT_DIR/genesis.json" "$cmt_home/config/"
 
 	# Configure proxy_app to point to our ABCI server
 	sed -i '' "s|proxy_app = .*|proxy_app = \"tcp://127.0.0.1:$abci_port\"|" "$cmt_home/config/config.toml"
 
-	# Configure P2P
-	local p2p_port=26656
-	local rpc_port=26657
-	sed -i '' "s|laddr = \"tcp://0.0.0.0:26656\"|laddr = \"tcp://0.0.0.0:$p2p_port\"|" "$cmt_home/config/config.toml"
-	sed -i '' "s|laddr = \"tcp://127.0.0.1:26657\"|laddr = \"tcp://127.0.0.1:$rpc_port\"|" "$cmt_home/config/config.toml"
-
-	# Allow duplicate IPs (multiple validators on same machine)
+	# Allow duplicate IPs and disable strict address book (private network)
 	sed -i '' 's/allow_duplicate_ip = false/allow_duplicate_ip = true/' "$cmt_home/config/config.toml"
-
-	# Disable strict address book (local/private network)
 	sed -i '' 's/addr_book_strict = true/addr_book_strict = false/' "$cmt_home/config/config.toml"
+
+	# Configure persistent peers (Minis connect to MBP, MBP accepts connections)
+	# For Minis, the peer is set via start-cometbft-mini.sh argument
+
+	# Bind RPC to 0.0.0.0 so the tunnel can expose it
+	sed -i '' 's|laddr = "tcp://127.0.0.1:26657"|laddr = "tcp://0.0.0.0:26657"|' "$cmt_home/config/config.toml"
 
 	log "Starting CometBFT..."
 	"$COMETBFT_BIN" start --home "$cmt_home" \

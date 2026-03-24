@@ -20,6 +20,7 @@ import {
 	DelegationRegistry,
 } from "@ensoul/ledger";
 import type { GenesisConfig, GenesisAllocation, Transaction, TransactionType } from "@ensoul/ledger";
+import { createHash } from "node:crypto";
 
 // -- Constants --
 
@@ -27,7 +28,40 @@ const REWARDS_POOL = "did:ensoul:protocol:rewards";
 const HALVING_INTERVAL = 5_256_000; // ~1 year at 6s blocks
 const DECIMALS = 10n ** 18n;
 const ENC = new TextEncoder();
-const DEC = new TextDecoder();
+
+// -- DID to Ed25519 pubkey extraction --
+
+const B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+function base58btcDecode(str: string): Uint8Array {
+	let num = 0n;
+	for (const char of str) {
+		const idx = B58_ALPHABET.indexOf(char);
+		if (idx < 0) throw new Error(`Invalid base58 char: ${char}`);
+		num = num * 58n + BigInt(idx);
+	}
+	const bytes: number[] = [];
+	while (num > 0n) {
+		bytes.unshift(Number(num % 256n));
+		num /= 256n;
+	}
+	for (const char of str) {
+		if (char !== "1") break;
+		bytes.unshift(0);
+	}
+	return new Uint8Array(bytes);
+}
+
+/**
+ * Extract the raw 32-byte Ed25519 public key from a did:key DID.
+ * Returns null for non-did:key DIDs (protocol accounts).
+ */
+function pubkeyFromDid(did: string): Uint8Array | null {
+	if (!did.startsWith("did:key:z")) return null;
+	const decoded = base58btcDecode(did.slice("did:key:z".length));
+	if (decoded.length < 34 || decoded[0] !== 0xed || decoded[1] !== 0x01) return null;
+	return decoded.subarray(2, 34);
+}
 
 function log(msg: string): void {
 	const ts = new Date().toISOString().slice(11, 19);
@@ -403,10 +437,35 @@ function handleFinalizeBlock(
 		}
 	}
 
-	// Compute validator updates from consensus_join/leave in this block
+	// Emit CometBFT validator updates for consensus_join/leave transactions.
+	// CometBFT applies these at height H+2.
 	const validatorUpdates: Array<{ pubKey: { ed25519: Buffer }; power: string }> = [];
-	// TODO: When a consensus_join/leave tx is processed, emit validator updates
-	// with the appropriate Ed25519 key and power. For now, no dynamic updates.
+
+	for (const txBytes of rawTxs) {
+		const tx = decodeTx(txBytes as Buffer);
+		if (!tx) continue;
+		if (tx.type !== "consensus_join" && tx.type !== "consensus_leave") continue;
+
+		const pubkey = pubkeyFromDid(tx.from);
+		if (!pubkey) continue;
+
+		if (tx.type === "consensus_join") {
+			const acct = state.working.getAccount(tx.from);
+			const power = acct.stakedBalance / DECIMALS;
+			validatorUpdates.push({
+				pubKey: { ed25519: Buffer.from(pubkey) },
+				power: power.toString(),
+			});
+			log(`Validator update: ADD ${tx.from.slice(0, 30)}... power=${power}`);
+		} else {
+			// Power 0 removes the validator
+			validatorUpdates.push({
+				pubKey: { ed25519: Buffer.from(pubkey) },
+				power: "0",
+			});
+			log(`Validator update: REMOVE ${tx.from.slice(0, 30)}...`);
+		}
+	}
 
 	// Compute new app hash
 	state.height = height;
