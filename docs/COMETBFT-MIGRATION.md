@@ -219,17 +219,78 @@ For a TypeScript server, option 1 (socket transport) is simpler. We can fork/ada
 
 ## Data Migration Strategy
 
-### Option A: Fresh Start (Recommended for testnet)
+### Chosen Approach: Fresh Genesis with Agent Re-registration
 
-1. Export all agent registrations and consciousness stores from the current chain
-2. Create new CometBFT genesis with all current balances as app_state
-3. Start fresh chain from height 0
-4. Re-register agents via bootstrap script
+Production Cosmos chains (Cosmos Hub, Osmosis, Juno) handle consensus engine
+upgrades via governance proposals that halt the chain at a specific height,
+export state, and import it into a new genesis. For Ensoul's testnet stage,
+a full genesis export is unnecessary because:
 
-### Option B: State Migration (Required for mainnet)
+1. No real economic value is at risk (testnet tokens)
+2. Agent registrations are scripted (bootstrap-agents.sh recreates all 594 agents)
+3. Consciousness stores are persisted on disk independently of chain state
+4. The validator set is defined in the genesis config, not accumulated state
 
-1. Snapshot current AccountState at a known height
-2. Encode as CometBFT app_state in genesis
+**Migration steps:**
+1. Stop all custom consensus validators on all 4 machines
+2. Start CometBFT nodes using the production genesis (35 validators, full ENSL allocation)
+3. CometBFT InitChain processes the allocations, creating accounts and stakes
+4. Run bootstrap-agents.sh to re-register all 594 agents
+5. Consciousness stores are loaded from disk (persisted in ~/.ensoul/)
+6. Explorer, monitor, and API reconnect to CometBFT RPC
+
+**What is preserved through migration:**
+- All 35 validator Ed25519 keys (converted to CometBFT format)
+- All validator DIDs (derived from the same keys)
+- Token allocation structure (1B ENSL with same percentages)
+- Agent identities and consciousness stores (on disk)
+
+**What resets:**
+- Block height (starts at 1)
+- Transaction history (no historical blocks)
+- Accumulated emission (restarts from 0, same schedule applies)
+- Agent nonces (reset to 0)
+
+## Service Reconnection Plan
+
+After CometBFT cutover, these services need endpoint changes:
+
+### Explorer (port 3000)
+
+| Old Endpoint | New Endpoint | Notes |
+|---|---|---|
+| /peer/status (custom) | CometBFT RPC /status | Height, block time |
+| /peer/blocks/:height | CometBFT RPC /block?height=N | Block data |
+| /peer/sync/:from | CometBFT RPC /blockchain | Block range |
+| Custom block polling | CometBFT WebSocket /websocket | Real-time events |
+| Account state (custom) | ABCI Query /balance/{did} | Via CometBFT RPC |
+
+### Monitor (port 4000)
+
+| Old Endpoint | New Endpoint | Notes |
+|---|---|---|
+| /peer/status | CometBFT RPC /status | Node health |
+| /peer/consensus-state | CometBFT RPC /consensus_state | Round info |
+| /peer/peers | CometBFT RPC /net_info | Peer list |
+| Validator status | CometBFT RPC /validators | Validator set |
+
+### API (port 5050)
+
+| Old Endpoint | New Endpoint | Notes |
+|---|---|---|
+| Transaction submission | CometBFT RPC /broadcast_tx_commit | Via JSON-RPC |
+| Balance queries | ABCI Query /balance/{did} | Via CometBFT |
+| Agent queries | ABCI Query /agent/{did} | Via CometBFT |
+| Validator list | ABCI Query /validators | Via CometBFT |
+
+### Implementation
+
+Each service needs a CometBFT RPC client adapter. The adapter translates
+existing internal API calls to CometBFT RPC calls. This is a search and
+replace operation in each service's data fetching layer, not a rewrite.
+
+CometBFT RPC endpoint: `http://localhost:26657` (same on all machines).
+ABCI queries go through CometBFT: `POST /abci_query` with path parameter.
 3. Include all account balances, staking, delegations as-is
 4. Height starts at 0 but state reflects accumulated history
 
