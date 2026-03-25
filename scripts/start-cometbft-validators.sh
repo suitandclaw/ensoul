@@ -113,17 +113,48 @@ done
 log "Starting ABCI server (port 26658)..."
 cd "$REPO_DIR"
 
-# Source nvm if available (for Minis)
-if [ -f "$HOME/.nvm/nvm.sh" ]; then
-	export NVM_DIR="$HOME/.nvm"
+# Source nvm if available (for Minis that use nvm)
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -f "$NVM_DIR/nvm.sh" ]; then
 	. "$NVM_DIR/nvm.sh"
+fi
+
+# Also add common paths
+export PATH="$HOME/.local/share/pnpm:$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node/ 2>/dev/null | tail -1)/bin:$PATH" 2>/dev/null || true
+
+# Verify node and npx are available
+if ! command -v npx >/dev/null 2>&1; then
+	log "ERROR: npx not found. Ensure Node.js is installed and in PATH."
+	log "  Try: export PATH=\"\$HOME/.nvm/versions/node/\$(ls \$HOME/.nvm/versions/node/ | tail -1)/bin:\$PATH\""
+	exit 1
+fi
+log "  Node: $(node --version 2>/dev/null || echo 'unknown')"
+
+# Ensure dependencies are installed
+if [ ! -d "$REPO_DIR/node_modules/protobufjs" ]; then
+	log "  Installing dependencies..."
+	pnpm install --frozen-lockfile 2>/dev/null || npm install 2>/dev/null || true
 fi
 
 npx tsx packages/abci-server/src/index.ts --port 26658 \
 	> "$LOG_DIR/abci-server.log" 2>&1 &
 ABCI_PID=$!
 log "  ABCI server: pid $ABCI_PID"
-sleep 4
+
+# Wait and verify it started
+sleep 6
+if ! kill -0 "$ABCI_PID" 2>/dev/null; then
+	log "ERROR: ABCI server crashed. Check $LOG_DIR/abci-server.log"
+	tail -10 "$LOG_DIR/abci-server.log" 2>/dev/null
+	exit 1
+fi
+
+# Verify it's listening
+if nc -z 127.0.0.1 26658 2>/dev/null; then
+	log "  ABCI server: listening on port 26658"
+else
+	log "WARNING: ABCI server started but not listening yet. Continuing..."
+fi
 
 # ── Start CometBFT validators ────────────────────────────────────────
 
