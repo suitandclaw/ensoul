@@ -142,7 +142,17 @@ print(hashlib.sha256(pubkey).hexdigest()[:40])
 	fi
 done
 
-sed -i '' "s|persistent_peers = .*|persistent_peers = \"$PEERS\"|" "$CONFIG"
+# Only replace the [p2p] section persistent_peers, not mempool gossip settings
+python3 -c "
+lines = open('$CONFIG').readlines()
+out = []
+for l in lines:
+    if l.strip().startswith('persistent_peers =') and 'gossip' not in l:
+        out.append('persistent_peers = \"$PEERS\"\n')
+    else:
+        out.append(l)
+open('$CONFIG', 'w').writelines(out)
+"
 
 # Network settings
 sed -i '' 's/allow_duplicate_ip = false/allow_duplicate_ip = true/' "$CONFIG"
