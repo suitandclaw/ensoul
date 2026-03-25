@@ -103,6 +103,23 @@ export function decodeTx(buf: Buffer): Transaction | null {
 	}
 }
 
+// -- Upgrade Plan --
+
+interface UpgradePlan {
+	name: string;
+	height: number;
+	info: string; // JSON: {"binaries":{"darwin/arm64":"url","linux/amd64":"url"}}
+}
+
+interface CompletedUpgrade {
+	name: string;
+	height: number;
+	completedAt: number; // timestamp ms
+}
+
+// Pioneer key DID (governance authority for upgrade proposals)
+const PIONEER_KEY = "did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X";
+
 // -- Application State --
 
 interface EnsoulState {
@@ -124,6 +141,10 @@ interface EnsoulState {
 	appHash: Buffer;
 	/** Data directory for persistence. */
 	dataDir: string;
+	/** Active upgrade plan (null if none scheduled). */
+	upgradePlan: UpgradePlan | null;
+	/** History of completed upgrades. */
+	upgradeHistory: CompletedUpgrade[];
 }
 
 // -- Application Factory --
@@ -142,6 +163,8 @@ export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 		height: 0,
 		appHash: Buffer.alloc(32),
 		dataDir,
+		upgradePlan: null,
+		upgradeHistory: [],
 	};
 
 	async function handler(
@@ -353,6 +376,14 @@ function handleCheckTx(
 		return { checkTx: { code: 2, log: "failed to decode transaction" } };
 	}
 
+	// Handle upgrade transactions (governance, not standard ledger txs)
+	if (tx.type === "software_upgrade" as TransactionType) {
+		return validateUpgradeTx(tx, state);
+	}
+	if (tx.type === "cancel_upgrade" as TransactionType) {
+		return validateCancelUpgradeTx(tx, state);
+	}
+
 	// Validate against CheckTx state (copy of last committed state)
 	const result = validateTransaction(tx, state.checkTx);
 	if (!result.valid) {
@@ -421,6 +452,35 @@ function handleFinalizeBlock(
 		const tx = decodeTx(txBytes as Buffer);
 		if (!tx) {
 			txResults.push({ code: 1, log: "decode failed" });
+			continue;
+		}
+
+		// Handle upgrade transactions (governance, not standard ledger txs)
+		if (tx.type === "software_upgrade" as TransactionType) {
+			if (tx.from !== PIONEER_KEY) {
+				txResults.push({ code: 10, log: "unauthorized" });
+				continue;
+			}
+			if (executeUpgradeTx(tx, state)) {
+				validTxCount++;
+				txResults.push({ code: 0, log: "upgrade scheduled" });
+			} else {
+				txResults.push({ code: 11, log: "invalid upgrade plan" });
+			}
+			continue;
+		}
+
+		if (tx.type === "cancel_upgrade" as TransactionType) {
+			if (tx.from !== PIONEER_KEY) {
+				txResults.push({ code: 10, log: "unauthorized" });
+				continue;
+			}
+			if (executeCancelUpgradeTx(tx, state)) {
+				validTxCount++;
+				txResults.push({ code: 0, log: "upgrade cancelled" });
+			} else {
+				txResults.push({ code: 17, log: "no matching upgrade to cancel" });
+			}
 			continue;
 		}
 
@@ -497,13 +557,20 @@ function handleFinalizeBlock(
 		}
 	}
 
-	// Compute new app hash
+	// Compute new app hash (include upgrade plan in the hash for determinism)
 	state.height = height;
 	const appHash = computeAppHash(state);
 	state.appHash = appHash;
 
 	if (validTxCount > 0 || height % 100 === 0) {
 		log(`FinalizeBlock: height=${height} txs=${validTxCount}/${rawTxs.length} hash=${appHash.toString("hex").slice(0, 16)}...`);
+	}
+
+	// Check if this block triggers an upgrade halt.
+	// This runs AFTER all transactions are executed and state is finalized.
+	// The halt happens asynchronously after Commit completes.
+	if (state.upgradePlan && state.height >= state.upgradePlan.height) {
+		log(`UPGRADE "${state.upgradePlan.name}" will trigger at Commit`);
 	}
 
 	return {
@@ -529,6 +596,13 @@ async function handleCommit(state: EnsoulState): Promise<Record<string, unknown>
 
 	if (state.height % 100 === 0) {
 		log(`Commit: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL`);
+	}
+
+	// After commit is complete and state is persisted, check for upgrade halt.
+	// This must happen AFTER the response is sent so CometBFT records the commit.
+	// We use setImmediate to let the response flush first.
+	if (state.upgradePlan && state.height >= state.upgradePlan.height) {
+		setImmediate(() => checkUpgradeHalt(state));
 	}
 
 	return {
@@ -613,6 +687,22 @@ function handleQuery(
 			};
 			break;
 		}
+		case "upgrade": {
+			// Sub-routes: /upgrade/current, /upgrade/history, /upgrade/applied/{name}
+			const subRoute = parts[1] ?? "";
+			if (subRoute === "current") {
+				value = { plan: state.upgradePlan };
+			} else if (subRoute === "history") {
+				value = { upgrades: state.upgradeHistory };
+			} else if (subRoute === "applied") {
+				const upgradeName = parts[2] ?? "";
+				const found = state.upgradeHistory.find((u) => u.name === upgradeName);
+				value = { name: upgradeName, applied: !!found, upgrade: found ?? null };
+			} else {
+				value = { plan: state.upgradePlan, history: state.upgradeHistory };
+			}
+			break;
+		}
 		case "delegations": {
 			// Show delegations TO this validator
 			const delegationsMap = state.delegations.getDelegationsTo(param);
@@ -652,15 +742,175 @@ function handleQuery(
 }
 
 // ======================================================================
+// 8. Software Upgrade System
+// ======================================================================
+
+/**
+ * Validate a SOFTWARE_UPGRADE transaction.
+ * The upgrade plan data is encoded in the tx.data field as JSON:
+ *   {"name": "v2.0.0", "height": 1000, "info": "{\"binaries\":{...}}"}
+ */
+function validateUpgradeTx(tx: Transaction, state: EnsoulState): Record<string, unknown> {
+	// Only the pioneer key can submit upgrades
+	if (tx.from !== PIONEER_KEY) {
+		return { checkTx: { code: 10, log: "Only pioneer key can submit upgrade proposals" } };
+	}
+
+	// Decode upgrade plan from tx.data
+	const plan = decodeUpgradePlan(tx);
+	if (!plan) {
+		return { checkTx: { code: 11, log: "Invalid upgrade plan in tx.data (expected JSON with name, height, info)" } };
+	}
+
+	if (!plan.name || plan.name.length === 0) {
+		return { checkTx: { code: 12, log: "Upgrade name must be non-empty" } };
+	}
+
+	if (plan.height <= state.height) {
+		return { checkTx: { code: 13, log: `Target height ${plan.height} must be greater than current height ${state.height}` } };
+	}
+
+	if (state.upgradePlan !== null) {
+		return { checkTx: { code: 14, log: `Upgrade "${state.upgradePlan.name}" already scheduled at height ${state.upgradePlan.height}` } };
+	}
+
+	// Check name not previously used
+	if (state.upgradeHistory.some((u) => u.name === plan.name)) {
+		return { checkTx: { code: 15, log: `Upgrade name "${plan.name}" was already used` } };
+	}
+
+	return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 10 } };
+}
+
+/**
+ * Validate a CANCEL_UPGRADE transaction.
+ */
+function validateCancelUpgradeTx(tx: Transaction, state: EnsoulState): Record<string, unknown> {
+	if (tx.from !== PIONEER_KEY) {
+		return { checkTx: { code: 10, log: "Only pioneer key can cancel upgrades" } };
+	}
+
+	if (state.upgradePlan === null) {
+		return { checkTx: { code: 16, log: "No upgrade plan to cancel" } };
+	}
+
+	// Decode the name from tx.data
+	const plan = decodeUpgradePlan(tx);
+	if (!plan || plan.name !== state.upgradePlan.name) {
+		return { checkTx: { code: 17, log: `Cancel name must match active plan "${state.upgradePlan.name}"` } };
+	}
+
+	if (state.height >= state.upgradePlan.height) {
+		return { checkTx: { code: 18, log: "Cannot cancel: upgrade height already reached" } };
+	}
+
+	return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 10 } };
+}
+
+/**
+ * Decode an upgrade plan from a transaction's data field.
+ */
+function decodeUpgradePlan(tx: Transaction): UpgradePlan | null {
+	if (!tx.data || tx.data.length === 0) return null;
+	try {
+		const json = new TextDecoder().decode(tx.data);
+		const obj = JSON.parse(json) as { name?: string; height?: number; info?: string };
+		if (!obj.name) return null;
+		return {
+			name: obj.name,
+			height: obj.height ?? 0,
+			info: obj.info ?? "{}",
+		};
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Execute a SOFTWARE_UPGRADE transaction in FinalizeBlock.
+ */
+function executeUpgradeTx(tx: Transaction, state: EnsoulState): boolean {
+	const plan = decodeUpgradePlan(tx);
+	if (!plan) return false;
+
+	state.upgradePlan = plan;
+	log(`UPGRADE SCHEDULED: "${plan.name}" at height ${plan.height}`);
+	return true;
+}
+
+/**
+ * Execute a CANCEL_UPGRADE transaction in FinalizeBlock.
+ */
+function executeCancelUpgradeTx(tx: Transaction, state: EnsoulState): boolean {
+	const plan = decodeUpgradePlan(tx);
+	if (!plan || !state.upgradePlan) return false;
+
+	log(`UPGRADE CANCELLED: "${state.upgradePlan.name}"`);
+	state.upgradePlan = null;
+	return true;
+}
+
+/**
+ * Check if the current block height triggers an upgrade halt.
+ * Called at the END of FinalizeBlock, after all transactions are executed.
+ *
+ * Cosmos SDK signals Cosmovisor by panicking with a specific message format:
+ *   UPGRADE "<name>" NEEDED at height: <height>: <info>
+ *
+ * Cosmovisor detects this in the process stderr and:
+ * 1. Stops the process
+ * 2. Looks for a new binary at cosmovisor/upgrades/<name>/bin/
+ * 3. If DAEMON_ALLOW_DOWNLOAD_URLS=true, downloads from URLs in <info>
+ * 4. Swaps the binary and restarts
+ *
+ * Since we're a Node.js process (not Go), we write the message to stderr
+ * and exit with code 1. Cosmovisor monitors stderr regardless of language.
+ */
+function checkUpgradeHalt(state: EnsoulState): void {
+	if (!state.upgradePlan) return;
+	if (state.height < state.upgradePlan.height) return;
+
+	const plan = state.upgradePlan;
+
+	// Record the upgrade as applied before halting
+	state.upgradeHistory.push({
+		name: plan.name,
+		height: plan.height,
+		completedAt: Date.now(),
+	});
+
+	// Clear the plan (so after restart we don't halt again)
+	state.upgradePlan = null;
+
+	// Persist state before halting (so the restart loads correct state)
+	void persistState(state).then(() => {
+		// Write the exact Cosmos SDK panic message format to stderr
+		// Cosmovisor scans stderr for this pattern
+		const msg = `UPGRADE "${plan.name}" NEEDED at height: ${plan.height}: ${plan.info}`;
+		process.stderr.write(`\npanic: ${msg}\n\n`);
+		log(`UPGRADE HALT: ${msg}`);
+		log("Exiting for Cosmovisor binary swap...");
+
+		// Exit with code 1 (Cosmovisor treats non-zero exit as upgrade signal
+		// when it finds the UPGRADE NEEDED message in stderr)
+		setTimeout(() => process.exit(1), 500);
+	});
+}
+
+// ======================================================================
 // Helpers
 // ======================================================================
 
-/** Compute deterministic app hash from account state. */
+/** Compute deterministic app hash from account state + upgrade plan. */
 function computeAppHash(state: EnsoulState): Buffer {
 	const stateRoot = state.working.computeStateRoot(
 		state.delegations.computeRoot(),
 	);
-	return Buffer.from(blake3(ENC.encode(stateRoot)));
+	// Include upgrade plan in the hash for determinism across nodes
+	const upgradeSuffix = state.upgradePlan
+		? `:upgrade:${state.upgradePlan.name}:${state.upgradePlan.height}`
+		: "";
+	return Buffer.from(blake3(ENC.encode(stateRoot + upgradeSuffix)));
 }
 
 /** Persist state to disk. */
@@ -678,6 +928,8 @@ async function persistState(state: EnsoulState): Promise<void> {
 				networkRewardsPool: state.genesis.networkRewardsPool.toString(),
 				storageFeeProtocolShare: state.genesis.protocolFees.storageFeeProtocolShare,
 			} : null,
+			upgradePlan: state.upgradePlan,
+			upgradeHistory: state.upgradeHistory,
 		};
 		await writeFile(
 			join(state.dataDir, "state.json"),
@@ -746,6 +998,11 @@ async function loadPersistedState(state: EnsoulState): Promise<void> {
 				},
 			};
 		}
+
+		// Restore upgrade state
+		const snap = snapshot as Record<string, unknown>;
+		state.upgradePlan = (snap["upgradePlan"] as UpgradePlan | null) ?? null;
+		state.upgradeHistory = (snap["upgradeHistory"] as CompletedUpgrade[] | null) ?? [];
 
 		log(`Loaded persisted state: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL`);
 	} catch (err) {
