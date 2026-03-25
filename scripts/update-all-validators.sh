@@ -1,113 +1,150 @@
 #!/usr/bin/env bash
 #
-# update-all-validators.sh - Trigger update on all validators in the network.
+# update-all-validators.sh
 #
-# Sends POST /peer/update to each validator sequentially, waits for it
-# to come back healthy before moving to the next.
+# Rolls out code updates to all validator machines sequentially,
+# maintaining quorum throughout. Each machine is updated only
+# after the previous one is confirmed healthy.
 #
 # Usage:
-#   ./scripts/update-all-validators.sh
-#   ENSOUL_PEER_KEY=xxx ./scripts/update-all-validators.sh
+#   ./scripts/update-all-validators.sh              # update all
+#   ./scripts/update-all-validators.sh mini1         # update one
+#   ./scripts/update-all-validators.sh --dry-run     # show plan
+#   ./scripts/update-all-validators.sh --code-only   # pull + build, no restart
 #
 
-set -uo pipefail
+set -euo pipefail
 
-PEER_KEY="${ENSOUL_PEER_KEY:-}"
-CLOUD_FILE="$HOME/.ensoul/cloud-validators.txt"
+HEALTH_TIMEOUT=60
 
-# Tunnel endpoints
-TUNNELS=(
-	"https://v0.ensoul.dev"
-	"https://v1.ensoul.dev"
-	"https://v2.ensoul.dev"
-	"https://v3.ensoul.dev"
-)
+log() { echo "[$(date +%H:%M:%S)] $1"; }
 
-if [ -z "$PEER_KEY" ]; then
-	# Try to read from saved key file
-	if [ -f "$HOME/.ensoul/pioneer-key.txt" ]; then
-		PEER_KEY=$(cat "$HOME/.ensoul/pioneer-key.txt")
-	else
-		echo "Set ENSOUL_PEER_KEY or create ~/.ensoul/pioneer-key.txt"
-		exit 1
-	fi
-fi
+DRY_RUN=false
+CODE_ONLY=false
+TARGET=""
 
-echo ""
-echo "=== UPDATE ALL VALIDATORS ==="
-echo ""
-
-TOTAL=0
-UPDATED=0
-FAILED=0
-
-update_validator() {
-	local url="$1"
-	local name="$2"
-	TOTAL=$((TOTAL + 1))
-
-	echo -n "  [$TOTAL] $name ($url)... "
-
-	# Get current version
-	local current
-	current=$(curl -s --connect-timeout 5 "$url/peer/health" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','?'))" 2>/dev/null || echo "offline")
-
-	if [ "$current" = "offline" ]; then
-		echo "OFFLINE (skipping)"
-		FAILED=$((FAILED + 1))
-		return
-	fi
-
-	# Trigger update
-	local resp
-	resp=$(curl -s --connect-timeout 10 -X POST "$url/peer/update" \
-		-H "X-Ensoul-Peer-Key: $PEER_KEY" \
-		-H "Content-Type: application/json" \
-		2>/dev/null || echo "")
-
-	if [ -z "$resp" ]; then
-		echo "FAILED (no response)"
-		FAILED=$((FAILED + 1))
-		return
-	fi
-
-	echo "triggered (was $current)"
-
-	# Wait for validator to come back (up to 5 minutes)
-	echo -n "    waiting for restart... "
-	local elapsed=0
-	while [ $elapsed -lt 300 ]; do
-		sleep 10
-		elapsed=$((elapsed + 10))
-		local health
-		health=$(curl -s --connect-timeout 5 "$url/peer/health" 2>/dev/null || echo "")
-		if [ -n "$health" ]; then
-			local new_version
-			new_version=$(echo "$health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','?'))" 2>/dev/null || echo "?")
-			echo "OK (v$new_version, ${elapsed}s)"
-			UPDATED=$((UPDATED + 1))
-			return
-		fi
-	done
-	echo "TIMEOUT (did not come back in 5 min)"
-	FAILED=$((FAILED + 1))
-}
-
-# Update tunnel validators
-for url in "${TUNNELS[@]}"; do
-	name=$(echo "$url" | sed 's|https://||' | sed 's|\.ensoul\.dev||')
-	update_validator "$url" "$name"
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run)   DRY_RUN=true ;;
+    --code-only) CODE_ONLY=true ;;
+    mini1|mini2|mini3|mbp) TARGET="$arg" ;;
+  esac
 done
 
-# Update cloud validators (if file exists)
-if [ -f "$CLOUD_FILE" ]; then
-	while IFS= read -r ip; do
-		[ -z "$ip" ] && continue
-		[[ "$ip" == \#* ]] && continue
-		update_validator "http://$ip:9000" "cloud-$ip"
-	done < "$CLOUD_FILE"
+if [ -n "$TARGET" ]; then
+  MACHINES="$TARGET"
+else
+  MACHINES="mini3 mini2 mini1 mbp"
 fi
 
-echo ""
-echo "  Total: $TOTAL | Updated: $UPDATED | Failed: $FAILED"
-echo ""
+get_ip() {
+  case "$1" in
+    mbp)   echo "100.67.81.90" ;;
+    mini1) echo "100.86.108.114" ;;
+    mini2) echo "100.117.84.28" ;;
+    mini3) echo "100.127.140.26" ;;
+  esac
+}
+
+run_on() {
+  local machine="$1"; shift
+  local prefix='export PATH="/opt/homebrew/bin:$HOME/go/bin:$PATH"; export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh";'
+  if [ "$machine" = "mbp" ]; then
+    eval "$prefix $*"
+  else
+    ssh -o ConnectTimeout=10 -o BatchMode=yes "$machine" "$prefix $*"
+  fi
+}
+
+check_health() {
+  local machine="$1"
+  local ip; ip=$(get_ip "$machine")
+  local elapsed=0
+  while [ $elapsed -lt "$HEALTH_TIMEOUT" ]; do
+    local height
+    height=$(curl -s "http://$ip:26657/status" 2>/dev/null | \
+      python3 -c "import sys,json; print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])" 2>/dev/null || echo "0")
+    if [ "$height" != "0" ] && [ -n "$height" ]; then
+      log "  Health OK: $machine at height $height"
+      return 0
+    fi
+    sleep 5
+    elapsed=$((elapsed + 5))
+  done
+  log "  HEALTH FAILED: $machine not responding within ${HEALTH_TIMEOUT}s"
+  return 1
+}
+
+update_machine() {
+  local machine="$1"
+  log ""
+  log "=== Updating $machine ==="
+
+  if $DRY_RUN; then
+    log "  [dry-run] Would: git pull, build, restart"
+    return 0
+  fi
+
+  log "  Pulling latest code..."
+  run_on "$machine" "cd ~/ensoul && git pull origin main 2>&1 | tail -2" || {
+    log "  FAILED: git pull"; return 1
+  }
+
+  log "  Installing dependencies..."
+  run_on "$machine" "cd ~/ensoul && pnpm install 2>&1 | tail -1" || true
+
+  log "  Building ABCI server..."
+  run_on "$machine" "cd ~/ensoul && rm -rf .turbo node_modules/.cache packages/abci-server/dist && pnpm build --filter @ensoul/abci-server 2>&1 | tail -2" || {
+    log "  FAILED: build"; return 1
+  }
+
+  if $CODE_ONLY; then
+    log "  Code updated (no restart)"
+    return 0
+  fi
+
+  log "  Restarting validator..."
+  run_on "$machine" "cd ~/ensoul && ./scripts/start-cometbft-validators.sh stop 2>&1 | tail -1" || true
+  sleep 3
+  run_on "$machine" "cd ~/ensoul && nohup ./scripts/start-cometbft-validators.sh > /tmp/validator-restart.log 2>&1 &" || {
+    log "  FAILED: restart"; return 1
+  }
+
+  log "  Waiting for health..."
+  sleep 15
+  if ! check_health "$machine"; then
+    log "  FAILED: $machine did not recover"
+    return 1
+  fi
+
+  log "  $machine updated successfully"
+}
+
+log "ENSOUL VALIDATOR ROLLING UPDATE"
+log "Targets: $MACHINES"
+$DRY_RUN && log "Mode: DRY RUN"
+$CODE_ONLY && log "Mode: CODE ONLY"
+
+CURRENT=$(curl -s http://localhost:26657/status 2>/dev/null | \
+  python3 -c "import sys,json; print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])" 2>/dev/null || echo "0")
+log "Chain height: $CURRENT"
+
+FAILED=""
+for machine in $MACHINES; do
+  if ! update_machine "$machine"; then
+    FAILED="$machine"
+    log ""; log "STOPPING: $machine failed."
+    break
+  fi
+done
+
+log ""
+if [ -z "$FAILED" ]; then
+  FINAL=$(curl -s http://localhost:26657/status 2>/dev/null | \
+    python3 -c "import sys,json; print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])" 2>/dev/null || echo "?")
+  log "=== ALL UPDATES SUCCESSFUL ==="
+  log "Chain height: $CURRENT -> $FINAL"
+else
+  log "=== FAILED at $FAILED ==="
+  exit 1
+fi

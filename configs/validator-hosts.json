@@ -1,0 +1,36 @@
+{
+  "machines": [
+    {
+      "name": "mbp",
+      "host": "100.67.81.90",
+      "user": "suitandclaw",
+      "ssh": "localhost",
+      "validators": [0],
+      "isLocal": true
+    },
+    {
+      "name": "mini1",
+      "host": "100.86.108.114",
+      "user": "hamsteronduty",
+      "ssh": "mini1",
+      "validators": [5],
+      "isLocal": false
+    },
+    {
+      "name": "mini2",
+      "host": "100.117.84.28",
+      "user": "megaphonehq",
+      "ssh": "mini2",
+      "validators": [15],
+      "isLocal": false
+    },
+    {
+      "name": "mini3",
+      "host": "100.127.140.26",
+      "user": "snitchreport",
+      "ssh": "mini3",
+      "validators": [25],
+      "isLocal": false
+    }
+  ]
+}
