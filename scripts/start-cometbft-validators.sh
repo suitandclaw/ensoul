@@ -80,13 +80,23 @@ log "CometBFT: $($COMETBFT_BIN version 2>&1)"
 # ── Set up node directory ─────────────────────────────────────────────
 
 NODE_DIR="$COMETBFT_DIR/node"
-rm -rf "$NODE_DIR" /tmp/ensoul-abci
+
+# SAFETY: never wipe a live chain's data directory
+if [ -d "$NODE_DIR/data/blockstore.db" ]; then
+	log "Existing chain data found. Preserving it."
+else
+	log "No existing chain data. Initializing fresh node."
+	mkdir -p "$NODE_DIR/config" "$NODE_DIR/data"
+	"$COMETBFT_BIN" init --home "$NODE_DIR" 2>/dev/null || true
+fi
+
+# Clear ABCI server state (it reloads from persisted snapshot)
+rm -rf /tmp/ensoul-abci
+
+# Ensure config directory exists
 mkdir -p "$NODE_DIR/config" "$NODE_DIR/data"
 
-# Initialize to get default config
-"$COMETBFT_BIN" init --home "$NODE_DIR" 2>/dev/null || true
-
-# Copy genesis from repo
+# Copy genesis from repo (config files are safe to overwrite)
 cp "$REPO_DIR/cometbft-genesis.json" "$NODE_DIR/config/genesis.json"
 
 # Copy validator key (from setup-cometbft-local.sh or convert script)
@@ -104,8 +114,10 @@ if [ -f "$NODE_KEY_SRC" ]; then
 	cp "$NODE_KEY_SRC" "$NODE_DIR/config/node_key.json"
 fi
 
-# Fresh validator state
-echo '{"height":"0","round":0,"step":0}' > "$NODE_DIR/data/priv_validator_state.json"
+# Only write fresh validator state if none exists (first run)
+if [ ! -f "$NODE_DIR/data/priv_validator_state.json" ]; then
+	echo '{"height":"0","round":0,"step":0}' > "$NODE_DIR/data/priv_validator_state.json"
+fi
 
 # ── Configure ─────────────────────────────────────────────────────────
 

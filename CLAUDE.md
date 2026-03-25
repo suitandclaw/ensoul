@@ -28,6 +28,16 @@ peer-to-peer node network. Token: $ENSL. Domain: ensoul.dev
 8. No console.log in production code. Use a structured logger.
 9. All data that touches the network must be encrypted first.
 10. State transitions must be signed by the agent identity key.
+11. NEVER reinitialize genesis or wipe chain data to add state. All state changes go through transactions on the live chain. The only acceptable reason for a genesis reset is a consensus engine replacement. Use scripts/safe-cometbft.sh instead of the raw binary.
+12. NEVER use em dashes or double dashes in any output. Rewrite sentences to avoid them.
+
+## Operational Rules
+- The chain is the database. Agent registrations, consciousness stores, and all state live on-chain, replicated by CometBFT consensus.
+- Disk files (registered-agents.json, consciousness-store.json) are caches, not sources of truth.
+- All new agents and consciousness stores must be submitted as on-chain transactions.
+- Binary upgrades go through Cosmovisor via on-chain SOFTWARE_UPGRADE proposals.
+- Code updates go through scripts/update-all-validators.sh (rolling update with health checks).
+- Both social agents (X and Moltbook) are disabled via ~/.ensoul/agents-disabled and ~/.ensoul/x-agent-disabled. Do not re-enable without explicit instruction.
 
 ## Build Commands
 - pnpm install - Install dependencies
