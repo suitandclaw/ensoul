@@ -882,8 +882,19 @@ function checkUpgradeHalt(state: EnsoulState): void {
 	// Clear the plan (so after restart we don't halt again)
 	state.upgradePlan = null;
 
-	// Persist state before halting (so the restart loads correct state)
-	void persistState(state).then(() => {
+	// Persist state and write upgrade-info.json before halting
+	void (async () => {
+		await persistState(state);
+
+		// Write upgrade-info.json (Cosmovisor reads this from DAEMON_HOME/data/)
+		const daemonHome = process.env["DAEMON_HOME"] ?? join(state.dataDir, "..", "node");
+		try {
+			await writeFile(
+				join(daemonHome, "data", "upgrade-info.json"),
+				JSON.stringify({ name: plan.name, height: plan.height, info: plan.info }),
+			);
+		} catch { /* data dir may not exist */ }
+
 		// Write the exact Cosmos SDK panic message format to stderr
 		// Cosmovisor scans stderr for this pattern
 		const msg = `UPGRADE "${plan.name}" NEEDED at height: ${plan.height}: ${plan.info}`;
@@ -891,10 +902,10 @@ function checkUpgradeHalt(state: EnsoulState): void {
 		log(`UPGRADE HALT: ${msg}`);
 		log("Exiting for Cosmovisor binary swap...");
 
-		// Exit with code 1 (Cosmovisor treats non-zero exit as upgrade signal
-		// when it finds the UPGRADE NEEDED message in stderr)
-		setTimeout(() => process.exit(1), 500);
-	});
+		// Exit with code 2 (matches Go's panic exit code, which Cosmovisor
+		// expects along with the UPGRADE NEEDED message in stderr)
+		setTimeout(() => process.exit(2), 500);
+	})();
 }
 
 // ======================================================================
