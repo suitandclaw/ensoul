@@ -245,6 +245,74 @@ import sys,json; print(f'  Peers: {json.load(sys.stdin)[\"result\"][\"n_peers\"]
 " 2>/dev/null
 
 log ""
+
+# ── Verify services survived the restart ──────────────────────────────
+# Explorer, monitor, API, and cloudflared must not be affected by
+# validator restarts. If any are down, restart them.
+
+if [ "$MACHINE" = "mbp" ]; then
+	log "Checking services..."
+
+	if ! curl -s http://localhost:3000/ >/dev/null 2>&1; then
+		log "  Explorer (3000) is DOWN. Restarting..."
+		cd "$REPO_DIR"
+		ENSOUL_PEERS="" ENSOUL_VALIDATOR_COUNT=4 \
+		npx tsx packages/explorer/start.ts --port 3000 --network-peers "http://localhost:9000" \
+			> "$LOG_DIR/explorer.log" 2>&1 &
+		log "  Explorer restarted (pid $!)"
+	else
+		log "  Explorer: OK"
+	fi
+
+	if ! curl -s http://localhost:4000/ >/dev/null 2>&1; then
+		log "  Monitor (4000) is DOWN. Restarting..."
+		cd "$REPO_DIR"
+		ENSOUL_STATUS_PASSWORD="ensoul-status-2026" \
+		npx tsx packages/monitor/start.ts --port 4000 \
+			> "$LOG_DIR/monitor.log" 2>&1 &
+		log "  Monitor restarted (pid $!)"
+	else
+		log "  Monitor: OK"
+	fi
+
+	if ! curl -s http://localhost:5050/health >/dev/null 2>&1; then
+		log "  API (5050) is DOWN. Restarting..."
+		cd "$REPO_DIR"
+		ONBOARDING_KEY_PATH="genesis-keys/onboarding.json" \
+		TREASURY_KEY_PATH="genesis-keys/treasury.json" \
+		ENSOUL_PIONEER_KEY="cef32ba4680448ca8be56a9ef198ccf5e4b813da4599c6156a84361bad913f96" \
+		npx tsx packages/api/start.ts --port 5050 \
+			> "$LOG_DIR/api.log" 2>&1 &
+		log "  API restarted (pid $!)"
+	else
+		log "  API: OK"
+	fi
+
+	if ! curl -s http://localhost:9000/peer/health >/dev/null 2>&1; then
+		log "  Compat proxy (9000) is DOWN. Restarting..."
+		cd "$REPO_DIR"
+		npx tsx packages/abci-server/src/compat-proxy.ts --port 9000 \
+			> "$LOG_DIR/compat-proxy.log" 2>&1 &
+		log "  Proxy restarted (pid $!)"
+	else
+		log "  Compat proxy: OK"
+	fi
+fi
+
+# On Minis, check if the compat proxy survived
+if [ "$MACHINE" != "mbp" ]; then
+	if ! curl -s http://localhost:9000/peer/health >/dev/null 2>&1; then
+		log "  Compat proxy (9000) is DOWN. Restarting..."
+		cd "$REPO_DIR"
+		npx tsx packages/abci-server/src/compat-proxy.ts --port 9000 \
+			> "$LOG_DIR/compat-proxy.log" 2>&1 &
+		log "  Proxy restarted (pid $!)"
+	else
+		log "  Compat proxy: OK"
+	fi
+fi
+
+log ""
 log "Logs:"
 log "  tail -f $LOG_DIR/cometbft.log"
 log "  tail -f $LOG_DIR/abci-server.log"
