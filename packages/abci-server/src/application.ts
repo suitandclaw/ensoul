@@ -120,6 +120,23 @@ interface CompletedUpgrade {
 // Pioneer key DID (governance authority for upgrade proposals)
 const PIONEER_KEY = "did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X";
 
+// -- On-chain Agent Registry --
+
+interface OnChainAgent {
+	did: string;
+	publicKey: string;
+	registeredAt: number; // block height
+	metadata?: string;    // JSON metadata
+}
+
+interface OnChainConsciousness {
+	did: string;
+	stateRoot: string;
+	version: number;
+	shardCount: number;
+	storedAt: number;     // block height
+}
+
 // -- Application State --
 
 interface EnsoulState {
@@ -145,6 +162,10 @@ interface EnsoulState {
 	upgradePlan: UpgradePlan | null;
 	/** History of completed upgrades. */
 	upgradeHistory: CompletedUpgrade[];
+	/** On-chain agent registry (DID -> agent data). */
+	agents: Map<string, OnChainAgent>;
+	/** On-chain consciousness state (DID -> latest consciousness). */
+	consciousness: Map<string, OnChainConsciousness>;
 }
 
 // -- Application Factory --
@@ -165,6 +186,8 @@ export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 		dataDir,
 		upgradePlan: null,
 		upgradeHistory: [],
+		agents: new Map(),
+		consciousness: new Map(),
 	};
 
 	async function handler(
@@ -484,6 +507,51 @@ function handleFinalizeBlock(
 			continue;
 		}
 
+		// Agent registration: stores agent DID + publicKey on-chain
+		if (tx.type === "agent_register" as TransactionType) {
+			const agentData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as {
+				publicKey?: string; metadata?: string;
+			} : null;
+			if (!agentData?.publicKey) {
+				txResults.push({ code: 20, log: "agent_register requires publicKey in data" });
+				continue;
+			}
+			if (state.agents.has(tx.from)) {
+				txResults.push({ code: 21, log: "agent already registered" });
+				continue;
+			}
+			state.agents.set(tx.from, {
+				did: tx.from,
+				publicKey: agentData.publicKey,
+				registeredAt: height,
+				metadata: agentData.metadata,
+			});
+			validTxCount++;
+			txResults.push({ code: 0, log: "agent registered" });
+			continue;
+		}
+
+		// Consciousness store: stores consciousness state root on-chain
+		if (tx.type === "consciousness_store" as TransactionType) {
+			const csData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as {
+				stateRoot?: string; version?: number; shardCount?: number;
+			} : null;
+			if (!csData?.stateRoot) {
+				txResults.push({ code: 22, log: "consciousness_store requires stateRoot in data" });
+				continue;
+			}
+			state.consciousness.set(tx.from, {
+				did: tx.from,
+				stateRoot: csData.stateRoot,
+				version: csData.version ?? 1,
+				shardCount: csData.shardCount ?? 0,
+				storedAt: height,
+			});
+			validTxCount++;
+			txResults.push({ code: 0, log: "consciousness stored" });
+			continue;
+		}
+
 		const validation = validateTransaction(tx, state.working);
 		if (!validation.valid) {
 			txResults.push({ code: 2, log: validation.error ?? "invalid" });
@@ -672,19 +740,44 @@ function handleQuery(
 				totalEmitted: state.totalEmitted.toString(),
 				totalEmittedEnsl: Number(state.totalEmitted / DECIMALS),
 				consensusSetSize: state.committed.getConsensusSet().length,
+				agentCount: state.agents.size,
+				consciousnessCount: state.consciousness.size,
 			};
 			break;
 		}
 		case "agent": {
+			const agent = state.agents.get(param);
 			const acct = state.committed.getAccount(param);
+			const cs = state.consciousness.get(param);
 			value = {
 				did: param,
+				registered: !!agent,
+				publicKey: agent?.publicKey ?? null,
+				registeredAt: agent?.registeredAt ?? null,
+				metadata: agent?.metadata ?? null,
+				consciousnessVersion: cs?.version ?? null,
+				consciousnessStateRoot: cs?.stateRoot ?? null,
+				consciousnessAge: agent ? state.height - agent.registeredAt : 0,
 				balance: acct.balance.toString(),
 				stakedBalance: acct.stakedBalance.toString(),
 				delegatedBalance: acct.delegatedBalance.toString(),
 				nonce: acct.nonce,
-				lastActivity: acct.lastActivity,
 			};
+			break;
+		}
+		case "consciousness": {
+			const csData = state.consciousness.get(param);
+			if (csData) {
+				value = {
+					did: param,
+					stateRoot: csData.stateRoot,
+					version: csData.version,
+					shardCount: csData.shardCount,
+					storedAt: csData.storedAt,
+				};
+			} else {
+				value = { did: param, found: false };
+			}
 			break;
 		}
 		case "upgrade": {
@@ -912,16 +1005,19 @@ function checkUpgradeHalt(state: EnsoulState): void {
 // Helpers
 // ======================================================================
 
-/** Compute deterministic app hash from account state + upgrade plan. */
+/** Compute deterministic app hash from all state. */
 function computeAppHash(state: EnsoulState): Buffer {
 	const stateRoot = state.working.computeStateRoot(
 		state.delegations.computeRoot(),
 	);
-	// Include upgrade plan in the hash for determinism across nodes
+	// Include all state components for determinism
 	const upgradeSuffix = state.upgradePlan
 		? `:upgrade:${state.upgradePlan.name}:${state.upgradePlan.height}`
 		: "";
-	return Buffer.from(blake3(ENC.encode(stateRoot + upgradeSuffix)));
+	// Include agent and consciousness counts (the full data is too large for the hash,
+	// but the count ensures consistency across nodes)
+	const agentSuffix = `:agents:${state.agents.size}:cs:${state.consciousness.size}`;
+	return Buffer.from(blake3(ENC.encode(stateRoot + upgradeSuffix + agentSuffix)));
 }
 
 /** Persist state to disk. */
@@ -941,6 +1037,8 @@ async function persistState(state: EnsoulState): Promise<void> {
 			} : null,
 			upgradePlan: state.upgradePlan,
 			upgradeHistory: state.upgradeHistory,
+			agents: Array.from(state.agents.values()),
+			consciousness: Array.from(state.consciousness.values()),
 		};
 		await writeFile(
 			join(state.dataDir, "state.json"),
@@ -1015,7 +1113,15 @@ async function loadPersistedState(state: EnsoulState): Promise<void> {
 		state.upgradePlan = (snap["upgradePlan"] as UpgradePlan | null) ?? null;
 		state.upgradeHistory = (snap["upgradeHistory"] as CompletedUpgrade[] | null) ?? [];
 
-		log(`Loaded persisted state: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL`);
+		// Restore agent registry
+		const agentList = (snap["agents"] as OnChainAgent[] | null) ?? [];
+		state.agents = new Map(agentList.map((a) => [a.did, a]));
+
+		// Restore consciousness state
+		const csList = (snap["consciousness"] as OnChainConsciousness[] | null) ?? [];
+		state.consciousness = new Map(csList.map((c) => [c.did, c]));
+
+		log(`Loaded persisted state: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL agents=${state.agents.size} consciousness=${state.consciousness.size}`);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		log(`No persisted state (${msg}), starting fresh`);
