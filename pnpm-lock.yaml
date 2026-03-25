@@ -35,6 +35,9 @@ importers:
       '@noble/hashes':
         specifier: ^1.7.0
         version: 1.8.0
+      fastify:
+        specifier: ^5.0.0
+        version: 5.8.2
       protobufjs:
         specifier: ^7.4.0
         version: 7.5.4
