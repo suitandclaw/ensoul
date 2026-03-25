@@ -133,7 +133,7 @@ log "  Node: $(node --version 2>/dev/null || echo 'unknown')"
 # Ensure dependencies are installed
 if [ ! -d "$REPO_DIR/node_modules/protobufjs" ]; then
 	log "  Installing dependencies..."
-	pnpm install --frozen-lockfile 2>/dev/null || npm install 2>/dev/null || true
+	pnpm install 2>/dev/null || npm install 2>/dev/null || true
 fi
 
 npx tsx packages/abci-server/src/index.ts --port 26658 \
