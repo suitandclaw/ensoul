@@ -85,13 +85,57 @@ For ABCI server code updates (no CometBFT binary change):
 Update order: mini3, mini2, mini1, mbp (least critical first).
 Each machine is health-checked before proceeding to the next.
 
-## Future: On-Chain Upgrades
+## On-Chain Upgrades (Live)
 
-When the SOFTWARE_UPGRADE transaction type is implemented:
-1. Submit an upgrade proposal with target height and new binary URL
-2. When the chain reaches that height, the ABCI server returns an error
-3. Cosmovisor detects the halt, downloads the new binary, swaps it in
-4. Cosmovisor restarts CometBFT with the new binary
-5. Chain resumes automatically on all validators
+The SOFTWARE_UPGRADE transaction type is implemented in the ABCI server.
+See docs/UPGRADES.md for the full workflow.
+
+Summary:
+1. Pioneer key submits a `software_upgrade` transaction with target height
+2. All validators include the plan in their state (deterministic app_hash)
+3. At the target height, the ABCI server writes to stderr:
+   `UPGRADE "name" NEEDED at height: N: info`
+4. Process exits with code 2 (matches Go panic behavior)
+5. Cosmovisor detects the message, backs up data, swaps the binary
+6. Cosmovisor restarts CometBFT with the new binary
+7. Chain resumes automatically on all validators
 
 No SSH, no manual intervention, no coordination needed.
+
+## Verified Status (2026-03-25)
+
+All 4 machines running CometBFT v0.38.17 through Cosmovisor v1.5.0.
+Chain at height 25,000+, all validators healthy, dashboard all green.
+Zero downtime during the switch from direct CometBFT to Cosmovisor.
+
+## Troubleshooting
+
+**Cosmovisor not starting:**
+Check that DAEMON_HOME points to the node directory with config/ and data/
+subdirectories. Cosmovisor expects `$DAEMON_HOME/data/` to exist.
+
+**Binary not found:**
+Ensure the CometBFT binary is at `$DAEMON_HOME/cosmovisor/genesis/bin/cometbft`
+with execute permissions (`chmod +x`).
+
+**Upgrade not detected:**
+The ABCI server must write the exact Cosmos SDK panic format to stderr.
+Cosmovisor scans for: `UPGRADE "name" NEEDED at height:`
+Verify stderr output: `tail -f ~/.ensoul/cometbft.log | grep UPGRADE`
+
+**After upgrade, chain doesn't resume:**
+Check if the new binary exists at `cosmovisor/upgrades/{name}/bin/cometbft`.
+If missing, download or place it manually, then restart Cosmovisor.
+
+## Cloud Validator Cosmovisor Setup
+
+New cloud validators should launch with Cosmovisor from day one.
+The one-command installer includes:
+1. Install Go and CometBFT binary
+2. Install Cosmovisor v1.5.0
+3. Set up directory structure (genesis/bin/, upgrades/, backups/)
+4. Configure environment variables
+5. Start CometBFT through Cosmovisor
+6. Sync the chain from existing peers
+
+No separate Cosmovisor setup step needed for cloud validators.
