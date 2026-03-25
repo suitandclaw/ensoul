@@ -139,11 +139,11 @@ async function main(): Promise<void> {
 	log("");
 
 	// Phase 1: Register all agents
+	// Each agent DID is unique and has nonce 0 (never transacted before)
 	log("=== PHASE 1: Agent Registration ===");
 	let registered = 0;
 	let regSkipped = 0;
 	let regFailed = 0;
-	let nonce = 0;
 
 	for (let i = 0; i < agents.length; i += BATCH_SIZE) {
 		const batch = agents.slice(i, i + BATCH_SIZE);
@@ -151,11 +151,10 @@ async function main(): Promise<void> {
 		for (const agent of batch) {
 			const result = await submitTx("agent_register", agent.did, {
 				publicKey: agent.publicKey,
-			}, nonce);
+			}, 0); // nonce 0 for each unique agent DID
 
 			if (result.code === 0) {
 				registered++;
-				nonce++;
 			} else if (result.log.includes("already registered")) {
 				regSkipped++;
 			} else {
@@ -185,15 +184,17 @@ async function main(): Promise<void> {
 		const batch = stores.slice(i, i + BATCH_SIZE);
 
 		for (const cs of batch) {
+			// Consciousness stores use the agent's nonce.
+			// After registration, the agent has nonce 0 (agent_register doesn't increment).
+			// So consciousness_store also uses nonce 0 for the DID.
 			const result = await submitTx("consciousness_store", cs.did, {
 				stateRoot: cs.stateRoot,
 				version: cs.version,
 				shardCount: cs.shardCount ?? 0,
-			}, nonce);
+			}, 0);
 
 			if (result.code === 0) {
 				stored++;
-				nonce++;
 			} else {
 				storeFailed++;
 				if (storeFailed <= 3) log(`  FAIL: ${cs.did.slice(0, 30)}... code=${result.code} ${result.log}`);

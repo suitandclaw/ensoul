@@ -407,6 +407,18 @@ function handleCheckTx(
 		return validateCancelUpgradeTx(tx, state);
 	}
 
+	// Agent registration and consciousness stores bypass standard validation
+	// (they don't transfer tokens, so nonce/balance checks don't apply)
+	if (tx.type === "agent_register" as TransactionType) {
+		if (state.agents.has(tx.from)) {
+			return { checkTx: { code: 21, log: "agent already registered" } };
+		}
+		return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 1 } };
+	}
+	if (tx.type === "consciousness_store" as TransactionType) {
+		return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 1 } };
+	}
+
 	// Validate against CheckTx state (copy of last committed state)
 	const result = validateTransaction(tx, state.checkTx);
 	if (!result.valid) {
