@@ -245,6 +245,9 @@ async function handleInitChain(
 
 			// Process genesis allocations
 			const accountState = new AccountState();
+			const delegationRegistry = new DelegationRegistry();
+
+			// First pass: credit all accounts and stake autoStake validators
 			for (const alloc of genesis.allocations) {
 				accountState.credit(alloc.recipient, alloc.tokens);
 				if (alloc.autoStake) {
@@ -253,6 +256,33 @@ async function handleInitChain(
 				}
 			}
 
+			// Second pass: auto-delegate non-autoStake foundation validators
+			// to their machine's operator (the autoStake validator on that machine).
+			// Machine assignment: V0-V4 -> V0, V5-V14 -> V5, V15-V24 -> V15, V25-V34 -> V25
+			const foundationValidators = genesis.allocations.filter(
+				(a) => a.label === "Foundation Validator",
+			);
+			const operators = foundationValidators.filter((a) => a.autoStake);
+
+			for (let i = 0; i < foundationValidators.length; i++) {
+				const v = foundationValidators[i]!;
+				if (v.autoStake) continue; // Operators stake directly, not delegate
+
+				// Find this validator's operator based on index ranges
+				let operator: GenesisAllocation | undefined;
+				if (i < 5) operator = operators.find((o) => o.recipient === foundationValidators[0]!.recipient);
+				else if (i < 15) operator = operators.find((o) => o.recipient === foundationValidators[5]!.recipient);
+				else if (i < 25) operator = operators.find((o) => o.recipient === foundationValidators[15]!.recipient);
+				else operator = operators.find((o) => o.recipient === foundationValidators[25]!.recipient);
+
+				if (operator && v.tokens > 0n) {
+					// Delegate: deduct from balance, track in registry
+					accountState.delegateTokens(v.recipient, v.tokens);
+					delegationRegistry.delegate(v.recipient, operator.recipient, v.tokens);
+				}
+			}
+
+			state.delegations = delegationRegistry;
 			state.committed = accountState;
 			state.working = accountState.clone();
 			state.checkTx = accountState.clone();
@@ -548,10 +578,14 @@ function handleQuery(
 			value = {
 				validators: set.map((did) => {
 					const acct = state.committed.getAccount(did);
+					const delegatedTo = state.delegations.getTotalDelegatedTo(did);
+					const totalPower = acct.stakedBalance + delegatedTo;
 					return {
 						did,
 						stakedBalance: acct.stakedBalance.toString(),
-						power: Number(acct.stakedBalance / DECIMALS),
+						delegatedToThis: delegatedTo.toString(),
+						totalPower: totalPower.toString(),
+						power: Number(totalPower / DECIMALS),
 					};
 				}),
 				count: set.length,
@@ -573,8 +607,26 @@ function handleQuery(
 				did: param,
 				balance: acct.balance.toString(),
 				stakedBalance: acct.stakedBalance.toString(),
+				delegatedBalance: acct.delegatedBalance.toString(),
 				nonce: acct.nonce,
 				lastActivity: acct.lastActivity,
+			};
+			break;
+		}
+		case "delegations": {
+			// Show delegations TO this validator
+			const delegationsMap = state.delegations.getDelegationsTo(param);
+			const delegators: Array<{ did: string; amount: string }> = [];
+			for (const [did, amount] of delegationsMap) {
+				delegators.push({ did, amount: amount.toString() });
+			}
+			const totalDelegated = state.delegations.getTotalDelegatedTo(param);
+			value = {
+				validator: param,
+				totalDelegated: totalDelegated.toString(),
+				totalDelegatedEnsl: Number(totalDelegated / DECIMALS),
+				delegatorCount: delegators.length,
+				delegators,
 			};
 			break;
 		}
