@@ -135,16 +135,22 @@ main() {
     local age height peers catching_up
     
     # Check if CometBFT RPC responds at all
-    if ! curl -s "$RPC/status" >/dev/null 2>&1; then
-        log "ALERT: CometBFT RPC not responding"
-        
+    if ! curl -s -m 5 "$RPC/status" >/dev/null 2>&1; then
+        # Before restarting, check if CometBFT is running but busy (replaying blocks)
+        if pgrep -f "cometbft start" >/dev/null 2>&1; then
+            log "INFO: CometBFT running but RPC not responding (likely replaying blocks). Leaving it alone."
+            return
+        fi
+
+        log "ALERT: CometBFT not running and RPC not responding"
+
         # Check if ABCI is alive
         if ! nc -z 127.0.0.1 $ABCI_PORT 2>/dev/null; then
             log "ALERT: ABCI server also down"
             restart_abci
             sleep 5
         fi
-        
+
         restart_cometbft
         return
     fi
