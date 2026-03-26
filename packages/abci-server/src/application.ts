@@ -579,6 +579,11 @@ function handleFinalizeBlock(
 		}
 
 		// Apply the transaction to working state
+		// NOTE: applyTransaction already calls incrementNonce for non-protocol txs,
+		// and this line adds a second increment. This double-increment has been the
+		// behavior since genesis, so all existing nonces reflect it. Fixing this
+		// requires a coordinated upgrade across all validators to avoid app_hash
+		// divergence. Until then, callers must increment nonce by 2 per transaction.
 		applyTransaction(
 			tx,
 			state.working,
