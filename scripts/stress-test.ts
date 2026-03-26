@@ -1058,7 +1058,8 @@ async function test7_cosmovisorUpgrade(): Promise<TestResult> {
 	// ── 7A: Schedule an upgrade at current + 200 blocks ──
 	const currentHeight = await getHeight();
 	const upgradeHeight = currentHeight + 200;
-	log(`7A: Scheduling upgrade "stress-test-v2" at height ${upgradeHeight}...`);
+	const upgradeName = `stress-test-${Date.now()}`;
+	log(`7A: Scheduling upgrade "${upgradeName}" at height ${upgradeHeight}...`);
 
 	const { json: upgradeJson } = await buildSignedTx(
 		PIONEER_SEED,
@@ -1067,7 +1068,7 @@ async function test7_cosmovisorUpgrade(): Promise<TestResult> {
 		0n,
 		pioneerNonce,
 		ENC.encode(JSON.stringify({
-			name: "stress-test-v2",
+			name: upgradeName,
 			height: upgradeHeight,
 			info: "Stress test upgrade (will be cancelled)",
 		})),
@@ -1094,7 +1095,7 @@ async function test7_cosmovisorUpgrade(): Promise<TestResult> {
 
 	if (upgradeResult.success) {
 		const plan = upgradePlan?.["plan"] as Record<string, unknown> | null;
-		if (!plan || plan["name"] !== "stress-test-v2") {
+		if (!plan || plan["name"] !== upgradeName) {
 			errors.push("Upgrade scheduled but plan not visible via query");
 		}
 	}
@@ -1107,7 +1108,7 @@ async function test7_cosmovisorUpgrade(): Promise<TestResult> {
 		"did:ensoul:protocol:upgrade",
 		0n,
 		pioneerNonce, // upgrade txs don't increment nonce
-		ENC.encode(JSON.stringify({ name: "stress-test-v2" })),
+		ENC.encode(JSON.stringify({ name: upgradeName })),
 	);
 	const cancelResult = await submitTx(cancelJson);
 	log(`  Cancel result: success=${cancelResult.success}, code=${cancelResult.checkCode}/${cancelResult.deliverCode}`);
