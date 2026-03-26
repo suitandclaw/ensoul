@@ -1044,6 +1044,7 @@ function serializeFullState(state: EnsoulState): Buffer {
 		consciousness: Array.from(state.consciousness.values()),
 		upgradePlan: state.upgradePlan,
 		upgradeHistory: state.upgradeHistory,
+		delegations: state.delegations.serialize(),
 		genesis: state.genesis ? {
 			emissionPerBlock: state.genesis.emissionPerBlock.toString(),
 			networkRewardsPool: state.genesis.networkRewardsPool.toString(),
@@ -1221,6 +1222,7 @@ async function handleApplySnapshotChunk(
 			consciousness: OnChainConsciousness[];
 			upgradePlan: UpgradePlan | null;
 			upgradeHistory: CompletedUpgrade[];
+			delegations: Array<{ validator: string; delegator: string; amount: string }>;
 			genesis: { emissionPerBlock: string; networkRewardsPool: string; storageFeeProtocolShare: number } | null;
 		};
 
@@ -1255,6 +1257,9 @@ async function handleApplySnapshotChunk(
 		state.consciousness = new Map(snapshot.consciousness.map((c) => [c.did, c]));
 		state.upgradePlan = snapshot.upgradePlan;
 		state.upgradeHistory = snapshot.upgradeHistory ?? [];
+		if (snapshot.delegations && snapshot.delegations.length > 0) {
+			state.delegations = DelegationRegistry.deserialize(snapshot.delegations);
+		}
 
 		if (snapshot.genesis) {
 			state.genesis = {
@@ -1324,6 +1329,7 @@ async function persistState(state: EnsoulState): Promise<void> {
 			upgradeHistory: state.upgradeHistory,
 			agents: Array.from(state.agents.values()),
 			consciousness: Array.from(state.consciousness.values()),
+			delegations: state.delegations.serialize(),
 		};
 		await writeFile(
 			join(state.dataDir, "state.json"),
@@ -1406,7 +1412,13 @@ async function loadPersistedState(state: EnsoulState): Promise<void> {
 		const csList = (snap["consciousness"] as OnChainConsciousness[] | null) ?? [];
 		state.consciousness = new Map(csList.map((c) => [c.did, c]));
 
-		log(`Loaded persisted state: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL agents=${state.agents.size} consciousness=${state.consciousness.size}`);
+		// Restore delegation registry
+		const delegationEntries = (snap["delegations"] as Array<{ validator: string; delegator: string; amount: string }> | null) ?? [];
+		if (delegationEntries.length > 0) {
+			state.delegations = DelegationRegistry.deserialize(delegationEntries);
+		}
+
+		log(`Loaded persisted state: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL agents=${state.agents.size} consciousness=${state.consciousness.size} delegations=${delegationEntries.length}`);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		log(`No persisted state (${msg}), starting fresh`);
