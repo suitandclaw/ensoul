@@ -2,198 +2,152 @@
 #
 # chain-watchdog.sh
 #
-# Monitors the CometBFT chain and auto-recovers stalled processes.
-# Runs every 30 seconds. Never kills cloudflared or wipes chain data.
+# Monitors CometBFT and ABCI server processes.
+# Restarts ONLY when processes are confirmed dead.
+# NEVER restarts because blocks are stale.
+# NEVER touches cloudflared, explorer, monitor, or API.
 #
-# Checks:
-#   1. Is CometBFT responding?
-#   2. Is the last block recent (< 120 seconds)?
-#   3. Are peers connected?
-#   4. Is the ABCI server responding?
-#
-# Recovery actions (escalating):
-#   1. Restart ABCI server
-#   2. Restart CometBFT via Cosmovisor
-#   3. Log CRITICAL alert
+# Rules:
+#   1. If CometBFT process is dead: restart ABCI first, wait, restart CometBFT
+#   2. If ABCI process is dead: kill CometBFT, restart ABCI first, wait, restart CometBFT
+#   3. Stale blocks with running processes: LOG ONLY, never act
 #
 
 LOG="$HOME/.ensoul/watchdog.log"
-RPC="http://localhost:26657"
 ABCI_PORT=26658
-STALE_THRESHOLD=120    # seconds before alert
-CRITICAL_THRESHOLD=600 # 10 minutes = serious problem
+RPC="http://localhost:26657"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"; }
 
-# ── Get block age ─────────────────────────────────────────────────────
+# ── Process checks (definitive, via ps) ───────────────────────────────
 
-get_block_age() {
-    local resp
-    resp=$(curl -s "$RPC/status" 2>/dev/null) || { echo "999999"; return; }
-    
-    local block_time
-    block_time=$(echo "$resp" | python3 -c "
-import sys,json
-from datetime import datetime, timezone
-try:
-    d = json.load(sys.stdin)['result']['sync_info']
-    bt = d['latest_block_time']
-    # Parse ISO timestamp
-    t = datetime.fromisoformat(bt.replace('Z','+00:00'))
-    now = datetime.now(timezone.utc)
-    print(int((now - t).total_seconds()))
-except:
-    print(999999)
-" 2>/dev/null)
-    echo "${block_time:-999999}"
+is_cometbft_alive() {
+    pgrep -f "cometbft start" >/dev/null 2>&1
 }
 
-get_height() {
-    curl -s "$RPC/status" 2>/dev/null | python3 -c "
-import sys,json
-try: print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])
-except: print(0)
-" 2>/dev/null || echo "0"
+is_abci_alive() {
+    pgrep -f "abci-server/src/index" >/dev/null 2>&1
 }
 
-get_peers() {
-    curl -s "$RPC/net_info" 2>/dev/null | python3 -c "
-import sys,json
-try: print(json.load(sys.stdin)['result']['n_peers'])
-except: print(0)
-" 2>/dev/null || echo "0"
-}
+# ── Restart functions ─────────────────────────────────────────────────
 
-is_catching_up() {
-    curl -s "$RPC/status" 2>/dev/null | python3 -c "
-import sys,json
-try: print(json.load(sys.stdin)['result']['sync_info']['catching_up'])
-except: print('True')
-" 2>/dev/null || echo "True"
-}
-
-# ── Recovery actions ──────────────────────────────────────────────────
-
-restart_abci() {
-    log "ACTION: Restarting ABCI server on port $ABCI_PORT"
-    
-    # Find and kill the ABCI server process (NOT cloudflared, NOT explorer, NOT monitor, NOT API)
-    local abci_pid
-    abci_pid=$(lsof -ti :$ABCI_PORT 2>/dev/null | head -1)
-    if [ -n "$abci_pid" ]; then
-        kill "$abci_pid" 2>/dev/null || true
-        sleep 3
-    fi
-    
-    
-    cd "$HOME/ensoul" 2>/dev/null || cd "$HOME/ensoul"
-    
-    # Source nvm for Minis
+start_abci() {
+    log "ACTION: Starting ABCI server"
+    export PATH="/opt/homebrew/bin:$HOME/go/bin:/usr/local/go/bin:/usr/local/bin:$PATH"
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
     [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-    export PATH="/opt/homebrew/bin:$HOME/go/bin:/usr/local/go/bin:$PATH"
-    
+
+    cd "$HOME/ensoul" 2>/dev/null || return
     nohup npx tsx packages/abci-server/src/index.ts --port $ABCI_PORT >> "$HOME/.ensoul/abci-server.log" 2>&1 &
-    log "ACTION: ABCI server restarted (pid $!)"
-    sleep 5
+    log "ACTION: ABCI server started (pid $!)"
 }
 
-restart_cometbft() {
-    log "ACTION: Restarting CometBFT via Cosmovisor"
-    
-    # Kill CometBFT (by port, never by name)
-    local cmt_pid
-    cmt_pid=$(lsof -ti :26656 2>/dev/null | head -1)
-    if [ -n "$cmt_pid" ]; then
-        kill "$cmt_pid" 2>/dev/null || true
-        sleep 3
-    fi
-    
-    export PATH="/opt/homebrew/bin:$HOME/go/bin:/usr/local/go/bin:$PATH"
-    
+start_cometbft() {
+    log "ACTION: Starting CometBFT via Cosmovisor"
+    export PATH="/opt/homebrew/bin:$HOME/go/bin:/usr/local/go/bin:/usr/local/bin:$PATH"
+
     local NODE_DIR="$HOME/.cometbft-ensoul/node"
     export DAEMON_NAME=cometbft
     export DAEMON_HOME="$NODE_DIR"
     export DAEMON_DATA_BACKUP_DIR="$NODE_DIR/backups"
     export DAEMON_ALLOW_DOWNLOAD_URLS=true
     export DAEMON_RESTART_AFTER_UPGRADE=true
-    
-    # Ensure Cosmovisor dirs exist
+
     mkdir -p "$NODE_DIR/cosmovisor/genesis/bin" "$NODE_DIR/backups"
     if [ ! -f "$NODE_DIR/cosmovisor/genesis/bin/cometbft" ]; then
-        cp "$(which cometbft)" "$NODE_DIR/cosmovisor/genesis/bin/cometbft"
+        local CMT_BIN
+        CMT_BIN=$(which cometbft 2>/dev/null || echo "$HOME/go/bin/cometbft")
+        [ -f "$CMT_BIN" ] && cp "$CMT_BIN" "$NODE_DIR/cosmovisor/genesis/bin/cometbft"
     fi
-    
-    nohup cosmovisor run start --home "$NODE_DIR" >> "$HOME/.ensoul/cometbft.log" 2>&1 &
-    log "ACTION: CometBFT restarted via Cosmovisor (pid $!)"
-    sleep 10
+
+    local COSMOVISOR_BIN
+    COSMOVISOR_BIN=$(which cosmovisor 2>/dev/null || echo "$HOME/go/bin/cosmovisor")
+
+    nohup "$COSMOVISOR_BIN" run start --home "$NODE_DIR" >> "$HOME/.ensoul/cometbft.log" 2>&1 &
+    log "ACTION: CometBFT started via Cosmovisor (pid $!)"
+}
+
+restart_both() {
+    log "ACTION: Full restart sequence (ABCI first, then CometBFT)"
+
+    # Kill CometBFT if alive (it needs ABCI, so restart it after)
+    if is_cometbft_alive; then
+        local pid
+        pid=$(pgrep -f "cometbft start" | head -1)
+        kill "$pid" 2>/dev/null
+        sleep 3
+    fi
+
+    # Start ABCI
+    start_abci
+    sleep 5
+
+    # Verify ABCI is listening
+    if ! nc -z 127.0.0.1 $ABCI_PORT 2>/dev/null; then
+        log "ERROR: ABCI failed to start on port $ABCI_PORT"
+        return
+    fi
+
+    # Start CometBFT
+    start_cometbft
 }
 
 # ── Main check ────────────────────────────────────────────────────────
 
 main() {
-    local age height peers catching_up
-    
-    # Check if CometBFT RPC responds at all
-    if ! curl -s -m 5 "$RPC/status" >/dev/null 2>&1; then
-        # Before restarting, check if CometBFT is running but busy (replaying blocks)
-        if pgrep -f "cometbft start" >/dev/null 2>&1; then
-            log "INFO: CometBFT running but RPC not responding (likely replaying blocks). Leaving it alone."
-            return
-        fi
+    local cmt_alive abci_alive
 
-        log "ALERT: CometBFT not running and RPC not responding"
+    is_cometbft_alive && cmt_alive=true || cmt_alive=false
+    is_abci_alive && abci_alive=true || abci_alive=false
 
-        # Check if ABCI is alive
-        if ! nc -z 127.0.0.1 $ABCI_PORT 2>/dev/null; then
-            log "ALERT: ABCI server also down"
-            restart_abci
-            sleep 5
-        fi
+    # Case 1: Both dead
+    if [ "$cmt_alive" = "false" ] && [ "$abci_alive" = "false" ]; then
+        log "ALERT: Both CometBFT and ABCI are dead"
+        restart_both
+        return
+    fi
 
-        restart_cometbft
+    # Case 2: ABCI dead, CometBFT alive
+    if [ "$abci_alive" = "false" ]; then
+        log "ALERT: ABCI is dead (CometBFT will fail without it)"
+        restart_both
         return
     fi
-    
-    age=$(get_block_age)
-    height=$(get_height)
-    peers=$(get_peers)
-    catching_up=$(is_catching_up)
-    
-    # If catching up, that's normal (syncing from peers)
-    if [ "$catching_up" = "True" ]; then
+
+    # Case 3: CometBFT dead, ABCI alive
+    if [ "$cmt_alive" = "false" ]; then
+        log "ALERT: CometBFT is dead (ABCI is alive)"
+        start_cometbft
         return
     fi
-    
-    # Critical: 10+ minutes stale
-    if [ "$age" -ge "$CRITICAL_THRESHOLD" ]; then
-        log "CRITICAL: Chain stalled for ${age}s at height $height with $peers peers"
-        log "CRITICAL: Full diagnostics:"
-        log "  Block age: ${age}s"
-        log "  Height: $height"
-        log "  Peers: $peers"
-        log "  ABCI port $ABCI_PORT: $(nc -z 127.0.0.1 $ABCI_PORT 2>/dev/null && echo 'open' || echo 'closed')"
-        
-        # Escalated recovery: restart both
-        restart_abci
-        restart_cometbft
-        return
+
+    # Case 4: Both alive. Check block age for logging only.
+    local age=0
+    local height="?"
+    if curl -s -m 5 "$RPC/status" >/dev/null 2>&1; then
+        local result
+        result=$(curl -s -m 5 "$RPC/status" 2>/dev/null)
+        height=$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])" 2>/dev/null || echo "?")
+        age=$(echo "$result" | python3 -c "
+from datetime import datetime, timezone
+import sys,json
+try:
+    d = json.load(sys.stdin)['result']['sync_info']
+    bt = datetime.fromisoformat(d['latest_block_time'].replace('Z','+00:00'))
+    print(int((datetime.now(timezone.utc) - bt).total_seconds()))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
     fi
-    
-    # Warning: 2+ minutes stale
-    if [ "$age" -ge "$STALE_THRESHOLD" ]; then
-        log "WARN: Last block ${age}s ago at height $height (peers=$peers)"
-        
-        # First attempt: restart ABCI
-        if ! nc -z 127.0.0.1 $ABCI_PORT 2>/dev/null; then
-            restart_abci
-        fi
-        return
+
+    # Log stale blocks (never act on them)
+    if [ "$age" -gt 120 ] 2>/dev/null; then
+        log "WARN: Blocks stale for ${age}s at h=$height (processes alive, not restarting)"
     fi
-    
-    # Healthy: log periodically (every 10 minutes = every 20 checks)
-    if [ $((height % 600)) -lt 2 ]; then
-        log "OK: height=$height age=${age}s peers=$peers"
+
+    # Periodic health log
+    if [ "$height" != "?" ] && [ $((height % 600)) -lt 2 ] 2>/dev/null; then
+        log "OK: h=$height age=${age}s"
     fi
 }
 
