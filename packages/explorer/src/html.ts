@@ -85,7 +85,7 @@ function explorerNav(activeTab: string): string {
 		const cls = id === activeTab ? ' class="active"' : "";
 		return `<a href="${href}"${cls}>${label}</a>`;
 	};
-	return `<div class="explorer-nav">${tab("/", "Dashboard", "dashboard")}${tab("/agents", "Agents", "agents")}${tab("/blocks", "Blocks", "blocks")}${tab("/validators", "Validators", "validators")}</div>`;
+	return `<div class="explorer-nav">${tab("/", "Dashboard", "dashboard")}${tab("/agents", "Agents", "agents")}${tab("/blocks", "Blocks", "blocks")}${tab("/validators", "Validators", "validators")}${tab("/wallets", "Wallets", "wallets")}</div>`;
 }
 
 function layout(title: string, tab: string, content: string, autoRefresh = false): string {
@@ -335,6 +335,81 @@ function filterTable(){
   var q=document.getElementById("v-search").value.toLowerCase();
   var rows=document.querySelectorAll("#v-table tbody tr");
   rows.forEach(function(r){r.style.display=r.textContent.toLowerCase().includes(q)?"":"none"});
+}
+</script>`,
+	);
+}
+
+/**
+ * Render the wallets/accounts list page.
+ */
+export function renderWallets(
+	data: {
+		accounts: Array<{ did: string; balance: string; stakedBalance: string; delegatedBalance: string; total: string; totalEnsl: number; label: string; nonce: number; lastActivity: number }>;
+		total: number; page: number; pages: number;
+	},
+	search: string,
+): string {
+	const rows = data.accounts.map((a, i) => {
+		const shortDid = a.did.length > 40 ? `${a.did.slice(0, 16)}...${a.did.slice(-6)}` : a.did;
+		const balance = formatEnsl(a.balance);
+		const staked = formatEnsl(a.stakedBalance);
+		const delegated = formatEnsl(a.delegatedBalance);
+		const total = formatEnsl(a.total);
+		const labelBadge = a.label === "Foundation Validator"
+			? '<span class="badge badge-sovereign">VALIDATOR</span>'
+			: a.label === "Cloud Validator"
+				? '<span class="badge badge-anchored">CLOUD</span>'
+				: a.label === "Agent"
+					? '<span class="badge badge-verified">AGENT</span>'
+					: a.label === "Delegator"
+						? '<span class="badge" style="background:#6366f1;color:white">DELEGATOR</span>'
+						: a.label === "Protocol"
+							? '<span class="badge" style="background:#f59e0b;color:black">PROTOCOL</span>'
+							: `<span class="badge">${a.label.toUpperCase()}</span>`;
+		const rank = ((data.page - 1) * 50) + i + 1;
+		return `<tr><td>${rank}</td><td><a href="/account/${encodeURIComponent(a.did)}">${shortDid}</a> ${labelBadge}</td><td>${balance}</td><td>${staked}</td><td>${delegated}</td><td><strong>${total}</strong></td></tr>`;
+	}).join("");
+
+	const prevDisabled = data.page <= 1 ? "disabled" : "";
+	const nextDisabled = data.page >= data.pages ? "disabled" : "";
+	const pagination = data.pages > 1
+		? `<div style="margin:16px 0;display:flex;gap:8px;align-items:center;justify-content:center">
+			<a href="/wallets?page=${data.page - 1}&search=${encodeURIComponent(search)}" class="btn" ${prevDisabled} style="padding:4px 12px;border:1px solid #333;border-radius:4px;color:#ccc;text-decoration:none">Prev</a>
+			<span>Page ${data.page} of ${data.pages} (${data.total} accounts)</span>
+			<a href="/wallets?page=${data.page + 1}&search=${encodeURIComponent(search)}" class="btn" ${nextDisabled} style="padding:4px 12px;border:1px solid #333;border-radius:4px;color:#ccc;text-decoration:none">Next</a>
+		</div>`
+		: `<div style="margin:8px 0;color:#888">${data.total} accounts</div>`;
+
+	return layout(
+		"Wallets",
+		"wallets",
+		`<h2>All Accounts</h2>
+<form method="get" action="/wallets" style="margin:12px 0">
+<input class="search" name="search" value="${search}" placeholder="Search by DID or label..." autofocus>
+</form>
+${pagination}
+<table id="w-table"><thead><tr>
+<th onclick="sortTable(0,'w-table')">#</th>
+<th onclick="sortTable(1,'w-table')">Account</th>
+<th onclick="sortTable(2,'w-table')">Available</th>
+<th onclick="sortTable(3,'w-table')">Staked</th>
+<th onclick="sortTable(4,'w-table')">Delegated</th>
+<th onclick="sortTable(5,'w-table')">Total</th>
+</tr></thead><tbody>${rows}</tbody></table>
+${pagination}
+<script>
+function sortTable(col,tid){
+  var t=document.getElementById(tid),tbody=t.querySelector("tbody"),rows=Array.from(tbody.querySelectorAll("tr"));
+  var asc=t.getAttribute("data-sort-col")==String(col)&&t.getAttribute("data-sort-dir")!=="asc";
+  t.setAttribute("data-sort-col",String(col));t.setAttribute("data-sort-dir",asc?"asc":"desc");
+  rows.sort(function(a,b){
+    var av=a.cells[col].textContent.replace(/[^0-9.-]/g,""),bv=b.cells[col].textContent.replace(/[^0-9.-]/g,"");
+    var an=parseFloat(av)||0,bn=parseFloat(bv)||0;
+    if(an!==bn)return asc?an-bn:bn-an;
+    return asc?av.localeCompare(bv):bv.localeCompare(av);
+  });
+  rows.forEach(function(r){tbody.appendChild(r)});
 }
 </script>`,
 	);

@@ -732,10 +732,12 @@ function handleQuery(
 	const path = req.query?.path ?? "";
 	const data = req.query?.data;
 
-	// Route by path
-	const parts = path.split("/").filter(Boolean);
+	// Route by path, separating query string if present
+	const [pathPart, queryPart] = path.split("?", 2);
+	const parts = pathPart.split("/").filter(Boolean);
 	const route = parts[0] ?? "";
 	const param = parts[1] ?? (data ? data.toString("utf-8") : "");
+	const queryParams = new URLSearchParams(queryPart ?? "");
 
 	let value: Record<string, unknown> = {};
 
@@ -848,6 +850,62 @@ function handleQuery(
 				totalDelegatedEnsl: Number(totalDelegated / DECIMALS),
 				delegatorCount: delegators.length,
 				delegators,
+			};
+			break;
+		}
+		case "accounts": {
+			// Paginated account listing. /accounts?page=1&limit=50
+			const page = Math.max(1, Number(queryParams.get("page") ?? (param || "1")));
+			const limit = Math.min(200, Math.max(1, Number(queryParams.get("limit") ?? 50)));
+
+			// Get all account DIDs
+			const allDids = state.committed.getAllAccountDids();
+			const consensusSet = new Set(state.committed.getConsensusSet());
+
+			// Build account entries with labels
+			const allAccounts = allDids.map((did) => {
+				const acct = state.committed.getAccount(did);
+				const total = acct.balance + acct.stakedBalance + acct.delegatedBalance;
+				const agent = state.agents.get(did);
+				const isValidator = consensusSet.has(did);
+				const isAgent = !!agent;
+
+				let label = "Account";
+				if (did.startsWith("did:ensoul:protocol:")) label = "Protocol";
+				else if (isValidator && acct.stakedBalance > 10_000_000n * DECIMALS) label = "Foundation Validator";
+				else if (isValidator) label = "Cloud Validator";
+				else if (isAgent) label = "Agent";
+				else if (acct.stakedBalance > 0n) label = "Staker";
+				else if (acct.delegatedBalance > 0n) label = "Delegator";
+
+				return {
+					did,
+					balance: acct.balance.toString(),
+					stakedBalance: acct.stakedBalance.toString(),
+					delegatedBalance: acct.delegatedBalance.toString(),
+					total: total.toString(),
+					totalEnsl: Number(total / DECIMALS),
+					label,
+					nonce: acct.nonce,
+					lastActivity: acct.lastActivity,
+				};
+			});
+
+			// Sort by total descending
+			allAccounts.sort((a, b) => {
+				const diff = BigInt(b.total) - BigInt(a.total);
+				return diff > 0n ? 1 : diff < 0n ? -1 : 0;
+			});
+
+			const start = (page - 1) * limit;
+			const pageAccounts = allAccounts.slice(start, start + limit);
+
+			value = {
+				accounts: pageAccounts,
+				total: allAccounts.length,
+				page,
+				limit,
+				pages: Math.ceil(allAccounts.length / limit),
 			};
 			break;
 		}
