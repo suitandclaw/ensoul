@@ -89,7 +89,7 @@ log "Config: peer=$MBP_PEER"
 # ── Start ABCI server ────────────────────────────────────────────────
 
 log "Starting ABCI server..."
-rm -rf /tmp/ensoul-abci
+
 cd "$REPO_DIR"
 npx tsx packages/abci-server/src/index.ts --port 26658 \
 	> "$LOG_DIR/abci-server.log" 2>&1 &
