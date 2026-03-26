@@ -733,11 +733,14 @@ async function test4_largePayload(): Promise<TestResult> {
 	const details: Record<string, unknown> = {};
 	const startTime = Date.now();
 
+	// CometBFT max_tx_bytes = 1048576 (1MB). Base64 encoding adds ~33% overhead,
+	// plus the tx JSON wrapper. So the max usable payload is around 700KB.
+	// Test with sizes relative to the actual CometBFT limit.
 	const payloadSizes = [
-		{ label: "1MB", bytes: 1 * 1024 * 1024 },
-		{ label: "5MB", bytes: 5 * 1024 * 1024 },
-		{ label: "10MB", bytes: 10 * 1024 * 1024 },
-		{ label: "11MB (should reject)", bytes: 11 * 1024 * 1024, expectFail: true },
+		{ label: "100KB", bytes: 100 * 1024 },
+		{ label: "500KB", bytes: 500 * 1024 },
+		{ label: "700KB (near limit)", bytes: 700 * 1024 },
+		{ label: "1.5MB (should reject)", bytes: 1536 * 1024, expectFail: true },
 	];
 
 	for (const { label, bytes, expectFail } of payloadSizes) {
@@ -767,10 +770,10 @@ async function test4_largePayload(): Promise<TestResult> {
 			}
 		} else {
 			if (!result.success) {
-				// Large payloads may fail due to CometBFT max_tx_bytes, not necessarily a bug
+				// Payloads near the CometBFT limit may be rejected due to base64 overhead
 				log(`  WARNING: ${label} failed: ${result.error}`);
-				// Only count as error if 1MB fails (that should always work)
-				if (bytes <= 1024 * 1024) {
+				// Only count as error if small payloads fail (under 500KB should always work)
+				if (bytes <= 512 * 1024) {
 					errors.push(`${label} payload failed: ${result.error}`);
 				}
 			} else {
@@ -859,18 +862,20 @@ async function test5_restartRecovery(): Promise<TestResult> {
 		ssh(name, "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.ensoul.chain-watchdog.plist 2>/dev/null; echo ok");
 	}
 
-	// Also manually kick the MBP start in case the watchdog is slow
+	// Manually trigger watchdog on all machines (launchd interval is 30s, too slow for test)
 	const nodeDir = join(homedir(), ".cometbft-ensoul", "node");
+	log("Manually triggering watchdog on all machines...");
 	try {
-		execSync(`DAEMON_NAME=cometbft DAEMON_HOME="${nodeDir}" ~/go/bin/cosmovisor run start --proxy_app=tcp://127.0.0.1:26658 --home="${nodeDir}" > ~/.ensoul/cometbft.log 2>&1 &`, {
-			encoding: "utf-8", timeout: 5000,
-		});
-	} catch { /* async start */ }
+		execSync("bash scripts/chain-watchdog.sh &", { encoding: "utf-8", timeout: 5000 });
+	} catch { /* async */ }
+	for (const name of ["mini1", "mini2", "mini3"]) {
+		ssh(name, "bash -l -c 'cd ~/ensoul && bash scripts/chain-watchdog.sh' &", 10);
+	}
 
 	// Wait for chain to resume
-	log("Waiting for chain to resume (up to 90 seconds)...");
+	log("Waiting for chain to resume (up to 120 seconds)...");
 	let resumed = false;
-	for (let i = 0; i < 18; i++) {
+	for (let i = 0; i < 24; i++) {
 		await sleep(5000);
 		const h = await getHeight();
 		if (h > preHeight) {
@@ -878,11 +883,11 @@ async function test5_restartRecovery(): Promise<TestResult> {
 			resumed = true;
 			break;
 		}
-		if (i % 3 === 2) log(`  Waiting... height=${h}`);
+		if (i % 4 === 3) log(`  Waiting... height=${h}`);
 	}
 
 	if (!resumed) {
-		errors.push("Chain did not resume within 90 seconds");
+		errors.push("Chain did not resume within 120 seconds");
 		log("  FAIL: Chain did not resume");
 	}
 
