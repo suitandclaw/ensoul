@@ -1081,9 +1081,10 @@ async function test7_cosmovisorUpgrade(): Promise<TestResult> {
 	const pioneerNonce = Number(pioneerAcct?.["nonce"] ?? 0);
 	log(`Pioneer nonce: ${pioneerNonce}`);
 
-	// ── 7A: Schedule an upgrade at current + 200 blocks ──
+	// Schedule far ahead (+500 blocks, about 12 minutes) so we have plenty of
+	// time to cancel before Cosmovisor detects the halt height.
 	const currentHeight = await getHeight();
-	const upgradeHeight = currentHeight + 200;
+	const upgradeHeight = currentHeight + 500;
 	const upgradeName = `stress-test-${Date.now()}`;
 	log(`7A: Scheduling upgrade "${upgradeName}" at height ${upgradeHeight}...`);
 
