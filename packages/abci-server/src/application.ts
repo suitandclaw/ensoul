@@ -120,6 +120,12 @@ interface CompletedUpgrade {
 // Pioneer key DID (governance authority for upgrade proposals)
 const PIONEER_KEY = "did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X";
 
+// Snapshot configuration
+const SNAPSHOT_INTERVAL = 1000;  // Create snapshot every N blocks
+const SNAPSHOT_KEEP = 3;         // Keep last N snapshots
+const SNAPSHOT_FORMAT = 1;       // Snapshot format version
+const SNAPSHOT_CHUNK_SIZE = 1024 * 1024; // 1MB per chunk
+
 // -- On-chain Agent Registry --
 
 interface OnChainAgent {
@@ -166,6 +172,8 @@ interface EnsoulState {
 	agents: Map<string, OnChainAgent>;
 	/** On-chain consciousness state (DID -> latest consciousness). */
 	consciousness: Map<string, OnChainConsciousness>;
+	/** Temporary buffer for accumulating snapshot chunks during state sync. */
+	_snapshotBuffer?: Buffer;
 }
 
 // -- Application Factory --
@@ -212,13 +220,13 @@ export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 			case "commit":
 				return await handleCommit(state);
 			case "listSnapshots":
-				return { listSnapshots: {} };
+				return handleListSnapshots(state);
 			case "offerSnapshot":
-				return { offerSnapshot: { result: 0 } };
+				return handleOfferSnapshot(request, state);
 			case "loadSnapshotChunk":
-				return { loadSnapshotChunk: { chunk: Buffer.alloc(0) } };
+				return handleLoadSnapshotChunk(request, state);
 			case "applySnapshotChunk":
-				return { applySnapshotChunk: { result: 0 } };
+				return await handleApplySnapshotChunk(request, state);
 			case "prepareProposal":
 				return handlePrepareProposal(request);
 			case "processProposal":
@@ -674,13 +682,16 @@ async function handleCommit(state: EnsoulState): Promise<Record<string, unknown>
 	// Persist to disk
 	await persistState(state);
 
+	// Create snapshot at regular intervals for state sync
+	if (state.height > 0 && state.height % SNAPSHOT_INTERVAL === 0) {
+		await createSnapshot(state);
+	}
+
 	if (state.height % 100 === 0) {
-		log(`Commit: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL`);
+		log(`Commit: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL agents=${state.agents.size}`);
 	}
 
 	// After commit is complete and state is persisted, check for upgrade halt.
-	// This must happen AFTER the response is sent so CometBFT records the commit.
-	// We use setImmediate to let the response flush first.
 	if (state.upgradePlan && state.height >= state.upgradePlan.height) {
 		setImmediate(() => checkUpgradeHalt(state));
 	}
@@ -1011,6 +1022,268 @@ function checkUpgradeHalt(state: EnsoulState): void {
 		// expects along with the UPGRADE NEEDED message in stderr)
 		setTimeout(() => process.exit(2), 500);
 	})();
+}
+
+// ======================================================================
+// 9. State Sync Snapshots
+// ======================================================================
+
+/**
+ * Serialize the full application state into a snapshot buffer.
+ * This is the complete state that a syncing node needs to reconstruct
+ * the application at a given height without replaying blocks.
+ */
+function serializeFullState(state: EnsoulState): Buffer {
+	const snapshot = {
+		height: state.height,
+		appHash: state.appHash.toString("hex"),
+		totalEmitted: state.totalEmitted.toString(),
+		accounts: serializeAccounts(state.committed),
+		consensusSet: state.committed.getConsensusSet(),
+		agents: Array.from(state.agents.values()),
+		consciousness: Array.from(state.consciousness.values()),
+		upgradePlan: state.upgradePlan,
+		upgradeHistory: state.upgradeHistory,
+		genesis: state.genesis ? {
+			emissionPerBlock: state.genesis.emissionPerBlock.toString(),
+			networkRewardsPool: state.genesis.networkRewardsPool.toString(),
+			storageFeeProtocolShare: state.genesis.protocolFees.storageFeeProtocolShare,
+		} : null,
+	};
+	return Buffer.from(JSON.stringify(snapshot));
+}
+
+/**
+ * Create a snapshot at the current height and save to disk.
+ * Keeps only the most recent SNAPSHOT_KEEP snapshots.
+ */
+async function createSnapshot(state: EnsoulState): Promise<void> {
+	const snapDir = join(state.dataDir, "snapshots");
+	await mkdir(snapDir, { recursive: true });
+
+	const data = serializeFullState(state);
+	const hash = blake3(data);
+	const chunks = Math.ceil(data.length / SNAPSHOT_CHUNK_SIZE);
+
+	// Write snapshot metadata
+	const meta = {
+		height: state.height,
+		format: SNAPSHOT_FORMAT,
+		chunks,
+		hash: bytesToHex(hash),
+		size: data.length,
+		createdAt: Date.now(),
+	};
+
+	const snapPath = join(snapDir, `snapshot-${state.height}`);
+	await mkdir(snapPath, { recursive: true });
+	await writeFile(join(snapPath, "meta.json"), JSON.stringify(meta, null, 2));
+	await writeFile(join(snapPath, "data.bin"), data);
+
+	log(`Snapshot created: height=${state.height} size=${data.length} chunks=${chunks}`);
+
+	// Clean old snapshots
+	try {
+		const { readdir } = await import("node:fs/promises");
+		const entries = await readdir(snapDir);
+		const snapshots = entries
+			.filter((e) => e.startsWith("snapshot-"))
+			.map((e) => ({ name: e, height: Number(e.split("-")[1]) }))
+			.sort((a, b) => b.height - a.height);
+
+		for (const old of snapshots.slice(SNAPSHOT_KEEP)) {
+			const { rm } = await import("node:fs/promises");
+			await rm(join(snapDir, old.name), { recursive: true });
+		}
+	} catch { /* cleanup is best-effort */ }
+}
+
+/**
+ * List available snapshots for state sync.
+ */
+function handleListSnapshots(state: EnsoulState): Record<string, unknown> {
+	const snapDir = join(state.dataDir, "snapshots");
+	const snapshots: Array<Record<string, unknown>> = [];
+
+	try {
+		const { readdirSync, readFileSync } = require("node:fs") as typeof import("node:fs");
+		const entries = readdirSync(snapDir);
+
+		for (const entry of entries) {
+			if (!entry.startsWith("snapshot-")) continue;
+			try {
+				const meta = JSON.parse(
+					readFileSync(join(snapDir, entry, "meta.json"), "utf-8"),
+				) as { height: number; format: number; chunks: number; hash: string };
+				snapshots.push({
+					height: meta.height,
+					format: meta.format,
+					chunks: meta.chunks,
+					hash: Buffer.from(meta.hash, "hex"),
+				});
+			} catch { /* skip corrupt snapshots */ }
+		}
+	} catch { /* no snapshots dir */ }
+
+	return { listSnapshots: { snapshots } };
+}
+
+/**
+ * Accept or reject a snapshot offer during state sync.
+ */
+function handleOfferSnapshot(
+	request: protobuf.Message,
+	_state: EnsoulState,
+): Record<string, unknown> {
+	const req = request as unknown as {
+		offerSnapshot?: {
+			snapshot?: { height?: number; format?: number; chunks?: number; hash?: Buffer };
+			appHash?: Buffer;
+		};
+	};
+
+	const snap = req.offerSnapshot?.snapshot;
+	if (!snap) return { offerSnapshot: { result: 2 } }; // REJECT
+
+	// Accept if format matches
+	if (snap.format === SNAPSHOT_FORMAT) {
+		log(`OfferSnapshot: accepting height=${snap.height} chunks=${snap.chunks}`);
+		return { offerSnapshot: { result: 1 } }; // ACCEPT
+	}
+
+	return { offerSnapshot: { result: 2 } }; // REJECT
+}
+
+/**
+ * Serve a snapshot chunk to a syncing node.
+ */
+function handleLoadSnapshotChunk(
+	request: protobuf.Message,
+	state: EnsoulState,
+): Record<string, unknown> {
+	const req = request as unknown as {
+		loadSnapshotChunk?: { height?: number; format?: number; chunk?: number };
+	};
+
+	const height = req.loadSnapshotChunk?.height ?? 0;
+	const chunkIdx = req.loadSnapshotChunk?.chunk ?? 0;
+
+	const snapPath = join(state.dataDir, "snapshots", `snapshot-${height}`, "data.bin");
+
+	try {
+		const { readFileSync } = require("node:fs") as typeof import("node:fs");
+		const data = readFileSync(snapPath);
+		const start = chunkIdx * SNAPSHOT_CHUNK_SIZE;
+		const end = Math.min(start + SNAPSHOT_CHUNK_SIZE, data.length);
+		const chunk = data.subarray(start, end);
+
+		return { loadSnapshotChunk: { chunk: Buffer.from(chunk) } };
+	} catch {
+		return { loadSnapshotChunk: { chunk: Buffer.alloc(0) } };
+	}
+}
+
+/**
+ * Apply a received snapshot chunk during state sync.
+ * Reconstructs the full application state from the snapshot data.
+ */
+async function handleApplySnapshotChunk(
+	request: protobuf.Message,
+	state: EnsoulState,
+): Promise<Record<string, unknown>> {
+	const req = request as unknown as {
+		applySnapshotChunk?: { index?: number; chunk?: Buffer; sender?: string };
+	};
+
+	const chunk = req.applySnapshotChunk?.chunk;
+	const index = req.applySnapshotChunk?.index ?? 0;
+
+	if (!chunk || chunk.length === 0) {
+		return { applySnapshotChunk: { result: 2 } }; // REJECT
+	}
+
+	// Accumulate chunks in a temporary buffer
+	if (!state._snapshotBuffer) {
+		state._snapshotBuffer = Buffer.alloc(0);
+	}
+	state._snapshotBuffer = Buffer.concat([state._snapshotBuffer, chunk]);
+
+	// If this might be the last chunk, try to parse the full snapshot
+	try {
+		const fullData = state._snapshotBuffer!;
+		const snapshot = JSON.parse(fullData.toString("utf-8")) as {
+			height: number;
+			appHash: string;
+			totalEmitted: string;
+			accounts: Array<{ did: string; balance: string; stakedBalance: string; nonce: number; storageCredits: string; delegatedBalance: string; pendingRewards: string; lastActivity: number }>;
+			consensusSet: string[];
+			agents: OnChainAgent[];
+			consciousness: OnChainConsciousness[];
+			upgradePlan: UpgradePlan | null;
+			upgradeHistory: CompletedUpgrade[];
+			genesis: { emissionPerBlock: string; networkRewardsPool: string; storageFeeProtocolShare: number } | null;
+		};
+
+		// Rebuild state from snapshot
+		const accountState = new AccountState();
+		for (const acct of snapshot.accounts) {
+			accountState.setAccount({
+				did: acct.did,
+				balance: BigInt(acct.balance),
+				stakedBalance: BigInt(acct.stakedBalance),
+				unstakingBalance: 0n,
+				unstakingCompleteAt: 0,
+				stakeLockedUntil: 0,
+				delegatedBalance: BigInt(acct.delegatedBalance),
+				pendingRewards: BigInt(acct.pendingRewards),
+				nonce: acct.nonce,
+				storageCredits: BigInt(acct.storageCredits),
+				lastActivity: acct.lastActivity,
+			});
+		}
+		for (const did of snapshot.consensusSet) {
+			accountState.joinConsensus(did);
+		}
+
+		state.committed = accountState;
+		state.working = accountState.clone();
+		state.checkTx = accountState.clone();
+		state.height = snapshot.height;
+		state.totalEmitted = BigInt(snapshot.totalEmitted);
+		state.appHash = Buffer.from(snapshot.appHash, "hex");
+		state.agents = new Map(snapshot.agents.map((a) => [a.did, a]));
+		state.consciousness = new Map(snapshot.consciousness.map((c) => [c.did, c]));
+		state.upgradePlan = snapshot.upgradePlan;
+		state.upgradeHistory = snapshot.upgradeHistory ?? [];
+
+		if (snapshot.genesis) {
+			state.genesis = {
+				chainId: "ensoul-1",
+				timestamp: 0,
+				totalSupply: 1_000_000_000n * DECIMALS,
+				allocations: [],
+				emissionPerBlock: BigInt(snapshot.genesis.emissionPerBlock),
+				networkRewardsPool: BigInt(snapshot.genesis.networkRewardsPool),
+				protocolFees: {
+					storageFeeProtocolShare: snapshot.genesis.storageFeeProtocolShare,
+					txBaseFee: 1000n,
+				},
+			};
+		}
+
+		// Persist the restored state
+		await persistState(state);
+
+		log(`Snapshot applied: height=${state.height} agents=${state.agents.size} consciousness=${state.consciousness.size}`);
+
+		// Clear the buffer
+		state._snapshotBuffer = undefined;
+
+		return { applySnapshotChunk: { result: 1 } }; // ACCEPT
+	} catch {
+		// Not a complete snapshot yet, keep accumulating
+		return { applySnapshotChunk: { result: 1 } }; // ACCEPT (keep sending chunks)
+	}
 }
 
 // ======================================================================
