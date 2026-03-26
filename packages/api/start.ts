@@ -609,8 +609,10 @@ async function queryValidatorStatus(): Promise<{ height: number; validatorCount:
 	let alive = 0;
 	const dids = new Set<string>();
 
+	// Include localhost compat proxy (always co-located) plus tunnel URLs
+	const allUrls = ["http://localhost:9000", ...VALIDATORS];
 	const results = await Promise.allSettled(
-		VALIDATORS.map(async (url) => {
+		allUrls.map(async (url) => {
 			const resp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(5000) });
 			if (!resp.ok) return null;
 			return (await resp.json()) as PeerStatus;
@@ -795,14 +797,39 @@ async function main(): Promise<void> {
 
 	app.get("/v1/network/status", async () => {
 		const net = await queryValidatorStatus();
-		await refreshStakedAccounts();
-		// Validator count: use staked accounts (genesis has all 35), fall back to 35
-		const validatorCount = allStakedAccounts.length > 0 ? allStakedAccounts.length : 35;
+
+		// Get authoritative counts from ABCI chain state
+		let agentCount = registeredAgents.size;
+		let consciousnessCount = consciousnessStore.size;
+		let consensusSetSize = net.validatorCount;
+		try {
+			const statsResp = await fetch("http://localhost:26657", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "stats", method: "abci_query", params: { path: "/stats" } }),
+				signal: AbortSignal.timeout(5000),
+			});
+			if (statsResp.ok) {
+				const result = (await statsResp.json()) as { result?: { response?: { value?: string } } };
+				const val = result.result?.response?.value;
+				if (val) {
+					const statsData = JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as {
+						agentCount?: number;
+						consciousnessCount?: number;
+						consensusSetSize?: number;
+					};
+					agentCount = statsData.agentCount ?? agentCount;
+					consciousnessCount = statsData.consciousnessCount ?? consciousnessCount;
+					consensusSetSize = statsData.consensusSetSize ?? consensusSetSize;
+				}
+			}
+		} catch { /* fall back to disk counts */ }
+
 		return {
 			blockHeight: net.height,
-			validatorCount,
-			agentCount: registeredAgents.size,
-			totalConsciousnessStored: consciousnessStore.size,
+			validatorCount: consensusSetSize,
+			agentCount,
+			totalConsciousnessStored: consciousnessCount,
 			validators: net.alive,
 		};
 	});
