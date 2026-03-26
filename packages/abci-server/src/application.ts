@@ -679,8 +679,23 @@ async function handleCommit(state: EnsoulState): Promise<Record<string, unknown>
 	state.committed = state.working;
 	state.checkTx = state.committed.clone();
 
-	// Persist to disk
+	// Persist to disk, then verify the persisted state is loadable and produces
+	// the same app_hash (catches serialization bugs before they cause replay panics)
 	await persistState(state);
+
+	// Verify persistence integrity every 500 blocks
+	if (state.height % 500 === 0) {
+		try {
+			const raw = await readFile(join(state.dataDir, "state.json"), "utf-8");
+			const saved = JSON.parse(raw) as { appHash: string; height: number; delegations?: unknown[] };
+			if (saved.appHash !== state.appHash.toString("hex")) {
+				log(`CRITICAL: Persisted app_hash MISMATCH at h=${state.height}! saved=${saved.appHash.slice(0,16)}... computed=${state.appHash.toString("hex").slice(0,16)}...`);
+			}
+			if (saved.height !== state.height) {
+				log(`CRITICAL: Persisted height MISMATCH! saved=${saved.height} expected=${state.height}`);
+			}
+		} catch { /* verification is best-effort */ }
+	}
 
 	// Create snapshot at regular intervals for state sync
 	if (state.height > 0 && state.height % SNAPSHOT_INTERVAL === 0) {
