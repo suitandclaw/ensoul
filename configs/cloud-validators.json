@@ -1,0 +1,14 @@
+[
+  {
+    "name": "hetzner-1",
+    "provider": "Hetzner Cloud",
+    "publicIp": "178.156.199.91",
+    "tailscaleIp": "100.72.212.104",
+    "cometbftAddress": "72BD5ECE8CF5CEE06D89B3F1BCDD7DE05DF84150",
+    "did": "did:key:z6Mkf3a7MhLm2Ate22pTDAcnAYyvep176gRas6Qxrr4yKKSv",
+    "nodeId": "402a9f5c503c36d0dca5f1a8b7a3a2263efd039a",
+    "seedAddress": "402a9f5c503c36d0dca5f1a8b7a3a2263efd039a@178.156.199.91:26656",
+    "keyBackup": "~/ensoul-key-vault/cloud-validators/hetzner-1/",
+    "deployedAt": "2026-03-26"
+  }
+]
