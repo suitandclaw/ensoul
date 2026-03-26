@@ -196,6 +196,29 @@ async function main(): Promise<void> {
 		};
 	});
 
+	// ── GET /peer/accounts ───────────────────────────────────────
+	// Paginated account list for the explorer wallets page
+	app.get<{ Querystring: { page?: string; limit?: string; search?: string } }>("/peer/accounts", async (req) => {
+		const page = req.query.page ?? "1";
+		const limit = req.query.limit ?? "50";
+		const search = req.query.search ?? "";
+
+		const data = await cometQuery(`/accounts?page=${page}&limit=${limit}`);
+		if (!data) return { accounts: [], total: 0, page: 1, limit: 50, pages: 0 };
+
+		// Client-side search filtering if search term provided
+		if (search && data["accounts"]) {
+			const accounts = data["accounts"] as Array<Record<string, unknown>>;
+			const filtered = accounts.filter((a) =>
+				(a["did"] as string).toLowerCase().includes(search.toLowerCase()) ||
+				(a["label"] as string).toLowerCase().includes(search.toLowerCase())
+			);
+			return { ...data, accounts: filtered, total: filtered.length };
+		}
+
+		return data;
+	});
+
 	// ── GET /peer/peers ──────────────────────────────────────────
 	app.get("/peer/peers", async () => {
 		const netInfo = await cometRpc("net_info");

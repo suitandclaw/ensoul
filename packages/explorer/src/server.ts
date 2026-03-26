@@ -11,6 +11,7 @@ import {
 	renderValidators,
 	renderAccount,
 	renderTransaction,
+	renderWallets,
 } from "./html.js";
 
 /**
@@ -215,6 +216,52 @@ export async function createExplorer(
 			return reply.status(404).type("text/html").send(
 				`<html><body style="background:#0a0a0f;color:#e0e0e0;font-family:sans-serif;padding:40px;text-align:center"><h1>Transaction not found</h1><p>${hash}</p><a href="/" style="color:#7c3aed">Back to explorer</a></body></html>`,
 			);
+		},
+	);
+
+	// Wallets/Accounts list page
+	app.get<{ Querystring: { page?: string; search?: string } }>(
+		"/wallets",
+		async (req, reply) => {
+			const page = Math.max(1, Number(req.query.page ?? 1));
+			const search = req.query.search ?? "";
+
+			// Fetch from compat proxy
+			let accountsData: {
+				accounts: Array<{ did: string; balance: string; stakedBalance: string; delegatedBalance: string; total: string; totalEnsl: number; label: string; nonce: number; lastActivity: number }>;
+				total: number; page: number; pages: number;
+			} = { accounts: [], total: 0, page: 1, pages: 0 };
+
+			try {
+				const ds = dataSource as { peerUrls?: string[] };
+				const baseUrl = ds.peerUrls?.[0] ?? "http://localhost:9000";
+				const resp = await fetch(`${baseUrl}/peer/accounts?page=${page}&limit=50&search=${encodeURIComponent(search)}`, {
+					signal: AbortSignal.timeout(10000),
+				});
+				if (resp.ok) accountsData = await resp.json() as typeof accountsData;
+			} catch { /* fallback empty */ }
+
+			return reply.type("text/html").send(renderWallets(accountsData, search));
+		},
+	);
+
+	// Wallets API (JSON)
+	app.get<{ Querystring: { page?: string; limit?: string; search?: string } }>(
+		"/api/v1/accounts",
+		async (req, reply) => {
+			const page = Math.max(1, Number(req.query.page ?? 1));
+			const limit = Math.min(200, Math.max(1, Number(req.query.limit ?? 50)));
+			const search = req.query.search ?? "";
+
+			try {
+				const ds = dataSource as { peerUrls?: string[] };
+				const baseUrl = ds.peerUrls?.[0] ?? "http://localhost:9000";
+				const resp = await fetch(`${baseUrl}/peer/accounts?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`, {
+					signal: AbortSignal.timeout(10000),
+				});
+				if (resp.ok) return reply.send(await resp.json());
+			} catch { /* fallback */ }
+			return reply.send({ accounts: [], total: 0, page: 1, pages: 0 });
 		},
 	);
 
