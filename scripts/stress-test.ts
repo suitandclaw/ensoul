@@ -46,7 +46,7 @@ const MACHINES: Record<string, { rpc: string; ssh?: string; label: string; power
 const TOTAL_POWER = Object.values(MACHINES).reduce((s, m) => s + m.power, 0);
 const THRESHOLD = Math.ceil(TOTAL_POWER * 2 / 3);
 
-const PIONEER_SEED = "REDACTED_PIONEER_KEY";
+const PIONEER_SEED = "24b38e726c5e664f3ae8f7c3e72d9f7121c8703553b93fcf0f41818e20e5cf3f";
 const TREASURY_SEED = "7687a6d13a43177d5871a84f1cd9c8e84fc4cdb1ba04f34a70fb94fb55a07568";
 const ONBOARDING_SEED = "f34dc7c408184d062d5ec3c190ba4547c966e13e50b3487e4466f457fa484cf0";
 
@@ -1032,64 +1032,111 @@ async function test6_stateSync(): Promise<TestResult> {
 
 async function test7_cosmovisorUpgrade(): Promise<TestResult> {
 	logSection("TEST 7: Cosmovisor Upgrade (Schedule + Cancel)");
+	const errors: string[] = [];
 	const details: Record<string, unknown> = {};
 	const startTime = Date.now();
 
-	// The pioneer key DID (did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X) is
-	// hardcoded in the ABCI application as the only authority for upgrade/cancel_upgrade txs.
-	// The seed stored in ~/.ensoul/pioneer-key.txt generates a different DID, so upgrade
-	// transactions cannot be signed. This test verifies upgrade infrastructure readiness
-	// instead of submitting transactions.
-
-	// Verify the ABCI upgrade query endpoint works
-	log("Checking upgrade query endpoint...");
-	const upgradePlan = await abciQuery("/upgrade");
-	log(`  Current upgrade plan: ${JSON.stringify(upgradePlan)?.slice(0, 200)}`);
-	details["upgradePlan"] = upgradePlan;
-
-	// Verify Cosmovisor is installed on MBP
-	log("Checking Cosmovisor installation...");
-	try {
-		const version = execSync(`${join(homedir(), "go", "bin", "cosmovisor")} version 2>&1 || echo "not found"`, {
-			encoding: "utf-8", timeout: 5000,
-		}).trim();
-		log(`  Cosmovisor: ${version.slice(0, 100)}`);
-		details["cosmovisorVersion"] = version.slice(0, 100);
-	} catch {
-		log("  Cosmovisor not found");
-		details["cosmovisorVersion"] = "not found";
-	}
-
-	// Verify Cosmovisor directory structure
-	const nodeDir = join(homedir(), ".cometbft-ensoul", "node");
-	const cosmoDir = join(nodeDir, "cosmovisor");
-	try {
-		const ls = execSync(`ls -la ${cosmoDir}/ 2>&1`, { encoding: "utf-8", timeout: 5000 }).trim();
-		log(`  Cosmovisor dir: exists`);
-		details["cosmovisorDir"] = ls.split("\n").slice(1).map(l => l.trim());
-	} catch {
-		log("  Cosmovisor dir: missing");
-		details["cosmovisorDir"] = "missing";
-	}
-
-	// Verify pioneer key DID mismatch (document the issue)
+	// Verify pioneer key
 	const pioneerIdentity = await createIdentity({ seed: new Uint8Array(Buffer.from(PIONEER_SEED, "hex")) });
 	const expectedPioneer = "did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X";
-	const keyMatch = pioneerIdentity.did === expectedPioneer;
-	log(`  Pioneer key seed generates: ${pioneerIdentity.did.slice(0, 30)}...`);
-	log(`  ABCI expects:               ${expectedPioneer.slice(0, 30)}...`);
-	log(`  Match: ${keyMatch}`);
-	details["pioneerKeyMatch"] = keyMatch;
-	details["note"] = "Pioneer key seed in pioneer-key.txt does not match the hardcoded PIONEER_KEY DID in application.ts. Upgrade testing requires the correct seed.";
+	if (pioneerIdentity.did !== expectedPioneer) {
+		return {
+			name: "Cosmovisor Upgrade", status: "FAIL", duration: Date.now() - startTime,
+			details: { error: "Pioneer seed mismatch" }, errors: ["Pioneer seed does not match PIONEER_KEY DID"],
+		};
+	}
+	log(`Pioneer key verified: ${pioneerIdentity.did.slice(0, 30)}...`);
 
-	const errors: string[] = [];
-	if (!keyMatch) {
-		errors.push("Pioneer key seed mismatch: cannot sign upgrade transactions. Find or regenerate the correct pioneer key.");
+	// Get pioneer nonce (upgrade txs go through standard nonce path in CheckTx?
+	// Actually, upgrade txs bypass standard validation in CheckTx, but FinalizeBlock
+	// does not increment nonce either. So nonce in the tx is irrelevant for signing
+	// but we include it for consistency.)
+	const pioneerAcct = await abciQuery(`/balance/${pioneerIdentity.did}`);
+	const pioneerNonce = Number(pioneerAcct?.["nonce"] ?? 0);
+	log(`Pioneer nonce: ${pioneerNonce}`);
+
+	// ── 7A: Schedule an upgrade at current + 200 blocks ──
+	const currentHeight = await getHeight();
+	const upgradeHeight = currentHeight + 200;
+	log(`7A: Scheduling upgrade "stress-test-v2" at height ${upgradeHeight}...`);
+
+	const { json: upgradeJson } = await buildSignedTx(
+		PIONEER_SEED,
+		"software_upgrade",
+		"did:ensoul:protocol:upgrade",
+		0n,
+		pioneerNonce,
+		ENC.encode(JSON.stringify({
+			name: "stress-test-v2",
+			height: upgradeHeight,
+			info: "Stress test upgrade (will be cancelled)",
+		})),
+	);
+	const upgradeResult = await submitTx(upgradeJson);
+	log(`  Schedule result: success=${upgradeResult.success}, code=${upgradeResult.checkCode}/${upgradeResult.deliverCode}`);
+	if (upgradeResult.error) log(`  Error: ${upgradeResult.error}`);
+
+	if (!upgradeResult.success) {
+		errors.push(`Failed to schedule upgrade: ${upgradeResult.error}`);
 	}
 
+	details["scheduleUpgrade"] = {
+		targetHeight: upgradeHeight,
+		success: upgradeResult.success,
+		error: upgradeResult.error || null,
+	};
+
+	// Verify upgrade plan is active
+	await sleep(2000);
+	const upgradePlan = await abciQuery("/upgrade");
+	log(`  Active upgrade plan: ${JSON.stringify(upgradePlan)?.slice(0, 200)}`);
+	details["upgradePlanActive"] = upgradePlan;
+
+	if (upgradeResult.success) {
+		const plan = upgradePlan?.["plan"] as Record<string, unknown> | null;
+		if (!plan || plan["name"] !== "stress-test-v2") {
+			errors.push("Upgrade scheduled but plan not visible via query");
+		}
+	}
+
+	// ── 7B: Cancel the upgrade before it triggers ──
+	log("7B: Cancelling the scheduled upgrade...");
+	const { json: cancelJson } = await buildSignedTx(
+		PIONEER_SEED,
+		"cancel_upgrade",
+		"did:ensoul:protocol:upgrade",
+		0n,
+		pioneerNonce, // upgrade txs don't increment nonce
+		ENC.encode(JSON.stringify({ name: "stress-test-v2" })),
+	);
+	const cancelResult = await submitTx(cancelJson);
+	log(`  Cancel result: success=${cancelResult.success}, code=${cancelResult.checkCode}/${cancelResult.deliverCode}`);
+	if (cancelResult.error) log(`  Error: ${cancelResult.error}`);
+
+	if (!cancelResult.success && upgradeResult.success) {
+		errors.push(`Failed to cancel upgrade: ${cancelResult.error}`);
+	}
+
+	// Verify upgrade plan is cleared
+	await sleep(2000);
+	const upgradePlanAfter = await abciQuery("/upgrade");
+	log(`  Upgrade plan after cancel: ${JSON.stringify(upgradePlanAfter)?.slice(0, 200)}`);
+
+	if (cancelResult.success) {
+		const planAfter = upgradePlanAfter?.["plan"] as Record<string, unknown> | null;
+		if (planAfter !== null) {
+			errors.push("Upgrade cancelled but plan still active");
+		} else {
+			log("  CORRECT: Upgrade plan cleared after cancellation");
+		}
+	}
+
+	details["cancelUpgrade"] = { success: cancelResult.success, error: cancelResult.error || null };
+	details["upgradePlanAfterCancel"] = upgradePlanAfter;
+
 	return {
-		name: "Cosmovisor Upgrade (Infrastructure Check)",
-		status: keyMatch ? "PASS" : "FAIL",
+		name: "Cosmovisor Upgrade (Schedule + Cancel)",
+		status: errors.length === 0 ? "PASS" : "FAIL",
 		duration: Date.now() - startTime,
 		details,
 		errors,
