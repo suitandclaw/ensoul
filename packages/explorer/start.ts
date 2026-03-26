@@ -211,16 +211,19 @@ class NetworkDataSource implements ExplorerDataSource {
 			if (count > 0) avgBlockTime = Math.round(sum / count);
 		}
 
+		// Total staked from validator cache (includes delegated power)
+		const totalStaked = this.validatorCache.reduce((s, v) => s + BigInt(v.stake), 0n);
+
 		return {
 			blockHeight: height,
-			validatorCount: this.genesisDids.length || validatorCountOverride || 35,
+			validatorCount: this.validatorCache.length || this.genesisDids.length || validatorCountOverride || 35,
 			totalAgents: this.agentCount,
 			totalConsciousnessBytes: this.consciousnessCount,
 			totalTransactions: this.totalTxCount,
 			averageBlockTimeMs: avgBlockTime,
 			totalSupply: "1000000000",
 			totalBurned: "0",
-			totalStaked: "0",
+			totalStaked: (totalStaked / 1000000000000000000n).toString(),
 			agentsByTrustLevel: {},
 		};
 	}
@@ -311,28 +314,58 @@ class NetworkDataSource implements ExplorerDataSource {
 		this.onlineDids = online;
 	}
 
-	/** Refresh validator data from genesis DIDs + localhost:9000. */
+	/** Refresh validator data from the compat proxy /peer/validators. */
 	private async refreshValidators(): Promise<void> {
-		const validators: ValidatorData[] = [];
-
-		for (const did of this.genesisDids) {
-			const account = await this.getAccountData(did);
-			const stakeWei = BigInt(account?.staked ?? "0");
-			const delegatedWei = BigInt(account?.delegated ?? "0");
-			const totalStake = stakeWei + delegatedWei;
-			const blocksProduced = this.proposerCounts.get(did) ?? 0;
-			const isOnline = this.onlineDids.has(did);
-
-			validators.push({
-				did,
-				stake: totalStake.toString(),
-				blocksProduced,
-				uptimePercent: isOnline ? 99.5 : 0,
-				delegation: "foundation",
+		try {
+			const resp = await fetch(`${this.peerUrls[0] ?? "http://localhost:9000"}/peer/validators`, {
+				signal: AbortSignal.timeout(5000),
 			});
-		}
+			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+			const data = (await resp.json()) as {
+				validators: Array<{
+					did: string;
+					ownStake: string;
+					delegatedStake: string;
+					totalPower: number;
+					isOnline: boolean;
+					blocksProduced: number;
+					uptimePercent: number;
+				}>;
+				totalStaked: string;
+				totalStakedEnsl: number;
+			};
 
-		this.validatorCache = validators;
+			this.validatorCache = data.validators.map((v) => ({
+				did: v.did,
+				stake: (BigInt(v.ownStake) + BigInt(v.delegatedStake)).toString(),
+				blocksProduced: v.blocksProduced || (this.proposerCounts.get(v.did) ?? 0),
+				uptimePercent: v.uptimePercent,
+				delegation: "foundation",
+			}));
+
+			// Update online DIDs
+			this.onlineDids = new Set(data.validators.filter((v) => v.isOnline).map((v) => v.did));
+
+			// Update genesis DIDs to include dynamically joined validators
+			for (const v of data.validators) {
+				if (!this.genesisDids.includes(v.did)) {
+					this.genesisDids.push(v.did);
+				}
+			}
+		} catch {
+			// Fallback to the old method if the new endpoint isn't available
+			const validators: ValidatorData[] = [];
+			for (const did of this.genesisDids) {
+				const account = await this.getAccountData(did);
+				const stakeWei = BigInt(account?.staked ?? "0");
+				const delegatedWei = BigInt(account?.delegated ?? "0");
+				const totalStake = stakeWei + delegatedWei;
+				const blocksProduced = this.proposerCounts.get(did) ?? 0;
+				const isOnline = this.onlineDids.has(did);
+				validators.push({ did, stake: totalStake.toString(), blocksProduced, uptimePercent: isOnline ? 99.5 : 0, delegation: "foundation" });
+			}
+			this.validatorCache = validators;
+		}
 	}
 
 	/** Fetch agent count from the API gateway. */
