@@ -25,9 +25,12 @@ async function main(): Promise<void> {
 	await loadProto();
 	process.stdout.write("[abci] Protobuf loaded\n");
 
-	// Create application
-	const app = createApplication();
-	process.stdout.write("[abci] Application created\n");
+	// Create application with persistent state directory
+	const home = process.env["HOME"] ?? "/tmp";
+	const dataDir = process.argv.find((_, i, a) => a[i - 1] === "--data-dir")
+		?? `${home}/.cometbft-ensoul/abci-state`;
+	const app = createApplication(dataDir);
+	process.stdout.write(`[abci] Application created (state: ${dataDir})\n`);
 
 	// Start TSP server
 	const server = startTSPServer(port, app.handler);

@@ -91,7 +91,7 @@ else
 fi
 
 # Clear ABCI server state (it reloads from persisted snapshot)
-rm -rf /tmp/ensoul-abci
+
 
 # Ensure config directory exists
 mkdir -p "$NODE_DIR/config" "$NODE_DIR/data"

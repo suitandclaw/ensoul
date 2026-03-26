@@ -151,7 +151,7 @@ start_cometbft() {
 	log "Starting CometBFT ABCI server..."
 
 	# Clear stale ABCI state (fresh genesis needs fresh state)
-	rm -rf /tmp/ensoul-abci
+	
 
 	# Start the ABCI server (single process for all validators on this machine)
 	local abci_port=26658

@@ -85,7 +85,7 @@ restart_abci() {
         sleep 3
     fi
     
-    rm -rf /tmp/ensoul-abci
+    
     cd "$HOME/ensoul" 2>/dev/null || cd "$HOME/ensoul"
     
     # Source nvm for Minis
