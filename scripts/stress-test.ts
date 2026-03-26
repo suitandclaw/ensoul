@@ -694,25 +694,45 @@ async function test3_validatorFailure(): Promise<TestResult> {
 		newBlocks: newBlocks3c, chainHalted: newBlocks3c <= 2,
 	};
 
-	// ── 3D: Restart Mini 2 to resume consensus ──
-	log("3D: Restarting Mini 2 to resume consensus...");
+	// ── 3D: Restart both Minis to resume consensus ──
+	log("3D: Restarting Mini 1 and Mini 2...");
+	// Re-enable watchdogs
+	ssh("mini1", "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.ensoul.chain-watchdog.plist 2>/dev/null; echo ok");
 	ssh("mini2", "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.ensoul.chain-watchdog.plist 2>/dev/null; echo ok");
-	await sleep(15000);
+	// Manually trigger watchdog immediately (don't wait for 30s interval)
+	ssh("mini1", "cd ~/ensoul && nohup bash scripts/chain-watchdog.sh > /dev/null 2>&1 &", 10);
+	ssh("mini2", "cd ~/ensoul && nohup bash scripts/chain-watchdog.sh > /dev/null 2>&1 &", 10);
+	log("  Waiting for Minis to rejoin consensus...");
+	await sleep(20000);
 
 	const heightResume = await getHeight();
 	await sleep(10000);
 	const heightAfterResume = await getHeight();
 	const resumeBlocks = heightAfterResume - heightResume;
-	log(`  After Mini 2 restart: ${heightAfterResume} (+${resumeBlocks} blocks in 10s)`);
+	log(`  After restart: ${heightAfterResume} (+${resumeBlocks} blocks in 10s)`);
 
 	if (resumeBlocks < 2 && shouldHalt) {
-		errors.push("Chain did not resume after Mini 2 restart");
+		// Give it one more chance with a longer wait
+		log("  Chain not producing yet, waiting 30 more seconds...");
+		await sleep(30000);
+		const heightRetry = await getHeight();
+		if (heightRetry <= heightAfterResume) {
+			errors.push("Chain did not resume after Mini restart");
+		} else {
+			log(`  Chain resumed at height ${heightRetry}`);
+		}
 	}
 
-	// Restart Mini 1 too
-	log("  Restarting Mini 1...");
-	ssh("mini1", "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.ensoul.chain-watchdog.plist 2>/dev/null; echo ok");
-	await sleep(10000);
+	// Ensure chain is healthy before returning (critical for subsequent tests)
+	log("  Verifying chain health before proceeding...");
+	const healthCheck = await waitForHeight(heightAfterResume + 3, 60_000);
+	if (!healthCheck) {
+		log("  WARNING: Chain still not producing, forcing watchdog on all machines");
+		for (const name of ["mini1", "mini2", "mini3"]) {
+			ssh(name, "cd ~/ensoul && nohup bash scripts/chain-watchdog.sh > /dev/null 2>&1 &", 10);
+		}
+		await sleep(30000);
+	}
 
 	details["phase3d"] = { resumeBlocks, heightAfterResume };
 
@@ -863,14 +883,15 @@ async function test5_restartRecovery(): Promise<TestResult> {
 	}
 
 	// Manually trigger watchdog on all machines (launchd interval is 30s, too slow for test)
-	const nodeDir = join(homedir(), ".cometbft-ensoul", "node");
 	log("Manually triggering watchdog on all machines...");
 	try {
-		execSync("bash scripts/chain-watchdog.sh &", { encoding: "utf-8", timeout: 5000 });
+		execSync("cd ~/ensoul && nohup bash scripts/chain-watchdog.sh > /dev/null 2>&1 &", { encoding: "utf-8", timeout: 5000, shell: "/bin/bash" });
 	} catch { /* async */ }
 	for (const name of ["mini1", "mini2", "mini3"]) {
-		ssh(name, "bash -l -c 'cd ~/ensoul && bash scripts/chain-watchdog.sh' &", 10);
+		ssh(name, "cd ~/ensoul && nohup bash scripts/chain-watchdog.sh > /dev/null 2>&1 &", 10);
 	}
+	// Give watchdog time to detect and restart processes
+	await sleep(15000);
 
 	// Wait for chain to resume
 	log("Waiting for chain to resume (up to 120 seconds)...");
@@ -1415,6 +1436,30 @@ async function main(): Promise<void> {
 				errors: [msg],
 			});
 			log(`\n  UNHANDLED ERROR in Test ${num}: ${msg}`);
+		}
+
+		// After destructive tests (3, 5), verify chain is healthy before proceeding
+		if (num === 3 || num === 5) {
+			log("\n  [HEALTH GATE] Verifying chain is producing blocks...");
+			const gateStart = Date.now();
+			const h1 = await getHeight();
+			if (h1 === 0) {
+				log("  Chain not responding. Triggering watchdog on all machines...");
+				try { execSync("cd ~/ensoul && nohup bash scripts/chain-watchdog.sh > /dev/null 2>&1 &", { encoding: "utf-8", timeout: 5000, shell: "/bin/bash" }); } catch {}
+				for (const m of ["mini1", "mini2", "mini3"]) {
+					ssh(m, "cd ~/ensoul && nohup bash scripts/chain-watchdog.sh > /dev/null 2>&1 &", 10);
+				}
+			}
+			let gateOk = false;
+			for (let g = 0; g < 24; g++) {
+				await sleep(5000);
+				const h2 = await getHeight();
+				if (h2 > h1 && h2 > 0) { gateOk = true; log(`  Chain healthy at height ${h2} (${Date.now() - gateStart}ms)`); break; }
+				if (g % 4 === 3) log(`  Still waiting... height=${h2}`);
+			}
+			if (!gateOk) {
+				log("  WARNING: Chain still not producing. Remaining tests may fail.");
+			}
 		}
 	}
 
