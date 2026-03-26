@@ -1443,24 +1443,10 @@ async function loadPersistedState(state: EnsoulState): Promise<void> {
 /** Serialize all accounts for persistence. */
 function serializeAccounts(accountState: AccountState): Array<Record<string, unknown>> {
 	const accounts: Array<Record<string, unknown>> = [];
-	// Use getAccount for known DIDs. The AccountState doesn't expose iteration,
-	// so we track accounts via the consensus set + any touched accounts.
-	// For a full implementation, AccountState should expose an iterator.
-	// For now, serialize the consensus set members and protocol accounts.
-	const knownDids = new Set<string>();
-	for (const did of accountState.getConsensusSet()) {
-		knownDids.add(did);
-	}
-	// Add protocol accounts
-	knownDids.add(REWARDS_POOL);
-	knownDids.add("did:ensoul:protocol:treasury");
-	knownDids.add("did:ensoul:protocol:onboarding");
-	knownDids.add("did:ensoul:protocol:liquidity");
-	knownDids.add("did:ensoul:protocol:contributors");
-	knownDids.add("did:ensoul:protocol:insurance");
-	knownDids.add("did:ensoul:protocol:burn");
-
-	for (const did of knownDids) {
+	// Serialize ALL accounts that have been touched (non-default state).
+	// This is critical for deterministic replay: missing accounts cause
+	// computeStateRoot to produce different hashes.
+	for (const did of accountState.getAllAccountDids()) {
 		const acct = accountState.getAccount(did);
 		accounts.push({
 			did,

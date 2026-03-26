@@ -9,6 +9,13 @@ import type { Account } from "./types.js";
 export class AccountState {
 	private accounts: Map<string, Account> = new Map();
 
+	/**
+	 * Get all account DIDs that have been touched (have non-default state).
+	 */
+	getAllAccountDids(): string[] {
+		return [...this.accounts.keys()];
+	}
+
 	/** On-chain consensus validator set. DIDs of validators actively participating. */
 	private consensusSet: Set<string> = new Set();
 
