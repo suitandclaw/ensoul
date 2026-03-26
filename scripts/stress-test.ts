@@ -753,14 +753,15 @@ async function test4_largePayload(): Promise<TestResult> {
 	const details: Record<string, unknown> = {};
 	const startTime = Date.now();
 
-	// CometBFT max_tx_bytes = 1048576 (1MB). Base64 encoding adds ~33% overhead,
-	// plus the tx JSON wrapper. So the max usable payload is around 700KB.
-	// Test with sizes relative to the actual CometBFT limit.
+	// CometBFT max_tx_bytes = 1048576 (1MB on the wire after base64).
+	// Wire overhead: hex string in JSON data array + JSON tx wrapper + base64.
+	// Measured: 100KB raw -> 0.31MB wire, 200KB -> 0.62MB wire, 300KB -> 0.93MB.
+	// Effective max payload: ~250KB raw data before hitting the wire limit.
 	const payloadSizes = [
+		{ label: "10KB", bytes: 10 * 1024 },
 		{ label: "100KB", bytes: 100 * 1024 },
-		{ label: "500KB", bytes: 500 * 1024 },
-		{ label: "700KB (near limit)", bytes: 700 * 1024 },
-		{ label: "1.5MB (should reject)", bytes: 1536 * 1024, expectFail: true },
+		{ label: "200KB", bytes: 200 * 1024 },
+		{ label: "300KB (over limit)", bytes: 300 * 1024, expectFail: true },
 	];
 
 	for (const { label, bytes, expectFail } of payloadSizes) {
