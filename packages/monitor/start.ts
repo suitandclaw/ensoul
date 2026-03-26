@@ -56,7 +56,7 @@ interface HealthResponse {
 let health: HealthResponse = {
 	overall: "down",
 	services: [],
-	aggregate: { blockHeight: 0, validatorCount: 35, blocksPerMinute: 0, ensouledAgents: 0, consciousnessStored: 0, uptime: 0 },
+	aggregate: { blockHeight: 0, validatorCount: 0, blocksPerMinute: 0, ensouledAgents: 0, consciousnessStored: 0, uptime: 0 },
 	checkedAt: 0,
 };
 
@@ -192,15 +192,30 @@ async function pollAll(): Promise<void> {
 	const downCount = services.filter((s) => s.status === "down").length;
 	const overall = downCount === 0 ? "operational" : downCount >= services.length / 2 ? "down" : "degraded";
 
-	// Fetch agent counts from the API
+	// Fetch agent/consciousness counts and validator count from ABCI chain state
 	let ensouledAgents = 0;
 	let consciousnessStored = 0;
+	let validatorCount = 0;
 	try {
-		const apiResp = await fetch("http://localhost:5050/v1/network/status", { signal: AbortSignal.timeout(5000) });
-		if (apiResp.ok) {
-			const apiData = (await apiResp.json()) as { agentCount?: number; totalConsciousnessStored?: number };
-			ensouledAgents = apiData.agentCount ?? apiData.totalConsciousnessStored ?? 0;
-			consciousnessStored = apiData.totalConsciousnessStored ?? 0;
+		const statsResp = await fetch("http://localhost:26657", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "stats", method: "abci_query", params: { path: "/stats" } }),
+			signal: AbortSignal.timeout(5000),
+		});
+		if (statsResp.ok) {
+			const result = (await statsResp.json()) as { result?: { response?: { value?: string } } };
+			const val = result.result?.response?.value;
+			if (val) {
+				const statsData = JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as {
+					agentCount?: number;
+					consciousnessCount?: number;
+					consensusSetSize?: number;
+				};
+				ensouledAgents = statsData.agentCount ?? 0;
+				consciousnessStored = statsData.consciousnessCount ?? 0;
+				validatorCount = statsData.consensusSetSize ?? 0;
+			}
 		}
 	} catch { /* non-fatal */ }
 
@@ -209,7 +224,7 @@ async function pollAll(): Promise<void> {
 		services,
 		aggregate: {
 			blockHeight: maxHeight,
-			validatorCount: 35,
+			validatorCount: validatorCount || 5,
 			blocksPerMinute: bpm,
 			ensouledAgents,
 			consciousnessStored,

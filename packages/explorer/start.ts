@@ -368,35 +368,26 @@ class NetworkDataSource implements ExplorerDataSource {
 		}
 	}
 
-	/** Fetch agent count from the API gateway. */
+	/** Fetch agent/consciousness counts from ABCI chain state via CometBFT RPC. */
 	private async refreshAgentCount(): Promise<void> {
 		try {
-			const resp = await fetch("https://api.ensoul.dev/v1/network/status", {
+			const resp = await fetch("http://localhost:26657", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "stats", method: "abci_query", params: { path: "/stats" } }),
 				signal: AbortSignal.timeout(5000),
 			});
 			if (!resp.ok) return;
-			const data = (await resp.json()) as {
+			const result = (await resp.json()) as { result?: { response?: { value?: string } } };
+			const val = result.result?.response?.value;
+			if (!val) return;
+			const data = JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as {
 				agentCount?: number;
-				totalConsciousnessStored?: number;
+				consciousnessCount?: number;
 			};
 			this.agentCount = data.agentCount ?? 0;
-			this.consciousnessCount = data.totalConsciousnessStored ?? 0;
-		} catch {
-			// Try localhost API as fallback
-			try {
-				const resp = await fetch("http://localhost:5050/v1/network/status", {
-					signal: AbortSignal.timeout(3000),
-				});
-				if (resp.ok) {
-					const data = (await resp.json()) as {
-						agentCount?: number;
-						totalConsciousnessStored?: number;
-					};
-					this.agentCount = data.agentCount ?? 0;
-					this.consciousnessCount = data.totalConsciousnessStored ?? 0;
-				}
-			} catch { /* non-fatal */ }
-		}
+			this.consciousnessCount = data.consciousnessCount ?? 0;
+		} catch { /* non-fatal */ }
 	}
 
 	private async pollAllPeers(): Promise<void> {
