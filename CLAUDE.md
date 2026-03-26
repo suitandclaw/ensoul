@@ -31,6 +31,7 @@ peer-to-peer node network. Token: $ENSL. Domain: ensoul.dev
 11. NEVER reinitialize genesis or wipe chain data to add state. All state changes go through transactions on the live chain. The only acceptable reason for a genesis reset is a consensus engine replacement. Use scripts/safe-cometbft.sh instead of the raw binary.
 12. NEVER use em dashes or double dashes in any output. Rewrite sentences to avoid them.
 13. When restarting CometBFT or validators, NEVER kill explorer (port 3000), monitor (port 4000), API (port 5050), or cloudflared processes. Restart only the specific processes that need restarting. Kill by port (26656, 26657, 26658) not by process name.
+14. NEVER kill cloudflared or any process matching 'cloudflared'. The tunnel serves all public URLs. If it dies, explorer.ensoul.dev, status.ensoul.dev, api.ensoul.dev, and ensoul.dev all go dark. On Minis, the tunnel serves v1/v2/v3.ensoul.dev.
 
 ## Operational Rules
 - The chain is the database. Agent registrations, consciousness stores, and all state live on-chain, replicated by CometBFT consensus.
