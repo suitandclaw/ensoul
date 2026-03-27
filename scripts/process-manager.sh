@@ -75,6 +75,7 @@ is_port_alive() {
 is_abci_alive()    { is_port_alive 26658; }
 is_cometbft_alive(){ is_port_alive 26657; }
 is_proxy_alive()   { is_port_alive 9000;  }
+is_api_alive()     { is_port_alive 5050;  }
 
 # ── Start functions ───────────────────────────────────────────────────
 
@@ -116,6 +117,12 @@ start_proxy() {
     log "START: Compat proxy on port 9000"
     bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/abci-server/src/compat-proxy.ts --port 9000 >> $HOME/.ensoul/compat-proxy.log 2>&1 &"
     log "START: Proxy launched"
+}
+
+start_api() {
+    log "START: API gateway on port 5050"
+    bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/api/start.ts --port 5050 >> $HOME/.ensoul/api.log 2>&1 &"
+    log "START: API launched"
 }
 
 # ── Kill functions (by port, safe) ────────────────────────────────────
@@ -180,11 +187,12 @@ restart_proxy_only() {
 # ── Main check ────────────────────────────────────────────────────────
 
 main() {
-    local abci_ok cmt_ok proxy_ok
+    local abci_ok cmt_ok proxy_ok api_ok
 
     is_abci_alive    && abci_ok=true  || abci_ok=false
     is_cometbft_alive && cmt_ok=true  || cmt_ok=false
     is_proxy_alive   && proxy_ok=true || proxy_ok=false
+    is_api_alive     && api_ok=true   || api_ok=false
 
     # Case 1: ABCI dead (everything must restart in order)
     if [ "$abci_ok" = "false" ]; then
@@ -211,7 +219,14 @@ main() {
         return
     fi
 
-    # Case 4: Everything alive. Check block freshness and disk space.
+    # Case 4: API dead, restart it independently
+    if [ "$api_ok" = "false" ]; then
+        log "ALERT: API gateway is dead, restarting on port 5050"
+        alert "[$HOSTNAME_SHORT] API DEAD" "Restarting API gateway on port 5050" "default" "warning"
+        start_api
+    fi
+
+    # Case 5: Everything alive. Check block freshness and disk space.
     local age=0 height="?"
     local result
     result=$(curl -s -m 5 "http://localhost:26657/status" 2>/dev/null)
@@ -262,7 +277,9 @@ except:
 
     # Periodic health log (every ~300 blocks)
     if [ "$height" != "?" ] && [ $((height % 300)) -lt 2 ] 2>/dev/null; then
-        log "OK: h=$height age=${age}s abci=ok cmt=ok proxy=ok"
+        local api_status="ok"
+        [ "$api_ok" = "false" ] && api_status="down"
+        log "OK: h=$height age=${age}s abci=ok cmt=ok proxy=ok api=$api_status"
     fi
 }
 
