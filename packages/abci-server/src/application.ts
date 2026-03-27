@@ -84,6 +84,22 @@ export function encodeTx(tx: Transaction): Buffer {
 	}));
 }
 
+/** Decode signature from either hex string or number array. */
+function decodeSig(raw: unknown): Uint8Array {
+	if (typeof raw === "string") {
+		// Hex string (from API gateway)
+		const bytes = new Uint8Array(raw.length / 2);
+		for (let i = 0; i < raw.length; i += 2) {
+			bytes[i / 2] = parseInt(raw.slice(i, i + 2), 16);
+		}
+		return bytes;
+	}
+	if (Array.isArray(raw)) {
+		return new Uint8Array(raw as number[]);
+	}
+	return new Uint8Array(0);
+}
+
 /** Decode an Ensoul transaction from CometBFT bytes. */
 export function decodeTx(buf: Buffer): Transaction | null {
 	try {
@@ -95,12 +111,112 @@ export function decodeTx(buf: Buffer): Transaction | null {
 			amount: BigInt(obj["amount"] as string),
 			nonce: obj["nonce"] as number,
 			timestamp: obj["timestamp"] as number,
-			signature: new Uint8Array(obj["signature"] as number[]),
+			signature: decodeSig(obj["signature"]),
 			data: obj["data"] ? new Uint8Array(obj["data"] as number[]) : undefined,
 		};
 	} catch {
 		return null;
 	}
+}
+
+// -- Signature Verification --
+
+/** Transaction types that are protocol-generated and skip signature checks. */
+const PROTOCOL_TX_TYPES = new Set<string>(["block_reward", "genesis_allocation"]);
+
+/** Maximum size for tx.data payload (1 MB). */
+const MAX_TX_DATA_SIZE = 1_048_576;
+
+/** Maximum size for agent metadata (10 KB). */
+const MAX_METADATA_SIZE = 10_240;
+
+/**
+ * Encode the signable payload of a transaction.
+ * MUST match what signers produce. The canonical format is:
+ * JSON.stringify({ type, from, to, amount, nonce, timestamp })
+ *
+ * Note: chainId is intentionally omitted for backward compatibility
+ * with all existing signed transactions on-chain.
+ */
+function signingPayload(tx: Transaction): Uint8Array {
+	return ENC.encode(JSON.stringify({
+		type: tx.type,
+		from: tx.from,
+		to: tx.to,
+		amount: tx.amount.toString(),
+		nonce: tx.nonce,
+		timestamp: tx.timestamp,
+	}));
+}
+
+// Lazy-loaded Ed25519 verify function (loaded once on first use)
+let _ed25519Verify: ((sig: Uint8Array, msg: Uint8Array, pub: Uint8Array) => boolean) | null = null;
+
+async function loadEd25519(): Promise<(sig: Uint8Array, msg: Uint8Array, pub: Uint8Array) => boolean> {
+	if (_ed25519Verify) return _ed25519Verify;
+	const ed = await import("@noble/ed25519");
+	const { sha512 } = await import("@noble/hashes/sha2.js");
+	(ed as unknown as { hashes: { sha512: ((m: Uint8Array) => Uint8Array) | undefined } }).hashes.sha512 = (m: Uint8Array) => sha512(m);
+	_ed25519Verify = (sig, msg, pub) => {
+		try {
+			return ed.verify(sig, msg, pub);
+		} catch {
+			return false;
+		}
+	};
+	return _ed25519Verify;
+}
+
+/**
+ * Verify the Ed25519 signature on a transaction.
+ * Extracts the public key from the sender's DID.
+ * Returns an error string if verification fails, or null if valid.
+ */
+async function verifySignature(tx: Transaction): Promise<string | null> {
+	// Protocol transactions are not user-signed
+	if (PROTOCOL_TX_TYPES.has(tx.type)) return null;
+
+	// Extract public key from DID
+	const pubkey = pubkeyFromDid(tx.from);
+	if (!pubkey) {
+		// Protocol accounts (did:ensoul:protocol:*) are not user-signed
+		if (tx.from.startsWith("did:ensoul:protocol:")) return null;
+		return "Cannot extract public key from sender DID";
+	}
+
+	// Validate signature length
+	if (!tx.signature || tx.signature.length !== 64) {
+		return "Missing or invalid signature (expected 64 bytes)";
+	}
+
+	// Verify Ed25519 signature
+	const verify = await loadEd25519();
+	const payload = signingPayload(tx);
+	const valid = verify(tx.signature, payload, pubkey);
+
+	if (!valid) {
+		return "Ed25519 signature verification failed";
+	}
+
+	return null; // Signature is valid
+}
+
+/**
+ * Validate a DID format. Must be did:key:z with valid multicodec ed25519 prefix.
+ * Returns an error string if invalid, or null if valid.
+ */
+function validateDid(did: string): string | null {
+	if (!did || typeof did !== "string") return "DID is required";
+	// Protocol accounts are valid
+	if (did.startsWith("did:ensoul:protocol:")) return null;
+	// Agent DIDs must be did:key:z format
+	if (!did.startsWith("did:key:z")) return "DID must use did:key:z format";
+	if (did.length < 20) return "DID too short";
+	if (did.length > 200) return "DID too long";
+	// Validate that the base58btc decodes to a valid ed25519 multicodec prefix
+	const pubkey = pubkeyFromDid(did);
+	if (!pubkey) return "DID does not encode a valid ed25519 public key";
+	return null;
 }
 
 // -- Upgrade Plan --
@@ -223,7 +339,7 @@ export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 			case "initChain":
 				return await handleInitChain(request, state);
 			case "checkTx":
-				return handleCheckTx(request, state);
+				return await handleCheckTx(request, state);
 			case "query":
 				return handleQuery(request, state);
 			case "commit":
@@ -241,7 +357,7 @@ export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 			case "processProposal":
 				return { processProposal: { status: 1 } }; // ACCEPT
 			case "finalizeBlock":
-				return handleFinalizeBlock(request, state);
+				return await handleFinalizeBlock(request, state);
 			case "extendVote":
 				return { extendVote: { voteExtension: Buffer.alloc(0) } };
 			case "verifyVoteExtension":
@@ -410,10 +526,10 @@ function parseGenesisFromAppState(raw: Record<string, unknown>): GenesisConfig {
 // 3. CheckTx -- validate transaction for mempool admission
 // ======================================================================
 
-function handleCheckTx(
+async function handleCheckTx(
 	request: protobuf.Message,
 	state: EnsoulState,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
 	const req = request as unknown as {
 		checkTx?: { tx?: Buffer; type?: number };
 	};
@@ -427,7 +543,27 @@ function handleCheckTx(
 		return { checkTx: { code: 2, log: "failed to decode transaction" } };
 	}
 
-	// Handle upgrade transactions (governance, not standard ledger txs)
+	// ── Step 1: DID format validation ────────────────────────────
+	const didErr = validateDid(tx.from);
+	if (didErr) {
+		return { checkTx: { code: 30, log: `Invalid sender DID: ${didErr}` } };
+	}
+
+	// ── Step 2: Ed25519 signature verification (FIRST, before any logic) ──
+	const sigErr = await verifySignature(tx);
+	if (sigErr) {
+		log(`CheckTx SIG REJECT: ${tx.type} from ${tx.from.slice(0, 24)}... sig error: ${sigErr}`);
+		return { checkTx: { code: 31, log: sigErr } };
+	}
+
+	// ── Step 3: Payload size limits ──────────────────────────────
+	if (tx.data && tx.data.length > MAX_TX_DATA_SIZE) {
+		return { checkTx: { code: 32, log: `Payload too large: ${tx.data.length} bytes (max ${MAX_TX_DATA_SIZE})` } };
+	}
+
+	// ── Step 4: Type-specific validation ─────────────────────────
+
+	// Upgrade transactions (governance, restricted to pioneer key)
 	if (tx.type === "software_upgrade" as TransactionType) {
 		return validateUpgradeTx(tx, state);
 	}
@@ -435,38 +571,68 @@ function handleCheckTx(
 		return validateCancelUpgradeTx(tx, state);
 	}
 
-	// Agent registration and consciousness stores bypass standard validation
-	// (they don't transfer tokens, so nonce/balance checks don't apply)
+	// Agent registration: validate structure and uniqueness
 	if (tx.type === "agent_register" as TransactionType) {
 		if (state.agents.has(tx.from)) {
 			return { checkTx: { code: 21, log: "agent already registered" } };
 		}
-		return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 1 } };
-	}
-	if (tx.type === "consciousness_store" as TransactionType) {
+		// Validate payload structure
+		if (tx.data) {
+			try {
+				const data = JSON.parse(new TextDecoder().decode(tx.data)) as Record<string, unknown>;
+				if (!data["publicKey"] || typeof data["publicKey"] !== "string") {
+					return { checkTx: { code: 20, log: "agent_register requires publicKey in data" } };
+				}
+				if (data["metadata"] && typeof data["metadata"] === "string" && (data["metadata"] as string).length > MAX_METADATA_SIZE) {
+					return { checkTx: { code: 33, log: `Metadata too large (max ${MAX_METADATA_SIZE} bytes)` } };
+				}
+			} catch {
+				return { checkTx: { code: 34, log: "Invalid JSON in tx.data" } };
+			}
+		} else {
+			return { checkTx: { code: 20, log: "agent_register requires data with publicKey" } };
+		}
+		// Nonce check for agent registration
+		const sender = state.checkTx.getAccount(tx.from);
+		if (tx.nonce !== sender.nonce) {
+			return { checkTx: { code: 3, log: `Invalid nonce: expected ${sender.nonce}, got ${tx.nonce}` } };
+		}
 		return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 1 } };
 	}
 
-	// Validate against CheckTx state (copy of last committed state)
+	// Consciousness store: validate agent exists and payload
+	if (tx.type === "consciousness_store" as TransactionType) {
+		if (!state.agents.has(tx.from)) {
+			return { checkTx: { code: 35, log: "Agent not registered. Register first." } };
+		}
+		if (tx.data) {
+			try {
+				const data = JSON.parse(new TextDecoder().decode(tx.data)) as Record<string, unknown>;
+				if (!data["stateRoot"] || typeof data["stateRoot"] !== "string") {
+					return { checkTx: { code: 22, log: "consciousness_store requires stateRoot in data" } };
+				}
+			} catch {
+				return { checkTx: { code: 34, log: "Invalid JSON in tx.data" } };
+			}
+		} else {
+			return { checkTx: { code: 22, log: "consciousness_store requires data with stateRoot" } };
+		}
+		// Nonce check for consciousness store
+		const sender = state.checkTx.getAccount(tx.from);
+		if (tx.nonce !== sender.nonce) {
+			return { checkTx: { code: 3, log: `Invalid nonce: expected ${sender.nonce}, got ${tx.nonce}` } };
+		}
+		return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 1 } };
+	}
+
+	// Standard ledger transactions: validate against CheckTx state
 	const result = validateTransaction(tx, state.checkTx);
 	if (!result.valid) {
-		log(`CheckTx REJECT: ${tx.type} from ${tx.from.slice(0, 20)}... -- ${result.error}`);
-		return {
-			checkTx: {
-				code: 3,
-				log: result.error ?? "validation failed",
-			},
-		};
+		log(`CheckTx REJECT: ${tx.type} from ${tx.from.slice(0, 20)}... : ${result.error}`);
+		return { checkTx: { code: 3, log: result.error ?? "validation failed" } };
 	}
 
-	return {
-		checkTx: {
-			code: 0,
-			log: "ok",
-			sender: tx.from,
-			priority: 1,
-		},
-	};
+	return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 1 } };
 }
 
 // ======================================================================
@@ -488,10 +654,10 @@ function handlePrepareProposal(request: protobuf.Message): Record<string, unknow
 // 5. FinalizeBlock -- execute transactions and compute emission
 // ======================================================================
 
-function handleFinalizeBlock(
+async function handleFinalizeBlock(
 	request: protobuf.Message,
 	state: EnsoulState,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
 	const req = request as unknown as {
 		finalizeBlock?: {
 			txs?: Buffer[];
@@ -515,6 +681,21 @@ function handleFinalizeBlock(
 		const tx = decodeTx(txBytes as Buffer);
 		if (!tx) {
 			txResults.push({ code: 1, log: "decode failed" });
+			continue;
+		}
+
+		// ── Signature verification (Byzantine proposer protection) ────
+		// Re-verify in FinalizeBlock even though CheckTx already verified.
+		// A Byzantine proposer could include transactions that never passed CheckTx.
+		const sigErr = await verifySignature(tx);
+		if (sigErr) {
+			txResults.push({ code: 31, log: sigErr });
+			continue;
+		}
+
+		// ── Payload size limit ────────────────────────────────────────
+		if (tx.data && tx.data.length > MAX_TX_DATA_SIZE) {
+			txResults.push({ code: 32, log: "payload too large" });
 			continue;
 		}
 
@@ -547,13 +728,21 @@ function handleFinalizeBlock(
 			continue;
 		}
 
-		// Agent registration: stores agent DID + publicKey on-chain
+		// Agent registration: full validation + stores agent DID on-chain
 		if (tx.type === "agent_register" as TransactionType) {
-			const agentData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as {
-				publicKey?: string; metadata?: string;
-			} : null;
+			let agentData: { publicKey?: string; metadata?: string } | null = null;
+			try {
+				agentData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as { publicKey?: string; metadata?: string } : null;
+			} catch {
+				txResults.push({ code: 34, log: "Invalid JSON in tx.data" });
+				continue;
+			}
 			if (!agentData?.publicKey) {
 				txResults.push({ code: 20, log: "agent_register requires publicKey in data" });
+				continue;
+			}
+			if (agentData.metadata && agentData.metadata.length > MAX_METADATA_SIZE) {
+				txResults.push({ code: 33, log: "metadata too large" });
 				continue;
 			}
 			if (state.agents.has(tx.from)) {
@@ -566,16 +755,25 @@ function handleFinalizeBlock(
 				registeredAt: height,
 				metadata: agentData.metadata,
 			});
+			state.working.incrementNonce(tx.from);
 			validTxCount++;
 			txResults.push({ code: 0, log: "agent registered" });
 			continue;
 		}
 
-		// Consciousness store: stores consciousness state root on-chain
+		// Consciousness store: full validation + stores state root on-chain
 		if (tx.type === "consciousness_store" as TransactionType) {
-			const csData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as {
-				stateRoot?: string; version?: number; shardCount?: number;
-			} : null;
+			if (!state.agents.has(tx.from)) {
+				txResults.push({ code: 35, log: "agent not registered" });
+				continue;
+			}
+			let csData: { stateRoot?: string; version?: number; shardCount?: number } | null = null;
+			try {
+				csData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as { stateRoot?: string; version?: number; shardCount?: number } : null;
+			} catch {
+				txResults.push({ code: 34, log: "Invalid JSON in tx.data" });
+				continue;
+			}
 			if (!csData?.stateRoot) {
 				txResults.push({ code: 22, log: "consciousness_store requires stateRoot in data" });
 				continue;
@@ -587,6 +785,7 @@ function handleFinalizeBlock(
 				shardCount: csData.shardCount ?? 0,
 				storedAt: height,
 			});
+			state.working.incrementNonce(tx.from);
 			validTxCount++;
 			txResults.push({ code: 0, log: "consciousness stored" });
 			continue;
