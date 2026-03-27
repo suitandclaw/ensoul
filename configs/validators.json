@@ -8,7 +8,9 @@
       "rpcPort": 26657,
       "role": "home",
       "ssh": "localhost",
-      "user": "suitandclaw"
+      "user": "suitandclaw",
+      "cometbftAddress": "81CC3F39F9A1CB32B00DA9BA3E69825CFC6EBE64",
+      "did": "did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X"
     },
     {
       "name": "Validator v1 (Mac Mini 1)",
@@ -18,7 +20,9 @@
       "rpcPort": 26657,
       "role": "home",
       "ssh": "mini1",
-      "user": "hamsteronduty"
+      "user": "hamsteronduty",
+      "cometbftAddress": "ADD1852F766AA4BD32DA362473DD2FD5262C03D6",
+      "did": "did:key:z6MkfUJgmfDw9ipEtUEj1aM2KzvcL5V35YPfzeCqnhprH6pv"
     },
     {
       "name": "Validator v2 (Mac Mini 2)",
@@ -28,7 +32,9 @@
       "rpcPort": 26657,
       "role": "home",
       "ssh": "mini2",
-      "user": "megaphonehq"
+      "user": "megaphonehq",
+      "cometbftAddress": "8350D0AD73BC9D73DF5BCC173656E573C54125E8",
+      "did": "did:key:z6MkhJ5ErDvgXp1wpmSW55sDpbBxXJ9o4dGE9Ukue77rPSaR"
     },
     {
       "name": "Validator v3 (Mac Mini 3)",
@@ -38,7 +44,9 @@
       "rpcPort": 26657,
       "role": "home",
       "ssh": "mini3",
-      "user": "snitchreport"
+      "user": "snitchreport",
+      "cometbftAddress": "C1A576B8C928E23F3038FA408716F2BE6304B158",
+      "did": "did:key:z6MkvmK2YQ9GzUJKfQzhmfwoEtmT2GQTLKqa941GSMszSb3U"
     },
     {
       "name": "Validator v4 (Hetzner Cloud)",
@@ -49,7 +57,9 @@
       "rpcPort": 26657,
       "role": "cloud",
       "ssh": "root@178.156.199.91",
-      "user": "root"
+      "user": "root",
+      "cometbftAddress": "72BD5ECE8CF5CEE06D89B3F1BCDD7DE05DF84150",
+      "did": "did:key:z6Mkf3a7MhLm2Ate22pTDAcnAYyvep176gRas6Qxrr4yKKSv"
     }
   ]
 }

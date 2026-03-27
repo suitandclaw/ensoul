@@ -684,8 +684,7 @@ s+='<td style="padding:6px">'+(d.peers||'-')+'</td>';
 s+='<td style="padding:6px">'+(d.consensusRound!=null?'R'+d.consensusRound:'-')+'</td>';
 s+='<td style="padding:6px">'+(isOnline?'<span style="color:#4ade80">OK</span>':'<span style="color:#f87171">DOWN</span>')+'</td>';
 s+='<td style="padding:6px;white-space:nowrap">';
-s+='<button data-url="'+v.url+'" onclick="adminUpdate(this.dataset.url)" style="padding:2px 8px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Update</button> ';
-s+='<button data-url="'+v.url+'" onclick="adminReset(this.dataset.url)" style="padding:2px 8px;background:#3f1e1e;color:#f87171;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Reset</button>';
+s+='<button data-url="'+v.url+'" onclick="adminUpdate(this.dataset.url)" style="padding:2px 8px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Update</button>';
 s+='</td></tr>';
 });
 
@@ -738,15 +737,6 @@ adminStatus("Updating "+(i+1)+"/"+ADMIN_VALIDATORS.length+": "+v.name+"...");
 fetch(v.url+"/peer/update",{method:"POST",headers:{"X-Ensoul-Peer-Key":PEER_KEY,"Content-Type":"application/json"},body:"{}",mode:"cors"}).then(function(){i++;setTimeout(next,2000);}).catch(function(){adminStatus(v.name+" failed. Continuing...");i++;setTimeout(next,2000);});
 }
 next();
-}
-
-function adminReset(url){
-if(!PEER_KEY){adminStatus("Enter peer key first.");return;}
-if(!confirm("RESET validator at "+url+"? This wipes chain data!")){return;}
-if(!confirm("Are you sure? This cannot be undone.")){return;}
-fetch(url+"/peer/reset",{method:"POST",headers:{"X-Ensoul-Peer-Key":PEER_KEY,"Content-Type":"application/json"},body:"{}",mode:"cors"}).then(function(r){return r.json()}).then(function(d){
-adminStatus("Reset: "+JSON.stringify(d));
-}).catch(function(e){adminStatus("Reset failed: "+e);});
 }
 
 adminRefresh();

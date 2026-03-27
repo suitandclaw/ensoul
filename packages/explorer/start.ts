@@ -141,6 +141,7 @@ class NetworkDataSource implements ExplorerDataSource {
 	/** Start polling. */
 	async start(): Promise<void> {
 		await this.loadGenesis();
+		await this.loadAddressMapping();
 		await this.pollAllPeers();
 		await this.refreshValidators();
 		await this.refreshChainStats();
@@ -232,140 +233,228 @@ class NetworkDataSource implements ExplorerDataSource {
 		return null;
 	}
 
-	/** Get account data from the local validator. */
+	/** Get account data via ABCI query. */
 	async getAccountData(did: string): Promise<{
 		balance: string; staked: string; delegated: string;
 		unstaking: string; nonce: number; storageCredits: string;
 	} | null> {
-		const endpoints = ["http://localhost:9000", ...this.peerUrls];
-		for (const url of endpoints) {
-			try {
-				const resp = await fetch(`${url}/peer/account/${encodeURIComponent(did)}`, {
-					signal: AbortSignal.timeout(3000),
-				});
-				if (!resp.ok) continue;
-				const d = (await resp.json()) as Record<string, unknown>;
-				return {
-					balance: String(d["balance"] ?? "0"),
-					staked: String(d["staked"] ?? "0"),
-					delegated: String(d["delegatedBalance"] ?? d["delegated"] ?? "0"),
-					unstaking: String(d["unstaking"] ?? "0"),
-					nonce: Number(d["nonce"] ?? 0),
-					storageCredits: String(d["storageCredits"] ?? "0"),
-				};
-			} catch { continue; }
-		}
-		return null;
+		try {
+			const resp = await fetch("http://localhost:26657", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "a", method: "abci_query", params: { path: `/balance/${did}` } }),
+				signal: AbortSignal.timeout(5000),
+			});
+			if (!resp.ok) return null;
+			const result = (await resp.json()) as { result?: { response?: { value?: string } } };
+			const val = result.result?.response?.value;
+			if (!val) return null;
+			const d = JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as Record<string, unknown>;
+			return {
+				balance: String(d["balance"] ?? "0"),
+				staked: String(d["stakedBalance"] ?? "0"),
+				delegated: String(d["delegatedBalance"] ?? "0"),
+				unstaking: String(d["unstaking"] ?? "0"),
+				nonce: Number(d["nonce"] ?? 0),
+				storageCredits: String(d["storageCredits"] ?? "0"),
+			};
+		} catch { return null; }
 	}
 
 	// ── Internal ─────────────────────────────────────────────────
 
-	/**
-	 * Discover which validators are online by checking reachable tunnels.
-	 * Each tunnel exposes one validator DID. All validators on the same
-	 * machine as a reachable tunnel are considered online (they communicate
-	 * via the local relay). We also query /peer/peers on each tunnel to
-	 * discover local validator DIDs.
-	 */
-	private async refreshOnlineStatus(): Promise<void> {
-		const online = new Set<string>();
+	/** Map CometBFT validator address to DID (loaded from config). */
+	private addressToDid: Map<string, string> = new Map();
+	/** Per-validator signature counts over the last N blocks (for real uptime). */
+	private signatureCounts: Map<string, number> = new Map();
+	/** Number of recent blocks scanned for uptime calculation. */
+	private uptimeSampleSize = 0;
 
-		// localhost:9000 means all local validators are online
-		const localEndpoints = ["http://localhost:9000", ...this.peerUrls];
-		for (const url of localEndpoints) {
-			try {
-				const resp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(3000) });
-				if (!resp.ok) continue;
-				const status = (await resp.json()) as PeerStatusResponse;
-				online.add(status.did);
-
-				// Also get local peers behind this tunnel
-				try {
-					const peersResp = await fetch(`${url}/peer/peers`, { signal: AbortSignal.timeout(3000) });
-					if (peersResp.ok) {
-						const pd = (await peersResp.json()) as { peers: Array<{ address: string }> };
-						for (const p of pd.peers ?? []) {
-							try {
-								const pr = await fetch(`${p.address}/peer/status`, { signal: AbortSignal.timeout(1000) });
-								if (pr.ok) {
-									const ps = (await pr.json()) as PeerStatusResponse;
-									online.add(ps.did);
-								}
-							} catch { /* unreachable local peer */ }
-						}
-					}
-				} catch { /* no peers endpoint */ }
-
-				// If this is a tunnel, scan localhost ports on that machine for more DIDs
-				if (url.startsWith("http://localhost")) {
-					for (let port = 9001; port <= 9009; port++) {
-						try {
-							const lr = await fetch(`http://localhost:${port}/peer/status`, { signal: AbortSignal.timeout(500) });
-							if (lr.ok) {
-								const ls = (await lr.json()) as PeerStatusResponse;
-								online.add(ls.did);
-							}
-						} catch { /* port not running */ }
-					}
+	/** Load address-to-DID mapping from configs/validators.json. */
+	private async loadAddressMapping(): Promise<void> {
+		try {
+			const { readFile: rf } = await import("node:fs/promises");
+			const { join: j, dirname: dn } = await import("node:path");
+			const { fileURLToPath: fu } = await import("node:url");
+			const configPath = j(dn(fu(import.meta.url)), "..", "..", "configs", "validators.json");
+			const raw = await rf(configPath, "utf-8");
+			const config = JSON.parse(raw) as {
+				validators: Array<{ cometbftAddress?: string; did?: string; name: string }>;
+			};
+			for (const v of config.validators) {
+				if (v.cometbftAddress && v.did) {
+					this.addressToDid.set(v.cometbftAddress, v.did);
 				}
-			} catch { /* tunnel unreachable */ }
+			}
+			process.stdout.write(`  Address-to-DID mapping: ${this.addressToDid.size} validators\n`);
+		} catch {
+			process.stdout.write(`  Warning: could not load address mapping from configs/validators.json\n`);
 		}
-
-		this.onlineDids = online;
 	}
 
-	/** Refresh validator data from the compat proxy /peer/validators. */
-	private async refreshValidators(): Promise<void> {
+	/**
+	 * Determine actual liveness by checking who signed recent blocks.
+	 * Queries the last 20 blocks and counts signatures per validator address.
+	 * A validator that has not signed any of the last 10 blocks is offline.
+	 */
+	private async refreshOnlineStatus(): Promise<void> {
 		try {
-			const resp = await fetch(`${this.peerUrls[0] ?? "http://localhost:9000"}/peer/validators`, {
+			const statusResp = await fetch("http://localhost:26657", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "s", method: "status", params: {} }),
 				signal: AbortSignal.timeout(5000),
 			});
-			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-			const data = (await resp.json()) as {
-				validators: Array<{
-					did: string;
-					ownStake: string;
-					delegatedStake: string;
-					totalPower: number;
-					isOnline: boolean;
-					blocksProduced: number;
-					uptimePercent: number;
-				}>;
-				totalStaked: string;
-				totalStakedEnsl: number;
-			};
+			if (!statusResp.ok) return;
+			const statusData = (await statusResp.json()) as { result: { sync_info: { latest_block_height: string } } };
+			const tipHeight = Number(statusData.result.sync_info.latest_block_height);
+			if (tipHeight < 2) return;
 
-			this.validatorCache = data.validators.map((v) => ({
-				did: v.did,
-				stake: (BigInt(v.ownStake) + BigInt(v.delegatedStake)).toString(),
-				blocksProduced: v.blocksProduced || (this.proposerCounts.get(v.did) ?? 0),
-				uptimePercent: v.uptimePercent,
-				delegation: "foundation",
-			}));
+			// Scan the last 20 blocks for signatures
+			const scanCount = Math.min(20, tipHeight);
+			const counts = new Map<string, number>();
+			const online = new Set<string>();
 
-			// Update online DIDs
-			this.onlineDids = new Set(data.validators.filter((v) => v.isOnline).map((v) => v.did));
+			for (let h = tipHeight; h > tipHeight - scanCount; h--) {
+				try {
+					const blockResp = await fetch("http://localhost:26657", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ jsonrpc: "2.0", id: "b", method: "block", params: { height: String(h) } }),
+						signal: AbortSignal.timeout(3000),
+					});
+					if (!blockResp.ok) continue;
+					const blockData = (await blockResp.json()) as {
+						result: { block: { last_commit: { signatures: Array<{ validator_address: string; block_id_flag: number }> } } };
+					};
+					const sigs = blockData.result.block.last_commit.signatures;
+					for (const sig of sigs) {
+						// block_id_flag 2 = signed, 1 = absent
+						if (sig.validator_address && sig.block_id_flag === 2) {
+							counts.set(sig.validator_address, (counts.get(sig.validator_address) ?? 0) + 1);
+						}
+					}
+				} catch { /* skip block */ }
+			}
 
-			// Update genesis DIDs to include dynamically joined validators
-			for (const v of data.validators) {
-				if (!this.genesisDids.includes(v.did)) {
-					this.genesisDids.push(v.did);
+			// A validator is online if it signed at least 1 of the last 10 blocks
+			for (const [addr, count] of counts) {
+				if (count > 0) {
+					const did = this.addressToDid.get(addr);
+					if (did) online.add(did);
 				}
 			}
-		} catch {
-			// Fallback to the old method if the new endpoint isn't available
-			const validators: ValidatorData[] = [];
-			for (const did of this.genesisDids) {
-				const account = await this.getAccountData(did);
-				const stakeWei = BigInt(account?.staked ?? "0");
-				const delegatedWei = BigInt(account?.delegated ?? "0");
-				const totalStake = stakeWei + delegatedWei;
-				const blocksProduced = this.proposerCounts.get(did) ?? 0;
-				const isOnline = this.onlineDids.has(did);
-				validators.push({ did, stake: totalStake.toString(), blocksProduced, uptimePercent: isOnline ? 99.5 : 0, delegation: "foundation" });
+
+			this.signatureCounts = counts;
+			this.uptimeSampleSize = scanCount;
+			this.onlineDids = online;
+		} catch { /* non-fatal */ }
+	}
+
+	/**
+	 * Refresh validator data from ABCI /validators and CometBFT /validators.
+	 * Uses ABCI for stake data (DID-keyed) and CometBFT for the address mapping.
+	 * Liveness comes from refreshOnlineStatus() block signature analysis.
+	 */
+	private async refreshValidators(): Promise<void> {
+		try {
+			// Get validator list with stake from ABCI
+			const abciResp = await fetch("http://localhost:26657", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "v", method: "abci_query", params: { path: "/validators" } }),
+				signal: AbortSignal.timeout(5000),
+			});
+			if (!abciResp.ok) return;
+			const abciResult = (await abciResp.json()) as { result?: { response?: { value?: string } } };
+			const abciVal = abciResult.result?.response?.value;
+			if (!abciVal) return;
+
+			const abciData = JSON.parse(Buffer.from(abciVal, "base64").toString("utf-8")) as {
+				validators: Array<{
+					did: string;
+					stakedBalance: string;
+					delegatedToThis: string;
+					totalPower: string;
+					power: number;
+				}>;
+				count: number;
+			};
+
+			// Count proposer blocks from recent CometBFT blocks
+			await this.refreshProposerCounts();
+
+			// Build validator cache with real data
+			this.validatorCache = abciData.validators.map((v) => {
+				const totalStake = BigInt(v.stakedBalance) + BigInt(v.delegatedToThis);
+				const isOnline = this.onlineDids.has(v.did);
+
+				// Calculate uptime from actual signature data
+				let uptimePercent = 0;
+				if (this.uptimeSampleSize > 0) {
+					// Find this validator's CometBFT address
+					let addr = "";
+					for (const [a, d] of this.addressToDid) {
+						if (d === v.did) { addr = a; break; }
+					}
+					if (addr) {
+						const signed = this.signatureCounts.get(addr) ?? 0;
+						uptimePercent = Math.round((signed / this.uptimeSampleSize) * 1000) / 10;
+					}
+				}
+
+				return {
+					did: v.did,
+					stake: totalStake.toString(),
+					blocksProduced: this.proposerCounts.get(v.did) ?? 0,
+					uptimePercent: isOnline ? Math.max(uptimePercent, 0.1) : 0,
+					delegation: "foundation" as const,
+				};
+			});
+		} catch { /* non-fatal, keep last cache */ }
+	}
+
+	/** Count block proposers from the last 1000 blocks via CometBFT blockchain RPC. */
+	private async refreshProposerCounts(): Promise<void> {
+		try {
+			const statusResp = await fetch("http://localhost:26657", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "s", method: "status", params: {} }),
+				signal: AbortSignal.timeout(5000),
+			});
+			if (!statusResp.ok) return;
+			const statusData = (await statusResp.json()) as { result: { sync_info: { latest_block_height: string } } };
+			const tipHeight = Number(statusData.result.sync_info.latest_block_height);
+			const fromHeight = Math.max(1, tipHeight - 999);
+
+			const counts = new Map<string, number>();
+
+			for (let min = fromHeight; min <= tipHeight; min += 20) {
+				const max = Math.min(min + 19, tipHeight);
+				try {
+					const resp = await fetch("http://localhost:26657", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ jsonrpc: "2.0", id: "bc", method: "blockchain", params: { minHeight: String(min), maxHeight: String(max) } }),
+						signal: AbortSignal.timeout(5000),
+					});
+					if (!resp.ok) continue;
+					const data = (await resp.json()) as { result: { block_metas: Array<{ header: { proposer_address: string } }> } };
+					for (const meta of data.result.block_metas ?? []) {
+						const addr = meta.header.proposer_address;
+						if (addr) {
+							const did = this.addressToDid.get(addr);
+							if (did) {
+								counts.set(did, (counts.get(did) ?? 0) + 1);
+							}
+						}
+					}
+				} catch { /* skip batch */ }
 			}
-			this.validatorCache = validators;
-		}
+
+			this.proposerCounts = counts;
+		} catch { /* non-fatal */ }
 	}
 
 	/** Fetch all chain statistics from ABCI state via CometBFT RPC (single source of truth). */
@@ -395,93 +484,100 @@ class NetworkDataSource implements ExplorerDataSource {
 		} catch { /* non-fatal */ }
 	}
 
+	/** Poll CometBFT RPC for the current chain height and cache recent blocks. */
 	private async pollAllPeers(): Promise<void> {
-		// Always poll localhost:9000 first (co-located validator)
-		const allUrls = ["http://localhost:9000", ...this.peerUrls];
-		for (const url of allUrls) {
-			try {
-				const resp = await fetch(`${url}/peer/status`, {
-					signal: AbortSignal.timeout(5000),
-				});
-				if (!resp.ok) {
-					this.markDead(url);
-					continue;
-				}
-				const status = (await resp.json()) as PeerStatusResponse;
-				const prev = this.peers.get(url);
-				const prevHeight = prev?.height ?? -1;
-
-				this.peers.set(url, {
-					url,
-					did: status.did,
-					height: status.height,
-					alive: true,
-					lastSeen: Date.now(),
-				});
-
-				if (status.height > prevHeight) {
-					await this.fetchBlocks(url, prevHeight + 1, status.height);
-				}
-			} catch {
-				this.markDead(url);
-			}
-		}
-	}
-
-	private markDead(url: string): void {
-		const existing = this.peers.get(url);
-		if (existing) {
-			existing.alive = false;
-		}
-	}
-
-	private async fetchBlocks(
-		peerUrl: string,
-		from: number,
-		to: number,
-	): Promise<void> {
 		try {
-			const resp = await fetch(`${peerUrl}/peer/sync/${from}`, {
-				signal: AbortSignal.timeout(10000),
+			const resp = await fetch("http://localhost:26657", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "s", method: "status", params: {} }),
+				signal: AbortSignal.timeout(5000),
 			});
 			if (!resp.ok) return;
-			const data = (await resp.json()) as { blocks?: SerializedBlock[] } | SerializedBlock[];
-			const blocks = Array.isArray(data) ? data : (data.blocks ?? []);
-			for (const sb of blocks) {
-				if (sb.height <= to && !this.blockCache.has(sb.height)) {
-					this.blockCache.set(sb.height, this.toBlockData(sb));
-					this.totalTxCount += sb.transactions.length;
-					// Count proposer blocks
-					if (sb.proposer && sb.proposer !== "genesis") {
-						this.proposerCounts.set(
-							sb.proposer,
-							(this.proposerCounts.get(sb.proposer) ?? 0) + 1,
-						);
-					}
-				}
+			const data = (await resp.json()) as { result: { sync_info: { latest_block_height: string }; node_info: { id: string; moniker: string } } };
+			const height = Number(data.result.sync_info.latest_block_height);
+			const moniker = data.result.node_info.moniker;
+
+			const prev = this.peers.get("localhost");
+			const prevHeight = prev?.height ?? Math.max(0, height - 10);
+
+			this.peers.set("localhost", {
+				url: "http://localhost:26657",
+				did: moniker,
+				height,
+				alive: true,
+				lastSeen: Date.now(),
+			});
+
+			// Fetch new blocks since last poll
+			if (height > prevHeight) {
+				await this.fetchBlocksFromCometBFT(prevHeight + 1, height);
 			}
-		} catch {
-			// Non-fatal
-		}
+		} catch { /* non-fatal */ }
 	}
 
-	private toBlockData(sb: SerializedBlock): BlockData {
-		return {
-			height: sb.height,
-			hash: sb.stateRoot.slice(0, 16) + sb.transactionsRoot.slice(0, 16),
-			parentHash: sb.previousHash,
-			proposer: sb.proposer,
-			timestamp: sb.timestamp,
-			txCount: sb.transactions.length,
-			transactions: sb.transactions.map((tx) => ({
-				hash: `${tx.from.slice(0, 8)}:${tx.nonce}`,
-				type: tx.type,
-				from: tx.from,
-				to: tx.to,
-				amount: tx.amount,
-				timestamp: tx.timestamp,
-			})),
-		};
+	/** Fetch blocks from CometBFT RPC and cache them. */
+	private async fetchBlocksFromCometBFT(from: number, to: number): Promise<void> {
+		// Only fetch recent blocks (limit to last 20 to avoid overload on first start)
+		const start = Math.max(from, to - 19);
+		for (let h = start; h <= to; h++) {
+			if (this.blockCache.has(h)) continue;
+			try {
+				const resp = await fetch("http://localhost:26657", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ jsonrpc: "2.0", id: "b", method: "block", params: { height: String(h) } }),
+					signal: AbortSignal.timeout(3000),
+				});
+				if (!resp.ok) continue;
+				const data = (await resp.json()) as {
+					result: {
+						block: {
+							header: {
+								height: string;
+								time: string;
+								proposer_address: string;
+								last_block_id: { hash: string };
+								app_hash: string;
+							};
+							data: { txs: string[] | null };
+							last_commit: { signatures: Array<{ validator_address: string }> };
+						};
+						block_id: { hash: string };
+					};
+				};
+				const block = data.result.block;
+				const header = block.header;
+				const txs = block.data.txs ?? [];
+				const proposerDid = this.addressToDid.get(header.proposer_address) ?? header.proposer_address;
+
+				this.blockCache.set(h, {
+					height: Number(header.height),
+					hash: data.result.block_id.hash.slice(0, 16),
+					parentHash: header.last_block_id.hash.slice(0, 16),
+					proposer: proposerDid,
+					timestamp: new Date(header.time).getTime(),
+					txCount: txs.length,
+					transactions: txs.map((txB64, i) => {
+						try {
+							const txJson = JSON.parse(Buffer.from(txB64, "base64").toString("utf-8")) as {
+								type: string; from: string; to: string; amount: string; timestamp: number; nonce: number;
+							};
+							return {
+								hash: `${(txJson.from ?? "").slice(0, 8)}:${txJson.nonce ?? i}`,
+								type: txJson.type ?? "unknown",
+								from: txJson.from ?? "",
+								to: txJson.to ?? "",
+								amount: txJson.amount ?? "0",
+								timestamp: txJson.timestamp ?? 0,
+							};
+						} catch {
+							return { hash: `tx:${i}`, type: "unknown", from: "", to: "", amount: "0", timestamp: 0 };
+						}
+					}),
+				});
+			} catch { /* skip block */ }
+		}
 	}
 }
 
