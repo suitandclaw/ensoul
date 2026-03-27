@@ -282,11 +282,8 @@ main() {
         start_monitor
     fi
 
-    # Case 7: Telegram bot dead, restart it (MBP only)
-    if [ "$tgbot_ok" = "false" ] && [ -f "$HOME/.ensoul/telegram-bot.env" ]; then
-        log "ALERT: Telegram bot is dead, restarting"
-        start_tgbot
-    fi
+    # Case 7: Telegram bot (runs on VPS via systemd, not MBP)
+    # Kept for reference; bot is managed by VPS systemd service ensoul-telegram-bot
 
     # Case 8: Everything alive. Check block freshness and disk space.
     local age=0 height="?"
