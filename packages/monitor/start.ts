@@ -181,6 +181,18 @@ async function checkWebsite(): Promise<ServiceStatus> {
 
 async function checkAgent(): Promise<ServiceStatus> {
 	const name = "Twitter Agent";
+
+	// Check if the agent is explicitly disabled via flag file
+	const { access } = await import("node:fs/promises");
+	const disabledPath = join(LOG_DIR, "x-agent-disabled");
+	try {
+		await access(disabledPath);
+		// Flag file exists: agent is intentionally disabled
+		return { name, url: "local", status: "down", lastSeen: 0, details: { note: "Disabled via x-agent-disabled" } };
+	} catch {
+		// Flag file does not exist, continue checking
+	}
+
 	try {
 		const raw = await readFile(AGENT_LOG, "utf-8");
 		const lines = raw.trim().split("\n");
