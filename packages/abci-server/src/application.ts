@@ -178,6 +178,8 @@ interface EnsoulState {
 	agents: Map<string, OnChainAgent>;
 	/** On-chain consciousness state (DID -> latest consciousness). */
 	consciousness: Map<string, OnChainConsciousness>;
+	/** Running count of all successfully processed transactions. */
+	totalTransactions: number;
 	/** Temporary buffer for accumulating snapshot chunks during state sync. */
 	_snapshotBuffer?: Buffer;
 }
@@ -202,6 +204,7 @@ export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 		upgradeHistory: [],
 		agents: new Map(),
 		consciousness: new Map(),
+		totalTransactions: 0,
 	};
 
 	async function handler(
@@ -672,6 +675,9 @@ function handleFinalizeBlock(
 	const appHash = computeAppHash(state);
 	state.appHash = appHash;
 
+	// Update running transaction counter
+	state.totalTransactions += validTxCount;
+
 	if (validTxCount > 0 || height % 100 === 0) {
 		log(`FinalizeBlock: height=${height} txs=${validTxCount}/${rawTxs.length} hash=${appHash.toString("hex").slice(0, 16)}...`);
 	}
@@ -804,6 +810,7 @@ function handleQuery(
 				consensusSetSize: state.committed.getConsensusSet().length,
 				agentCount: state.agents.size,
 				consciousnessCount: state.consciousness.size,
+				totalTransactions: state.totalTransactions,
 			};
 			break;
 		}
@@ -1148,6 +1155,7 @@ function serializeFullState(state: EnsoulState): Buffer {
 		upgradePlan: state.upgradePlan,
 		upgradeHistory: state.upgradeHistory,
 		delegations: state.delegations.serialize(),
+		totalTransactions: state.totalTransactions,
 		genesis: state.genesis ? {
 			emissionPerBlock: state.genesis.emissionPerBlock.toString(),
 			networkRewardsPool: state.genesis.networkRewardsPool.toString(),
@@ -1360,6 +1368,7 @@ async function handleApplySnapshotChunk(
 		state.consciousness = new Map(snapshot.consciousness.map((c) => [c.did, c]));
 		state.upgradePlan = snapshot.upgradePlan;
 		state.upgradeHistory = snapshot.upgradeHistory ?? [];
+		state.totalTransactions = (snapshot as Record<string, unknown>)["totalTransactions"] as number ?? 0;
 		if (snapshot.delegations && snapshot.delegations.length > 0) {
 			state.delegations = DelegationRegistry.deserialize(snapshot.delegations);
 		}
@@ -1433,6 +1442,7 @@ async function persistState(state: EnsoulState): Promise<void> {
 			agents: Array.from(state.agents.values()),
 			consciousness: Array.from(state.consciousness.values()),
 			delegations: state.delegations.serialize(),
+			totalTransactions: state.totalTransactions,
 		};
 		await writeFile(
 			join(state.dataDir, "state.json"),
@@ -1521,7 +1531,10 @@ async function loadPersistedState(state: EnsoulState): Promise<void> {
 			state.delegations = DelegationRegistry.deserialize(delegationEntries);
 		}
 
-		log(`Loaded persisted state: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL agents=${state.agents.size} consciousness=${state.consciousness.size} delegations=${delegationEntries.length}`);
+		// Restore transaction counter
+		state.totalTransactions = (snap["totalTransactions"] as number | null) ?? 0;
+
+		log(`Loaded persisted state: height=${state.height} emitted=${(state.totalEmitted / DECIMALS).toString()} ENSL agents=${state.agents.size} consciousness=${state.consciousness.size} txs=${state.totalTransactions} delegations=${delegationEntries.length}`);
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		log(`No persisted state (${msg}), starting fresh`);
