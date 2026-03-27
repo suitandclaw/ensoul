@@ -100,32 +100,51 @@ async function sendNtfy(msg: string, priority = "default"): Promise<void> {
 // ── Polling ──────────────────────────────────────────────────────────
 
 // Load validator list from config file (not hardcoded)
+// Always use Tailscale IP + CometBFT RPC for health checks (reliable, no tunnel dependency)
 const VALIDATORS: Array<{ name: string; url: string }> = (() => {
 	try {
 		const configPath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "configs", "validators.json");
 		const raw = readFileSync(configPath, "utf-8");
-		const config = JSON.parse(raw) as { validators: Array<{ name: string; publicUrl: string | null; tailscaleIp: string; rpcPort: number }> };
+		const config = JSON.parse(raw) as { validators: Array<{ name: string; publicUrl: string | null; tailscaleIp: string; publicIp?: string; rpcPort: number }> };
 		return config.validators.map((v) => ({
 			name: v.name,
-			url: v.publicUrl ?? `http://${v.tailscaleIp}:${v.rpcPort}`,
+			url: `http://${v.tailscaleIp}:${v.rpcPort}`,
 		}));
 	} catch {
 		// Fallback if config file is missing
 		return [
-			{ name: "Validator v0 (MacBook Pro)", url: "https://v0.ensoul.dev" },
+			{ name: "Validator v0 (MacBook Pro)", url: "http://localhost:26657" },
 		];
 	}
 })();
 
+/** Check a validator via CometBFT RPC /status endpoint (not the compat proxy). */
 async function checkValidator(name: string, url: string): Promise<ServiceStatus> {
 	try {
-		const resp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(10_000) });
+		const resp = await fetch(`${url}/status`, { signal: AbortSignal.timeout(10_000) });
 		if (!resp.ok) return { name, url, status: "down", lastSeen: 0, details: { error: `HTTP ${resp.status}` } };
-		const data = (await resp.json()) as { height: number; peerCount: number; did: string };
-		const shortDid = data.did.length > 24 ? `${data.did.slice(0, 16)}...${data.did.slice(-6)}` : data.did;
+		const data = (await resp.json()) as {
+			result: {
+				node_info: { id: string; moniker: string };
+				sync_info: { latest_block_height: string; catching_up: boolean };
+				validator_info: { address: string; voting_power: string };
+			};
+		};
+		const si = data.result.sync_info;
+		const ni = data.result.node_info;
+		const height = Number(si.latest_block_height);
+		// Also fetch peer count from /net_info
+		let peers = 0;
+		try {
+			const netResp = await fetch(`${url}/net_info`, { signal: AbortSignal.timeout(5_000) });
+			if (netResp.ok) {
+				const netData = (await netResp.json()) as { result: { n_peers: string } };
+				peers = Number(netData.result.n_peers);
+			}
+		} catch { /* peer count is best-effort */ }
 		return {
-			name, url, status: "healthy", lastSeen: Date.now(),
-			details: { height: data.height, peers: data.peerCount, did: shortDid },
+			name, url, status: si.catching_up ? "degraded" : "healthy", lastSeen: Date.now(),
+			details: { height, peers, moniker: ni.moniker, catchingUp: si.catching_up },
 		};
 	} catch {
 		return { name, url, status: "down", lastSeen: 0, details: {} };
