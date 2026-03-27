@@ -15,7 +15,9 @@
 
 import Fastify from "fastify";
 import { readFile, appendFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 const port = Number(process.argv.find((_, i, a) => a[i - 1] === "--port") ?? 4000);
@@ -67,12 +69,23 @@ const previousStatuses = new Map<string, "healthy" | "down" | "degraded">();
 
 // ── Polling ──────────────────────────────────────────────────────────
 
-const VALIDATORS = [
-	{ name: "Validator v0 (MacBook Pro)", url: "https://v0.ensoul.dev" },
-	{ name: "Validator v1 (Mac Mini 1)", url: "https://v1.ensoul.dev" },
-	{ name: "Validator v2 (Mac Mini 2)", url: "https://v2.ensoul.dev" },
-	{ name: "Validator v3 (Mac Mini 3)", url: "https://v3.ensoul.dev" },
-];
+// Load validator list from config file (not hardcoded)
+const VALIDATORS: Array<{ name: string; url: string }> = (() => {
+	try {
+		const configPath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "configs", "validators.json");
+		const raw = readFileSync(configPath, "utf-8");
+		const config = JSON.parse(raw) as { validators: Array<{ name: string; publicUrl: string | null; tailscaleIp: string; rpcPort: number }> };
+		return config.validators.map((v) => ({
+			name: v.name,
+			url: v.publicUrl ?? `http://${v.tailscaleIp}:${v.rpcPort}`,
+		}));
+	} catch {
+		// Fallback if config file is missing
+		return [
+			{ name: "Validator v0 (MacBook Pro)", url: "https://v0.ensoul.dev" },
+		];
+	}
+})();
 
 async function checkValidator(name: string, url: string): Promise<ServiceStatus> {
 	try {
@@ -550,12 +563,10 @@ poll();
 setInterval(poll,30000);
 
 // ── Validator Management Panel ──────────────────────────
-var ADMIN_VALIDATORS=[
-{name:"v0 (MBP)",url:"http://localhost:9000"},
-{name:"v1 (Mini 1)",url:"https://v1.ensoul.dev"},
-{name:"v2 (Mini 2)",url:"https://v2.ensoul.dev"},
-{name:"v3 (Mini 3)",url:"https://v3.ensoul.dev"}
-];
+var ADMIN_VALIDATORS=${JSON.stringify(VALIDATORS.map((v) => ({
+	name: v.name.replace(/^Validator /, ""),
+	url: v.url.includes("localhost") || v.url.includes("127.0.0.1") ? "http://localhost:9000" : v.url,
+})))};
 var PEER_KEY="";
 var adminData={};
 var latestVersion="?";
@@ -710,12 +721,12 @@ async function main(): Promise<void> {
 
 	// Proxy validator status to avoid CORS issues (browser can't fetch cross-origin)
 	app.get("/api/validators-admin", async () => {
-		const urls = [
-			"http://localhost:9000",
-			"https://v1.ensoul.dev",
-			"https://v2.ensoul.dev",
-			"https://v3.ensoul.dev",
-		];
+		// Build URLs from config: use publicUrl for remote, localhost:9000 for local
+		const urls = VALIDATORS.map((v) =>
+			v.url.includes("localhost") || v.url.includes("127.0.0.1")
+				? "http://localhost:9000"
+				: v.url,
+		);
 		const results: Array<Record<string, unknown>> = [];
 		for (const url of urls) {
 			try {

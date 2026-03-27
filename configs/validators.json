@@ -1,0 +1,55 @@
+{
+  "validators": [
+    {
+      "name": "Validator v0 (MacBook Pro)",
+      "moniker": "ensoul-mbp",
+      "tailscaleIp": "100.67.81.90",
+      "publicUrl": "https://v0.ensoul.dev",
+      "rpcPort": 26657,
+      "role": "home",
+      "ssh": "localhost",
+      "user": "suitandclaw"
+    },
+    {
+      "name": "Validator v1 (Mac Mini 1)",
+      "moniker": "ensoul-mini1",
+      "tailscaleIp": "100.86.108.114",
+      "publicUrl": "https://v1.ensoul.dev",
+      "rpcPort": 26657,
+      "role": "home",
+      "ssh": "mini1",
+      "user": "hamsteronduty"
+    },
+    {
+      "name": "Validator v2 (Mac Mini 2)",
+      "moniker": "ensoul-mini2",
+      "tailscaleIp": "100.117.84.28",
+      "publicUrl": "https://v2.ensoul.dev",
+      "rpcPort": 26657,
+      "role": "home",
+      "ssh": "mini2",
+      "user": "megaphonehq"
+    },
+    {
+      "name": "Validator v3 (Mac Mini 3)",
+      "moniker": "ensoul-mini3",
+      "tailscaleIp": "100.127.140.26",
+      "publicUrl": "https://v3.ensoul.dev",
+      "rpcPort": 26657,
+      "role": "home",
+      "ssh": "mini3",
+      "user": "snitchreport"
+    },
+    {
+      "name": "Validator v4 (Hetzner Cloud)",
+      "moniker": "ensoul-cloud-1",
+      "tailscaleIp": "100.72.212.104",
+      "publicUrl": null,
+      "publicIp": "178.156.199.91",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "ssh": "root@178.156.199.91",
+      "user": "root"
+    }
+  ]
+}

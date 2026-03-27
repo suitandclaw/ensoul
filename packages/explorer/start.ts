@@ -143,13 +143,13 @@ class NetworkDataSource implements ExplorerDataSource {
 		await this.loadGenesis();
 		await this.pollAllPeers();
 		await this.refreshValidators();
-		await this.refreshAgentCount();
+		await this.refreshChainStats();
 		await this.refreshOnlineStatus();
 		this.pollTimer = setInterval(() => {
 			void this.pollAllPeers();
 			void this.refreshOnlineStatus();
 			void this.refreshValidators();
-			void this.refreshAgentCount();
+			void this.refreshChainStats();
 		}, 10_000);
 	}
 
@@ -368,8 +368,8 @@ class NetworkDataSource implements ExplorerDataSource {
 		}
 	}
 
-	/** Fetch agent/consciousness counts from ABCI chain state via CometBFT RPC. */
-	private async refreshAgentCount(): Promise<void> {
+	/** Fetch all chain statistics from ABCI state via CometBFT RPC (single source of truth). */
+	private async refreshChainStats(): Promise<void> {
 		try {
 			const resp = await fetch("http://localhost:26657", {
 				method: "POST",
@@ -384,9 +384,14 @@ class NetworkDataSource implements ExplorerDataSource {
 			const data = JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as {
 				agentCount?: number;
 				consciousnessCount?: number;
+				totalTransactions?: number;
 			};
 			this.agentCount = data.agentCount ?? 0;
 			this.consciousnessCount = data.consciousnessCount ?? 0;
+			// Use ABCI as the authoritative source for total transactions
+			if (data.totalTransactions !== undefined) {
+				this.totalTxCount = data.totalTransactions;
+			}
 		} catch { /* non-fatal */ }
 	}
 
