@@ -4,12 +4,33 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run a Validator - Ensoul Docs</title>
-<meta name="description" content="Six steps to run an Ensoul validator. Earn ~7,800 ENSL/day securing the network.">
+<meta name="description" content="Run an Ensoul validator. One command installs everything. Earn ENSL by securing the consciousness persistence network.">
 <link rel="stylesheet" href="/css/style.css">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<style>
+.hw-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
+.hw-card{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:20px}
+.hw-card h4{margin:0 0 12px;color:var(--primary-light)}
+.hw-card table{width:100%;font-size:0.9em}
+.hw-card td{padding:4px 0;border:none}
+.hw-card td:first-child{color:var(--text-secondary);width:40%}
+.pioneer-box{background:linear-gradient(135deg,rgba(124,58,237,0.15),rgba(124,58,237,0.05));border:2px solid var(--primary);border-radius:12px;padding:24px;margin:24px 0}
+.pioneer-box h3{color:var(--primary-light);margin:0 0 8px}
+.pioneer-box .amount{font-size:1.6em;font-weight:700;color:var(--primary)}
+.install-box{background:var(--bg-card);border:2px solid var(--primary);border-radius:12px;padding:24px;margin:24px 0;text-align:center}
+.install-box pre{text-align:left;max-width:700px;margin:16px auto}
+.net-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:20px 0}
+.net-stat{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center}
+.net-stat .val{font-size:1.4em;font-weight:700;color:var(--primary)}
+.net-stat .lbl{font-size:0.8em;color:var(--text-secondary);margin-top:4px}
+.option-card{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:20px;margin:12px 0}
+.option-card h4{color:var(--primary-light);margin:0 0 8px}
+.option-card .tag{display:inline-block;background:var(--primary);color:#fff;font-size:0.7em;padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle}
+@media(max-width:680px){.hw-grid,.net-stats{grid-template-columns:1fr}}
+</style>
 </head>
 <body>
 <nav><div class="inner">
@@ -35,102 +56,166 @@
 	<a href="/docs/api.html">API Reference</a>
 	<a href="/docs/architecture.html">Architecture</a>
 	<a href="/docs/tokenomics.html">Tokenomics</a>
+	<h3>Guides</h3>
+	<a href="https://github.com/suitandclaw/ensoul/blob/main/docs/VALIDATOR-GUIDE.md">Full Validator Guide</a>
+	<a href="https://github.com/suitandclaw/ensoul/blob/main/docs/VALIDATOR-QUICKSTART.md">Quickstart (1 page)</a>
 </aside>
 
 <main class="docs-content">
 <h1>Run a validator</h1>
-<p class="lead">Six steps. One command installs everything. Earn ENSL by storing agent consciousness and producing blocks.</p>
+<p class="lead">Secure the consciousness persistence network. Earn ENSL. One command installs everything.</p>
 
-<h2>What you earn</h2>
+<!-- Live Network Stats -->
+<div class="net-stats">
+	<div class="net-stat"><div class="val" id="v-height">---</div><div class="lbl">Block Height</div></div>
+	<div class="net-stat"><div class="val" id="v-validators">---</div><div class="lbl">Active Validators</div></div>
+	<div class="net-stat"><div class="val" id="v-agents">---</div><div class="lbl">Ensouled Agents</div></div>
+</div>
+
+<!-- Why Run a Validator -->
+<h2>Why run a validator?</h2>
+<p>Validators are the backbone of the Ensoul network. They produce blocks, validate transactions, and ensure that agent consciousness data remains available and tamper-proof. In return, validators earn ENSL tokens from block rewards and delegation commissions.</p>
+<p>Consciousness persistence only works if the network is decentralized. Every new validator strengthens the network's resilience. If a single cloud provider goes down, agents survive because their data is replicated across independent validators worldwide.</p>
+
+<h3>What you earn</h3>
 <ul>
-	<li><strong>Block rewards:</strong> ~19 ENSL per block you propose</li>
-	<li><strong>With 35 validators:</strong> ~7,800 ENSL/day per validator</li>
-	<li><strong>Delegation commission:</strong> 10% on ENSL delegated to you by other users</li>
-	<li><strong>Storage credits:</strong> earned automatically from staking (10,000 ENSL = 1 MB/month)</li>
+	<li><strong>Block rewards:</strong> ~19 ENSL per block during Year 1 (100M ENSL total). Rewards reduce by 25% per year over a 10-year schedule.</li>
+	<li><strong>Delegation commission:</strong> 10% of rewards attributed to tokens others delegate to you.</li>
+	<li><strong>Storage credits:</strong> Earned automatically from staking (10,000 ENSL = 1 MB-month of consciousness storage).</li>
 </ul>
+<p>Rewards are proportional to voting power. A validator with 10% of total stake proposes about 10% of blocks.</p>
 
-<h2>Requirements</h2>
-<ul>
-	<li>Mac with Node.js 22+ and pnpm (Apple Silicon recommended)</li>
-	<li>Always-on power (no battery operation)</li>
-	<li>Stable internet connection</li>
-	<li>The <code>--install</code> flag prevents sleep and auto-starts on boot</li>
-</ul>
+<!-- Pioneer Program -->
+<div class="pioneer-box">
+	<h3>Pioneer Program</h3>
+	<div class="amount">2,000,000 ENSL delegation</div>
+	<p style="margin:8px 0 0">The first 20 validators to join the network receive a 2,000,000 ENSL foundation delegation. This is enough stake to begin producing blocks and earning rewards immediately, with no upfront token purchase required.</p>
+	<p style="margin:8px 0 0;font-size:0.9em;color:var(--text-secondary)">Standard validators registered daily also receive 100,000 ENSL (first 10 per day). Maintain 90%+ uptime to keep the delegation.</p>
+</div>
 
+<!-- Hardware Requirements -->
+<h2>Hardware requirements</h2>
+<p>This is <strong>not</strong> cryptocurrency mining. No GPU needed. A $5/month VPS works.</p>
+<div class="hw-grid">
+	<div class="hw-card">
+		<h4>Minimum</h4>
+		<table>
+			<tr><td>CPU</td><td>2 cores</td></tr>
+			<tr><td>RAM</td><td>4 GB</td></tr>
+			<tr><td>Storage</td><td>40 GB SSD</td></tr>
+			<tr><td>Network</td><td>100 Mbps</td></tr>
+			<tr><td>OS</td><td>Ubuntu 22.04+, Debian 12, macOS 14+</td></tr>
+		</table>
+	</div>
+	<div class="hw-card">
+		<h4>Recommended</h4>
+		<table>
+			<tr><td>CPU</td><td>4 cores</td></tr>
+			<tr><td>RAM</td><td>8 GB</td></tr>
+			<tr><td>Storage</td><td>100 GB NVMe SSD</td></tr>
+			<tr><td>Network</td><td>1 Gbps</td></tr>
+			<tr><td>OS</td><td>Ubuntu 24.04</td></tr>
+		</table>
+	</div>
+</div>
+<p style="font-size:0.9em;color:var(--text-secondary)">VPS providers: Hetzner ($4.50/mo), DigitalOcean ($6/mo), Vultr ($6/mo), OVH ($5/mo). All meet the minimum requirements.</p>
+
+<!-- Network Options -->
+<h2>Networking</h2>
+<p>Your validator must be reachable on TCP port 26656. Three deployment options:</p>
+
+<div class="option-card">
+	<h4>Option A: Cloud VPS <span class="tag">Recommended</span></h4>
+	<p>Public IP and open ports by default. Run the installer, networking is automatic. This is what 90%+ of professional validators use.</p>
+</div>
+
+<div class="option-card">
+	<h4>Option B: Home server with port forwarding</h4>
+	<p>Forward TCP port 26656 on your router to your server. Set <code>external_address</code> in config.toml to your public IP. CometBFT also supports UPnP for automatic port opening.</p>
+</div>
+
+<div class="option-card">
+	<h4>Option C: Restricted network (CGNAT, corporate)</h4>
+	<p>Install <a href="https://tailscale.com">Tailscale</a> (free, 2 minutes) to create an encrypted tunnel. Your node discovers peers via PEX as long as it can reach one seed node.</p>
+</div>
+
+<!-- One-Command Installer -->
 <h2>Quick start</h2>
+<div class="install-box">
+	<p style="font-size:1.1em;font-weight:600;margin:0">One command. Ubuntu, Debian, or macOS.</p>
+	<pre><code>curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash</code></pre>
+	<p style="font-size:0.9em;color:var(--text-secondary);margin:0">Installs Go, Node.js, CometBFT, Cosmovisor. Builds the ABCI server. Generates validator keys. Downloads genesis. Configures networking. Starts everything with auto-restart.</p>
+</div>
 
-<h3>Step 1: Clone and build</h3>
-<pre><code>git clone https://github.com/suitandclaw/ensoul.git
-cd ensoul && pnpm install && pnpm build</code></pre>
-
-<h3>Step 2: Copy genesis</h3>
-<pre><code>mkdir -p ~/.ensoul
-cp ensoul/genesis.json ~/.ensoul/genesis.json</code></pre>
-
-<h3>Step 3: Install and start validator</h3>
-<pre><code>cd ensoul
-npx tsx packages/node/src/cli/main.ts --validate \
-  --no-min-stake \
-  --genesis ~/.ensoul/genesis.json \
-  --peers https://v0.ensoul.dev,https://v1.ensoul.dev \
-  --install</code></pre>
-<p>The <code>--install</code> flag sets up a background service. You can close your terminal after this.</p>
-<p>Enable auto-updates so your validator stays current:</p>
-<pre><code>npx tsx packages/node/src/cli/main.ts --auto-update</code></pre>
-
-<h3>Step 4: Save your seed</h3>
-<p>Your validator displays a 64-character seed on first run. Copy it. Go to <a href="/wallet.html">ensoul.dev/wallet.html</a>, click <strong>Import Wallet</strong>, and paste the seed. This connects your wallet to your validator so you can manage stake and rewards from the browser.</p>
-<p>If you missed it, run:</p>
-<pre><code>npx tsx packages/node/src/cli/main.ts --export-seed</code></pre>
-
-<h3>Step 5: Register for foundation delegation</h3>
+<h3>After installation</h3>
+<p>The installer prints your validator address, public key, and node ID. Save this information.</p>
+<p>Check sync progress:</p>
+<pre><code>curl -s http://localhost:26657/status | python3 -c \
+  "import sys,json; d=json.load(sys.stdin)['result']['sync_info']; \
+   print(f'Height: {d[\"latest_block_height\"]}, Catching up: {d[\"catching_up\"]}')"</code></pre>
+<p>Wait for <code>catching_up: false</code> (typically 1 to 4 hours). Then register your validator:</p>
 <pre><code>curl -X POST https://api.ensoul.dev/v1/validators/register \
   -H "Content-Type: application/json" \
-  -d '{"did":"YOUR_DID_HERE","publicKey":"YOUR_PUBKEY","name":"your-name"}'</code></pre>
-<p>The first 10 validators per day receive a 100,000 ENSL foundation delegation. That is enough to start producing blocks immediately.</p>
+  -d '{"did":"YOUR_DID","publicKey":"YOUR_PUBKEY","name":"your-name"}'</code></pre>
 
-<h3>Step 6: Verify</h3>
-<pre><code>npx tsx packages/node/src/cli/main.ts --status</code></pre>
-<p>Also check your balance at <a href="/wallet.html">ensoul.dev/wallet.html</a>. You should see 100,000 ENSL delegated.</p>
-<p>Monitor your validator at <a href="/validator-dashboard.html">ensoul.dev/validator-dashboard.html</a>. Enter your DID to see earnings, uptime, and status in real time.</p>
+<h2>Manual installation</h2>
+<p>For experienced operators who want full control, see the <a href="https://github.com/suitandclaw/ensoul/blob/main/docs/VALIDATOR-GUIDE.md#6-manual-installation">complete manual installation guide</a> covering every step individually.</p>
 
-<h2>Managing your validator</h2>
+<h2>Back up your validator key</h2>
+<p style="color:var(--red)"><strong>Do this immediately after setup.</strong></p>
+<p>Your validator identity lives in this file:</p>
+<pre><code>~/.cometbft-ensoul/node/config/priv_validator_key.json</code></pre>
+<p>Copy it to a secure, offline location. If you lose this file, you lose your validator identity and must create a new one.</p>
+
+<!-- Monitoring -->
+<h2>Monitoring</h2>
 <table>
-	<tr><td><strong>Check status</strong></td><td><code>npx tsx packages/node/src/cli/main.ts --status</code></td></tr>
-	<tr><td><strong>Check rewards</strong></td><td>Visit <a href="/wallet.html">ensoul.dev/wallet.html</a></td></tr>
-	<tr><td><strong>Export seed</strong></td><td><code>npx tsx packages/node/src/cli/main.ts --export-seed</code></td></tr>
-	<tr><td><strong>View logs</strong></td><td><code>tail -f ~/.ensoul/validator.log</code></td></tr>
-	<tr><td><strong>Stop validator</strong></td><td><code>npx tsx packages/node/src/cli/main.ts --uninstall</code></td></tr>
+	<tr><td><strong>Check sync status</strong></td><td><code>curl -s localhost:26657/status</code></td></tr>
+	<tr><td><strong>Check peer count</strong></td><td><code>curl -s localhost:26657/net_info</code></td></tr>
+	<tr><td><strong>Check validator set</strong></td><td><code>curl -s localhost:26657/validators</code></td></tr>
+	<tr><td><strong>View ABCI logs</strong></td><td><code>tail -f ~/.ensoul/abci-server.log</code></td></tr>
+	<tr><td><strong>View CometBFT logs</strong></td><td><code>tail -f ~/.ensoul/cometbft.log</code></td></tr>
+	<tr><td><strong>Service status (Linux)</strong></td><td><code>systemctl status ensoul-cometbft</code></td></tr>
 </table>
-<p><strong>Uptime requirement:</strong> Maintain 90%+ uptime over any 7-day window. If uptime drops below 90%, the foundation delegation is withdrawn.</p>
+<p>Visit the <a href="/validator-dashboard.html">Validator Dashboard</a> to see your earnings, uptime, and status in a browser.</p>
 
-<h2>What --install does</h2>
-<p>When you pass <code>--install</code>, the validator runs as a macOS background service:</p>
-<ul>
-	<li><strong>Background execution:</strong> Close your terminal, the validator keeps running</li>
-	<li><strong>Sleep prevention:</strong> Uses <code>caffeinate</code> to keep your Mac awake</li>
-	<li><strong>Crash recovery:</strong> Auto-restarts if the process crashes</li>
-	<li><strong>Boot persistence:</strong> Starts automatically when your Mac boots</li>
-	<li><strong>Logs:</strong> <code>tail -f ~/.ensoul/validator.log</code></li>
-</ul>
-<p>Without <code>--install</code>, the validator runs in the foreground and stops when you close the terminal.</p>
+<!-- Upgrades -->
+<h2>Upgrades</h2>
+<p>Cosmovisor handles binary upgrades automatically. When an on-chain upgrade proposal passes, Cosmovisor detects the halt height, swaps in the new binary, and restarts. <strong>You do nothing.</strong></p>
+<p>Verify Cosmovisor is configured:</p>
+<pre><code>DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node ~/go/bin/cosmovisor version</code></pre>
 
-<h2>What happens when you go offline</h2>
+<!-- Uptime -->
+<h2>Uptime requirements</h2>
 <ul>
-	<li><strong>Missed blocks:</strong> You earn no rewards for blocks you miss. Other validators continue producing.</li>
-	<li><strong>Extended downtime:</strong> If your uptime falls below 90% over 7 days, the foundation delegation is withdrawn. You can re-register once you are back online.</li>
-	<li><strong>Your own stake is always yours.</strong> It remains locked during the standard cooldown period but is never slashed for downtime alone.</li>
+	<li><strong>Missed blocks:</strong> You earn no rewards for blocks you do not participate in. Other validators continue producing.</li>
+	<li><strong>Extended downtime:</strong> If your uptime falls below 90% over any 7-day window, the foundation delegation may be withdrawn. You can re-register once you are back online.</li>
+	<li><strong>No slashing for downtime.</strong> Your own stake is never slashed for being offline. Slashing only applies to double-signing (equivocation).</li>
 </ul>
 
-<h2>Using an existing wallet as your validator identity</h2>
-<p>If you already have an Ensoul wallet, you can use the same keypair for your validator:</p>
-<pre><code>npx tsx packages/node/src/cli/main.ts --import-seed YOUR_64_CHAR_HEX_SEED</code></pre>
-<p>This creates the validator identity from your wallet seed, so your validator rewards go directly to your existing account.</p>
+<!-- Full Guide -->
+<h2>Full documentation</h2>
+<p>For security best practices, troubleshooting, sentry node architecture, state sync, and detailed emission economics, see the <a href="https://github.com/suitandclaw/ensoul/blob/main/docs/VALIDATOR-GUIDE.md">complete Validator Guide</a> on GitHub.</p>
 
 </main>
 </div>
 
 <footer><div class="container"><p class="tagline">ensoul.dev - the immortality layer for AI agents</p></div></footer>
 <script src="/js/config.js"></script>
+<script>
+(function(){
+	var API="https://api.ensoul.dev";
+	function fmt(n){if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1e3)return(n/1e3).toFixed(1)+"K";return String(n);}
+	function set(id,val){var el=document.getElementById(id);if(el)el.textContent=val;}
+	fetch(API+"/v1/network/status",{mode:"cors"})
+		.then(function(r){return r.json()})
+		.then(function(d){
+			set("v-height",fmt(d.blockHeight||0));
+			set("v-validators",String(d.validatorCount||0));
+			set("v-agents",fmt(d.agentCount||0));
+		})
+		.catch(function(){});
+})();
+</script>
 </body>
 </html>
