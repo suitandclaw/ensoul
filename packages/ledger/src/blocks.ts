@@ -48,8 +48,40 @@ export function computeTransactionsRoot(txs: Transaction[]): string {
 }
 
 /**
+ * Height at which emission v2 activates.
+ * Before this height: original 25%-reduction-per-interval formula.
+ * At and after this height: smooth exponential decay with tail emission.
+ *
+ * Set to current chain height + buffer to allow validators to update.
+ */
+export const EMISSION_V2_HEIGHT = 100_000;
+
+/**
+ * Tail emission floor: 1 ENSL per block in perpetuity.
+ * At 6-second blocks this is ~5.256M ENSL per year (~0.5% inflation at 1B supply).
+ *
+ * Research basis:
+ *   Monero: permanent tail emission (0.6 XMR/block) to ensure mining incentives.
+ *   Polkadot: 10% annual inflation targeting ideal staking ratio.
+ *   Solana: started 8%, reduces 15%/year, floor at 1.5%.
+ *
+ * Ensoul uses a conservative floor that provides permanent validator revenue
+ * while keeping long-term inflation below 1%.
+ */
+const TAIL_EMISSION_PER_BLOCK = 1_000_000_000_000_000_000n; // 1 ENSL in wei (18 decimals)
+
+/**
  * Compute the block reward based on the emission schedule.
- * Declining curve: halves roughly every halvingInterval blocks.
+ *
+ * v1 (height < EMISSION_V2_HEIGHT):
+ *   Declining curve with 25% annual reduction and hard cap at totalReserved.
+ *   This preserves deterministic replay of all blocks before the transition.
+ *
+ * v2 (height >= EMISSION_V2_HEIGHT):
+ *   Smooth exponential decay: reward = year1PerBlock * (3/4)^yearIndex
+ *   with a floor of 1 ENSL per block (tail emission).
+ *   The tail emission draws from the rewards pool while it has balance,
+ *   then continues as new issuance to ensure validators always have incentive.
  */
 export function computeBlockReward(
 	height: number,
@@ -58,18 +90,42 @@ export function computeBlockReward(
 	totalReserved: bigint,
 	totalEmitted: bigint,
 ): bigint {
-	if (totalEmitted >= totalReserved) return 0n;
+	if (height < EMISSION_V2_HEIGHT) {
+		// v1: original formula for deterministic replay of historical blocks
+		if (totalEmitted >= totalReserved) return 0n;
+		const halvings = Math.floor(height / halvingIntervalBlocks);
+		let reward = year1PerBlock;
+		for (let i = 0; i < halvings; i++) {
+			reward = (reward * 75n) / 100n;
+		}
+		const remaining = totalReserved - totalEmitted;
+		return reward > remaining ? remaining : reward;
+	}
 
-	const halvings = Math.floor(height / halvingIntervalBlocks);
-	// Each year reduces reward by 25% (Year 1: 100M, Year 2: 75M, Year 3: 56.25M, ...)
+	// v2: smooth decay with tail emission floor
+	const yearIndex = Math.floor(height / halvingIntervalBlocks);
 	let reward = year1PerBlock;
-	for (let i = 0; i < halvings; i++) {
+	for (let i = 0; i < yearIndex; i++) {
 		reward = (reward * 75n) / 100n;
 	}
 
-	// Don't exceed remaining reserves
-	const remaining = totalReserved - totalEmitted;
-	return reward > remaining ? remaining : reward;
+	// Apply tail emission floor
+	if (reward < TAIL_EMISSION_PER_BLOCK) {
+		reward = TAIL_EMISSION_PER_BLOCK;
+	}
+
+	// If the rewards pool still has balance, draw from it.
+	// If depleted, the tail emission continues as new issuance
+	// (the ABCI application handles crediting without a pool debit).
+	if (totalEmitted < totalReserved) {
+		const remaining = totalReserved - totalEmitted;
+		if (reward > remaining) {
+			// Transitional: emit remaining pool + tail from new issuance
+			return remaining;
+		}
+	}
+
+	return reward;
 }
 
 /**

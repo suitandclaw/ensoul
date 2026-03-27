@@ -17,6 +17,7 @@ import {
 	validateTransaction,
 	applyTransaction,
 	computeBlockReward,
+	EMISSION_V2_HEIGHT,
 	DelegationRegistry,
 } from "@ensoul/ledger";
 import type { GenesisConfig, GenesisAllocation, Transaction, TransactionType } from "@ensoul/ledger";
@@ -25,9 +26,17 @@ import { createHash } from "node:crypto";
 // -- Constants --
 
 const REWARDS_POOL = "did:ensoul:protocol:rewards";
+const PROTOCOL_TREASURY = "did:ensoul:protocol:treasury";
 const HALVING_INTERVAL = 5_256_000; // ~1 year at 6s blocks
 const DECIMALS = 10n ** 18n;
 const ENC = new TextEncoder();
+
+/**
+ * Treasury split: percentage of each block's emission credited to the protocol treasury.
+ * The remainder goes to the block proposer. Active from EMISSION_V2_HEIGHT onward.
+ * Adjustable by governance in a future upgrade.
+ */
+const TREASURY_SPLIT_PERCENT = 20n; // 20% to treasury, 80% to proposer
 
 // -- DID to Ed25519 pubkey extraction --
 
@@ -813,7 +822,7 @@ async function handleFinalizeBlock(
 		txResults.push({ code: 0, log: "ok" });
 	}
 
-	// Compute block emission
+	// Compute block emission (v1 or v2 depending on height)
 	if (state.genesis) {
 		const reward = computeBlockReward(
 			height,
@@ -825,17 +834,37 @@ async function handleFinalizeBlock(
 
 		if (reward > 0n) {
 			const poolBalance = state.working.getBalance(REWARDS_POOL);
+			const consensusSet = state.working.getConsensusSet();
+			const proposerDid = consensusSet.length > 0
+				? consensusSet[0]!
+				: state.genesis.allocations.find((a) => a.autoStake)?.recipient ?? REWARDS_POOL;
+
+			// Determine the actual emission amount (may be limited by pool balance)
+			let emitted = 0n;
 			if (poolBalance >= reward) {
 				state.working.debit(REWARDS_POOL, reward);
-				// For now, credit the first validator in the set as proposer.
-				// In production, map proposerAddress to a DID.
-				const consensusSet = state.working.getConsensusSet();
-				const proposerDid = consensusSet.length > 0
-					? consensusSet[0]!
-					: state.genesis.allocations.find((a) => a.autoStake)?.recipient ?? REWARDS_POOL;
-				state.working.credit(proposerDid, reward);
-				state.totalEmitted += reward;
+				emitted = reward;
+			} else if (poolBalance > 0n) {
+				state.working.debit(REWARDS_POOL, poolBalance);
+				emitted = poolBalance;
+			} else {
+				// Pool depleted: tail emission as new issuance (no pool debit)
+				emitted = reward;
 			}
+
+			// Distribute the emitted reward
+			if (height >= EMISSION_V2_HEIGHT) {
+				// v2: split between proposer (80%) and protocol treasury (20%)
+				const treasuryCut = (emitted * TREASURY_SPLIT_PERCENT) / 100n;
+				const proposerCut = emitted - treasuryCut;
+				state.working.credit(proposerDid, proposerCut);
+				state.working.credit(PROTOCOL_TREASURY, treasuryCut);
+			} else {
+				// v1: 100% to proposer (preserve deterministic replay)
+				state.working.credit(proposerDid, emitted);
+			}
+
+			state.totalEmitted += emitted;
 		}
 	}
 
