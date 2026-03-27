@@ -8,7 +8,7 @@
  */
 
 import type protobuf from "protobufjs";
-import { writeFile, readFile, mkdir } from "node:fs/promises";
+import { writeFile, readFile, mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { blake3 } from "@noble/hashes/blake3";
 import { bytesToHex } from "@noble/hashes/utils";
@@ -119,6 +119,12 @@ interface CompletedUpgrade {
 
 // Pioneer key DID (governance authority for upgrade proposals)
 const PIONEER_KEY = "did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X";
+
+// Nonce fix activation height. Before this height, FinalizeBlock applies a
+// double nonce increment (applyTransaction increments once, then FinalizeBlock
+// again). At and after this height, only applyTransaction increments.
+// Set to 0 to disable (pre-upgrade behavior). Updated when the upgrade deploys.
+const NONCE_FIX_HEIGHT = 57000;
 
 // Snapshot configuration
 const SNAPSHOT_INTERVAL = 1000;  // Create snapshot every N blocks
@@ -254,6 +260,17 @@ async function handleInfo(state: EnsoulState): Promise<Record<string, unknown>> 
 	// Load persisted state on first Info call (CometBFT calls this at startup)
 	if (state.height === 0) {
 		await loadPersistedState(state);
+	}
+
+	// Clean up stale upgrade-info.json if no upgrade plan exists on-chain.
+	// This prevents Cosmovisor from halting for an upgrade that was cancelled.
+	if (!state.upgradePlan) {
+		const daemonHome = process.env["DAEMON_HOME"] ?? join(state.dataDir, "..", "node");
+		const upgradeInfoPath = join(daemonHome, "data", "upgrade-info.json");
+		try {
+			await unlink(upgradeInfoPath);
+			log("Removed stale upgrade-info.json (no active upgrade plan)");
+		} catch { /* file doesn't exist, which is correct */ }
 	}
 
 	log(`Info: height=${state.height}`);
@@ -578,18 +595,18 @@ function handleFinalizeBlock(
 			continue;
 		}
 
-		// Apply the transaction to working state
-		// NOTE: applyTransaction already calls incrementNonce for non-protocol txs,
-		// and this line adds a second increment. This double-increment has been the
-		// behavior since genesis, so all existing nonces reflect it. Fixing this
-		// requires a coordinated upgrade across all validators to avoid app_hash
-		// divergence. Until then, callers must increment nonce by 2 per transaction.
+		// Apply the transaction to working state.
+		// applyTransaction calls incrementNonce once for non-protocol txs.
 		applyTransaction(
 			tx,
 			state.working,
 			state.genesis?.protocolFees.storageFeeProtocolShare ?? 10,
 		);
-		state.working.incrementNonce(tx.from);
+		// Before the nonce fix upgrade, a second increment was applied here.
+		// This preserves backward compatibility for blocks before the fix.
+		if (height < NONCE_FIX_HEIGHT) {
+			state.working.incrementNonce(tx.from);
+		}
 		validTxCount++;
 		txResults.push({ code: 0, log: "ok" });
 	}
@@ -1041,6 +1058,14 @@ function executeCancelUpgradeTx(tx: Transaction, state: EnsoulState): boolean {
 
 	log(`UPGRADE CANCELLED: "${state.upgradePlan.name}"`);
 	state.upgradePlan = null;
+
+	// Remove upgrade-info.json to prevent Cosmovisor from halting on restart.
+	// Without this, a cancelled upgrade still causes Cosmovisor to look for the
+	// upgrade binary and refuse to start if the binary directory doesn't exist.
+	const daemonHome = process.env["DAEMON_HOME"] ?? join(state.dataDir, "..", "node");
+	const upgradeInfoPath = join(daemonHome, "data", "upgrade-info.json");
+	void unlink(upgradeInfoPath).catch(() => { /* file may not exist yet */ });
+
 	return true;
 }
 

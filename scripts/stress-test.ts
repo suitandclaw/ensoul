@@ -343,16 +343,19 @@ async function test1_throughput(): Promise<TestResult> {
 	// Generate 100 random recipient DIDs
 	const recipientDid = `did:key:zStressRecipient${randomHex(20)}`;
 
-	// Note: nonce increments by 2 per tx due to double-increment in FinalizeBlock
-	// (applyTransaction increments once, then FinalizeBlock increments again).
-	// This is a known behavior since genesis that requires coordinated fix.
+	// Nonce increment per tx: 2 before height 57000 (double-increment bug),
+	// 1 at and after height 57000 (nonce fix upgrade deployed).
+	const currentHeight = await getHeight();
+	const nonceStep = currentHeight >= 57000 ? 1 : 2;
+	log(`  Nonce step: ${nonceStep} (height ${currentHeight}, fix active at 57000)`);
+
 	for (let i = 0; i < 100; i++) {
 		const { json } = await buildSignedTx(
 			TREASURY_SEED,
 			"transfer",
 			recipientDid,
 			1n * DECIMALS, // 1 ENSL each
-			treasuryNonce + (i * 2),
+			treasuryNonce + (i * nonceStep),
 		);
 		const result = await submitTx(json);
 		transferResults.push(result);
@@ -1230,9 +1233,9 @@ async function test8_doubleSpend(): Promise<TestResult> {
 		errors.push(`Account appears double-debited: lost ${debitedAmount / DECIMALS} ENSL instead of ${transferAmount / DECIMALS}`);
 	}
 
-	if (postNonce !== treasuryNonce + 2) {
-		// Nonce increments by 2 per tx (double-increment behavior since genesis)
-		log(`  Nonce incremented: ${treasuryNonce} -> ${postNonce} (expected +2)`);
+	const expectedNonceStep = (await getHeight()) >= 57000 ? 1 : 2;
+	if (postNonce !== treasuryNonce + expectedNonceStep) {
+		log(`  Nonce incremented: ${treasuryNonce} -> ${postNonce} (expected +${expectedNonceStep})`);
 	}
 
 	// Verify recipient received exactly the transfer amount
