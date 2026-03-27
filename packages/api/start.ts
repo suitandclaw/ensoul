@@ -25,13 +25,8 @@ const DEFAULT_ONBOARDING_KEY_PATH = join(REPO_DIR, "genesis-keys", "onboarding.j
 const LOG_DIR = join(homedir(), ".ensoul");
 const LOG_FILE = join(LOG_DIR, "api.log");
 
-// Validator endpoints to proxy to
-const VALIDATORS = [
-	"https://v0.ensoul.dev",
-	"https://v1.ensoul.dev",
-	"https://v2.ensoul.dev",
-	"https://v3.ensoul.dev",
-];
+// CometBFT RPC endpoint (local, always co-located with API)
+const CMT_RPC = "http://localhost:26657";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -59,12 +54,6 @@ interface ValidatorRegisterRequest {
 	publicKey: string;
 	name: string;
 	ip?: string;
-}
-
-interface PeerStatus {
-	height: number;
-	peerCount: number;
-	did: string;
 }
 
 // ── State ────────────────────────────────────────────────────────────
@@ -205,28 +194,14 @@ async function signAndSubmitDelegation(validatorDid: string, amount: bigint = FO
 			signature: bytesToHexLocal(signature),
 		};
 
-		for (const url of VALIDATORS) {
-			try {
-				const resp = await fetch(`${url}/peer/tx`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(serializedTx),
-					signal: AbortSignal.timeout(5000),
-				});
-				if (resp.ok) {
-					const result = (await resp.json()) as { accepted: boolean };
-					if (result.accepted) {
-						treasuryNonce++;
-						await log(`Foundation delegation submitted: 100,000 ENSL to ${validatorDid}`);
-						return true;
-					}
-				}
-			} catch {
-				continue;
-			}
+		const result = await broadcastTx(serializedTx);
+		if (result.applied) {
+			treasuryNonce++;
+			await log(`Foundation delegation submitted: 100,000 ENSL to ${validatorDid} (height ${result.height})`);
+			return true;
 		}
 
-		await log(`Foundation delegation failed: no validator accepted the transaction for ${validatorDid}`);
+		await log(`Foundation delegation failed for ${validatorDid}: ${result.error ?? "unknown"}`);
 		return false;
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -276,8 +251,7 @@ const STAKED_ACCOUNTS_TTL = 60_000;
 
 /**
  * Refresh account data for all genesis validators.
- * Uses the canonical DID list from genesis.json and queries the local
- * validator (localhost:9000) which has the full account state.
+ * Queries ABCI directly via CometBFT RPC for each DID's balance.
  */
 async function refreshStakedAccounts(): Promise<void> {
 	if (Date.now() - stakedAccountsFetchedAt < STAKED_ACCOUNTS_TTL) return;
@@ -286,55 +260,30 @@ async function refreshStakedAccounts(): Promise<void> {
 	const allDids = new Set(genesisDids);
 	for (const [did] of registeredValidators) allDids.add(did);
 
-	// Query the local validator first (has full state), fall back to tunnels
-	const endpoints = ["http://localhost:9000", ...VALIDATORS];
 	const accounts: StakedAccount[] = [];
 
-	// Find a working endpoint
-	let workingUrl = "";
-	for (const url of endpoints) {
-		try {
-			const resp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(3000) });
-			if (resp.ok) { workingUrl = url; break; }
-		} catch { continue; }
-	}
-
-	if (!workingUrl) {
-		await log("Warning: no validator reachable for account queries");
-		stakedAccountsFetchedAt = Date.now();
-		return;
-	}
-
-	// Batch-query all DIDs from the working validator
 	for (const did of allDids) {
 		try {
-			const resp = await fetch(
-				`${workingUrl}/peer/account/${encodeURIComponent(did)}`,
-				{ signal: AbortSignal.timeout(3000) },
-			);
-			if (!resp.ok) continue;
-			const d = (await resp.json()) as {
-				balance: string; staked: string; delegatedBalance?: string;
-				pendingRewards?: string; nonce: number;
-			};
-			const staked = BigInt(d.staked);
-			const balance = BigInt(d.balance);
+			const d = await abciQuery(`/balance/${did}`);
+			if (!d) continue;
+			const staked = BigInt(String(d["stakedBalance"] ?? "0"));
+			const balance = BigInt(String(d["balance"] ?? "0"));
 			if (staked > 0n || balance > 0n) {
 				accounts.push({
 					did,
 					balance,
 					staked,
-					delegated: BigInt(d.delegatedBalance ?? "0"),
-					pending: BigInt(d.pendingRewards ?? "0"),
-					nonce: d.nonce,
+					delegated: BigInt(String(d["delegatedBalance"] ?? "0")),
+					pending: BigInt(String(d["pendingRewards"] ?? "0")),
+					nonce: Number(d["nonce"] ?? 0),
 				});
 			}
-		} catch { /* skip unreachable */ }
+		} catch { /* skip failed queries */ }
 	}
 
 	allStakedAccounts = accounts;
 	stakedAccountsFetchedAt = Date.now();
-	await log(`Refreshed ${accounts.length} staked accounts from ${workingUrl}`);
+	await log(`Refreshed ${accounts.length} staked accounts via ABCI`);
 }
 
 // ── Block proposer counting ─────────────────────────────────────────
@@ -344,49 +293,56 @@ const blockProposerCounts24h = new Map<string, number>();
 let proposerCountsFetchedAt = 0;
 const PROPOSER_COUNTS_TTL = 60_000;
 
-/** Scan recent blocks from the primary validator to count proposers. */
+/** Scan recent blocks via CometBFT RPC to count proposers. */
 async function refreshProposerCounts(): Promise<void> {
 	if (Date.now() - proposerCountsFetchedAt < PROPOSER_COUNTS_TTL) return;
 
-	// Try localhost first (co-located validator), then tunnel endpoints
-	const endpoints = ["http://localhost:9000", ...VALIDATORS];
-	for (const url of endpoints) {
-		try {
-			const statusResp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(5000) });
-			if (!statusResp.ok) continue;
-			const status = (await statusResp.json()) as PeerStatus;
-			const tipHeight = status.height;
+	try {
+		// Get tip height from CometBFT status
+		const status = await cometRpc("status");
+		if (!status) return;
+		const tipHeight = Number((status["sync_info"] as Record<string, unknown>)?.["latest_block_height"] ?? 0);
+		if (tipHeight === 0) return;
 
-			// Scan last 1000 blocks (or all if chain is shorter)
-			const fromHeight = Math.max(1, tipHeight - 999);
-			const syncResp = await fetch(`${url}/peer/sync/${fromHeight}`, { signal: AbortSignal.timeout(15000) });
-			if (!syncResp.ok) continue;
+		// Fetch blocks in batches of 20 (CometBFT blockchain endpoint limit)
+		const fromHeight = Math.max(1, tipHeight - 999);
+		const counts = new Map<string, number>();
+		const counts24h = new Map<string, number>();
+		const cutoff24h = Date.now() - 86400000;
 
-			const data = (await syncResp.json()) as { blocks?: Array<{ proposer: string; height: number; timestamp: number }>; } | Array<{ proposer: string; height: number; timestamp: number }>;
-			const blocks = Array.isArray(data) ? data : (data.blocks ?? []);
+		for (let min = fromHeight; min <= tipHeight; min += 20) {
+			const max = Math.min(min + 19, tipHeight);
+			const chainResp = await cometRpc("blockchain", { minHeight: String(min), maxHeight: String(max) });
+			if (!chainResp) continue;
 
-			const counts = new Map<string, number>();
-			const counts24h = new Map<string, number>();
-			const cutoff24h = Date.now() - 86400000;
+			const metas = chainResp["block_metas"] as Array<Record<string, unknown>> | undefined;
+			if (!metas) continue;
 
-			for (const block of blocks) {
-				if (!block.proposer) continue;
-				counts.set(block.proposer, (counts.get(block.proposer) ?? 0) + 1);
-				if (block.timestamp && block.timestamp > cutoff24h) {
-					counts24h.set(block.proposer, (counts24h.get(block.proposer) ?? 0) + 1);
+			for (const meta of metas) {
+				const header = meta["header"] as Record<string, unknown> | undefined;
+				if (!header) continue;
+				const proposer = String(header["proposer_address"] ?? "");
+				if (!proposer) continue;
+				const height = Number(header["height"] ?? 0);
+				const blockTime = new Date(String(header["time"] ?? "")).getTime();
+
+				counts.set(proposer, (counts.get(proposer) ?? 0) + 1);
+				if (blockTime > cutoff24h) {
+					counts24h.set(proposer, (counts24h.get(proposer) ?? 0) + 1);
 				}
+
+				void height; // used for iteration context
 			}
+		}
 
-			blockProposerCounts.clear();
-			for (const [k, v] of counts) blockProposerCounts.set(k, v);
-			blockProposerCounts24h.clear();
-			for (const [k, v] of counts24h) blockProposerCounts24h.set(k, v);
-			proposerCountsFetchedAt = Date.now();
+		blockProposerCounts.clear();
+		for (const [k, v] of counts) blockProposerCounts.set(k, v);
+		blockProposerCounts24h.clear();
+		for (const [k, v] of counts24h) blockProposerCounts24h.set(k, v);
+		proposerCountsFetchedAt = Date.now();
 
-			await log(`Scanned ${blocks.length} blocks, ${counts.size} unique proposers`);
-			return;
-		} catch { continue; }
-	}
+		await log(`Scanned blocks ${fromHeight} to ${tipHeight}, ${counts.size} unique proposers`);
+	} catch { /* failed to refresh, will retry next TTL */ }
 }
 
 // Consciousness store (indexed by DID, persisted to disk)
@@ -448,26 +404,19 @@ function incrementIpCount(ip: string): void {
 	ipRegistrations.set(ip, (ipRegistrations.get(ip) ?? 0) + 1);
 }
 
-/** Check onboarding account balance via validator API. */
+/** Check onboarding account balance via ABCI. */
 async function checkOnboardingBalance(): Promise<boolean> {
 	if (!onboardingDid) return false;
-	for (const url of VALIDATORS) {
-		try {
-			const resp = await fetch(
-				`${url}/peer/account/${encodeURIComponent(onboardingDid)}`,
-				{ signal: AbortSignal.timeout(5000) },
-			);
-			if (!resp.ok) continue;
-			const data = (await resp.json()) as { balance: string };
-			const balance = BigInt(data.balance);
-			if (balance < MIN_ONBOARDING_BALANCE) {
-				await log(`WARNING: onboarding balance ${balance / (10n ** 18n)} ENSL below 10M floor. Bonuses paused.`);
-				return false;
-			}
-			return true;
-		} catch { continue; }
-	}
-	return true; // If no validator responds, allow (best effort)
+	try {
+		const data = await abciQuery(`/balance/${onboardingDid}`);
+		if (!data) return true; // If ABCI unreachable, allow (best effort)
+		const balance = BigInt(String(data["balance"] ?? "0"));
+		if (balance < MIN_ONBOARDING_BALANCE) {
+			await log(`WARNING: onboarding balance ${balance / (10n ** 18n)} ENSL below 10M floor. Bonuses paused.`);
+			return false;
+		}
+		return true;
+	} catch { return true; }
 }
 
 async function loadOnboardingKey(): Promise<void> {
@@ -552,29 +501,15 @@ async function signAndSubmitWelcomeBonus(agentDid: string): Promise<boolean> {
 			signature: bytesToHexLocal(signature),
 		};
 
-		// Submit to the first available validator
-		for (const url of VALIDATORS) {
-			try {
-				const resp = await fetch(`${url}/peer/tx`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(serializedTx),
-					signal: AbortSignal.timeout(5000),
-				});
-				if (resp.ok) {
-					const result = (await resp.json()) as { accepted: boolean };
-					if (result.accepted) {
-						onboardingNonce++;
-						await log(`Welcome bonus submitted: 1000 ENSL to ${agentDid} (nonce ${onboardingNonce - 1})`);
-						return true;
-					}
-				}
-			} catch {
-				continue;
-			}
+		// Submit via CometBFT broadcast
+		const result = await broadcastTx(serializedTx);
+		if (result.applied) {
+			onboardingNonce++;
+			await log(`Welcome bonus submitted: 100 ENSL to ${agentDid} (nonce ${onboardingNonce - 1}, height ${result.height})`);
+			return true;
 		}
 
-		await log(`Welcome bonus failed: no validator accepted the transaction for ${agentDid}`);
+		await log(`Welcome bonus failed for ${agentDid}: ${result.error ?? "unknown"}`);
 		return false;
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -605,29 +540,81 @@ function fmtEnsl(wei: bigint): string {
 }
 
 async function queryValidatorStatus(): Promise<{ height: number; validatorCount: number; alive: number }> {
-	let maxHeight = 0;
-	let alive = 0;
-	const dids = new Set<string>();
+	// Get chain height from CometBFT status
+	const status = await cometRpc("status");
+	const height = Number((status?.["sync_info"] as Record<string, unknown>)?.["latest_block_height"] ?? 0);
 
-	// Include localhost compat proxy (always co-located) plus tunnel URLs
-	const allUrls = ["http://localhost:9000", ...VALIDATORS];
-	const results = await Promise.allSettled(
-		allUrls.map(async (url) => {
-			const resp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(5000) });
-			if (!resp.ok) return null;
-			return (await resp.json()) as PeerStatus;
-		}),
-	);
+	// Get validator count from ABCI stats (authoritative)
+	const stats = await abciQuery("/stats");
+	const validatorCount = Number(stats?.["consensusSetSize"] ?? 0);
 
-	for (const r of results) {
-		if (r.status === "fulfilled" && r.value) {
-			alive++;
-			if (r.value.height > maxHeight) maxHeight = r.value.height;
-			dids.add(r.value.did);
-		}
+	// Get peer count from net_info (alive = self + peers)
+	const netInfo = await cometRpc("net_info");
+	const peerCount = Number(netInfo?.["n_peers"] ?? 0);
+	const alive = peerCount + 1; // include self
+
+	return { height, validatorCount, alive };
+}
+
+/** Query the ABCI application state via CometBFT RPC (single source of truth). */
+async function abciQuery(path: string): Promise<Record<string, unknown> | null> {
+	try {
+		const resp = await fetch(CMT_RPC, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "q", method: "abci_query", params: { path } }),
+			signal: AbortSignal.timeout(5000),
+		});
+		const result = (await resp.json()) as { result?: { response?: { value?: string } } };
+		const val = result.result?.response?.value;
+		if (!val) return null;
+		return JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as Record<string, unknown>;
+	} catch { return null; }
+}
+
+/** Call a CometBFT RPC method directly (status, block, net_info, validators, etc.). */
+async function cometRpc(method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown> | null> {
+	try {
+		const resp = await fetch(CMT_RPC, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: method, method, params }),
+			signal: AbortSignal.timeout(5000),
+		});
+		const result = (await resp.json()) as { result?: Record<string, unknown> };
+		return result.result ?? null;
+	} catch { return null; }
+}
+
+/** Broadcast a signed transaction via CometBFT and wait for block inclusion. */
+async function broadcastTx(tx: Record<string, unknown>): Promise<{ applied: boolean; height: number; hash: string; error?: string }> {
+	const txBase64 = Buffer.from(JSON.stringify(tx)).toString("base64");
+	try {
+		const resp = await fetch(CMT_RPC, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "tx", method: "broadcast_tx_commit", params: { tx: txBase64 } }),
+			signal: AbortSignal.timeout(30000),
+		});
+		const result = (await resp.json()) as {
+			result?: {
+				check_tx?: { code?: number; log?: string };
+				tx_result?: { code?: number; log?: string };
+				height?: string;
+				hash?: string;
+			};
+		};
+		const cc = result.result?.check_tx?.code ?? 0;
+		const dc = result.result?.tx_result?.code ?? 0;
+		return {
+			applied: cc === 0 && dc === 0,
+			height: Number(result.result?.height ?? 0),
+			hash: result.result?.hash ?? "",
+			error: cc !== 0 ? result.result?.check_tx?.log : (dc !== 0 ? result.result?.tx_result?.log : undefined),
+		};
+	} catch (err) {
+		return { applied: false, height: 0, hash: "", error: err instanceof Error ? err.message : "broadcast failed" };
 	}
-
-	return { height: maxHeight, validatorCount: dids.size, alive };
 }
 
 // ── Daily bonus cap ──────────────────────────────────────────────────
@@ -718,63 +705,42 @@ async function main(): Promise<void> {
 
 	app.get<{ Params: { did: string } }>("/v1/account/:did", async (req) => {
 		const did = decodeURIComponent(req.params.did);
-		const encoded = encodeURIComponent(did);
 
-		// Try each validator until one responds
-		for (const url of VALIDATORS) {
-			try {
-				const resp = await fetch(`${url}/peer/account/${encoded}`, {
-					signal: AbortSignal.timeout(5000),
-				});
-				if (!resp.ok) continue;
-				const data = (await resp.json()) as {
-					did: string;
-					balance: string;
-					staked: string;
-					unstaking?: string;
-					unstakingCompleteAt?: number;
-					stakeLockedUntil?: number;
-					delegatedBalance?: string;
-					pendingRewards?: string;
-					nonce: number;
-					storageCredits?: string;
-				};
+		// Query ABCI directly for account balance
+		const data = await abciQuery(`/balance/${did}`);
+		if (data) {
+			const available = BigInt(String(data["balance"] ?? "0"));
+			const staked = BigInt(String(data["stakedBalance"] ?? "0"));
+			const delegated = BigInt(String(data["delegatedBalance"] ?? "0"));
+			const unstaking = BigInt(String(data["unstaking"] ?? "0"));
+			const pending = BigInt(String(data["pendingRewards"] ?? "0"));
+			const credits = BigInt(String(data["storageCredits"] ?? "0"));
+			const total = available + staked + delegated + unstaking + pending;
 
-				const available = BigInt(data.balance);
-				const staked = BigInt(data.staked);
-				const delegated = BigInt(data.delegatedBalance ?? "0");
-				const unstaking = BigInt(data.unstaking ?? "0");
-				const pending = BigInt(data.pendingRewards ?? "0");
-				const credits = BigInt(data.storageCredits ?? "0");
-				const total = available + staked + delegated + unstaking + pending;
-
-				return {
-					did: data.did,
-					available: fmtEnsl(available),
-					staked: fmtEnsl(staked),
-					delegated: fmtEnsl(delegated),
-					unstaking: fmtEnsl(unstaking),
-					unstakingCompleteAt: data.unstakingCompleteAt ?? 0,
-					pendingRewards: fmtEnsl(pending),
+			return {
+				did: String(data["did"] ?? did),
+				available: fmtEnsl(available),
+				staked: fmtEnsl(staked),
+				delegated: fmtEnsl(delegated),
+				unstaking: fmtEnsl(unstaking),
+				unstakingCompleteAt: Number(data["unstakingCompleteAt"] ?? 0),
+				pendingRewards: fmtEnsl(pending),
+				storageCredits: credits.toString(),
+				total: fmtEnsl(total),
+				raw: {
+					available: available.toString(),
+					staked: staked.toString(),
+					delegated: delegated.toString(),
+					unstaking: unstaking.toString(),
+					pendingRewards: pending.toString(),
 					storageCredits: credits.toString(),
-					total: fmtEnsl(total),
-					raw: {
-						available: available.toString(),
-						staked: staked.toString(),
-						delegated: delegated.toString(),
-						unstaking: unstaking.toString(),
-						pendingRewards: pending.toString(),
-						storageCredits: credits.toString(),
-						total: total.toString(),
-					},
-					nonce: data.nonce,
-				};
-			} catch {
-				continue;
-			}
+					total: total.toString(),
+				},
+				nonce: Number(data["nonce"] ?? 0),
+			};
 		}
 
-		// No validator responded or DID never seen: return zeroes
+		// ABCI unreachable or DID never seen: return zeroes
 		return {
 			did,
 			available: "0.00 ENSL",
@@ -797,40 +763,14 @@ async function main(): Promise<void> {
 
 	app.get("/v1/network/status", async () => {
 		const net = await queryValidatorStatus();
-
-		// Get authoritative counts from ABCI chain state
-		let agentCount = registeredAgents.size;
-		let consciousnessCount = consciousnessStore.size;
-		let consensusSetSize = net.validatorCount;
-		try {
-			const statsResp = await fetch("http://localhost:26657", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ jsonrpc: "2.0", id: "stats", method: "abci_query", params: { path: "/stats" } }),
-				signal: AbortSignal.timeout(5000),
-			});
-			if (statsResp.ok) {
-				const result = (await statsResp.json()) as { result?: { response?: { value?: string } } };
-				const val = result.result?.response?.value;
-				if (val) {
-					const statsData = JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as {
-						agentCount?: number;
-						consciousnessCount?: number;
-						consensusSetSize?: number;
-					};
-					agentCount = statsData.agentCount ?? agentCount;
-					consciousnessCount = statsData.consciousnessCount ?? consciousnessCount;
-					consensusSetSize = statsData.consensusSetSize ?? consensusSetSize;
-				}
-			}
-		} catch { /* fall back to disk counts */ }
+		const stats = await abciQuery("/stats");
 
 		return {
 			blockHeight: net.height,
-			validatorCount: consensusSetSize,
-			agentCount,
-			totalConsciousnessStored: consciousnessCount,
-			validators: net.alive,
+			validatorCount: net.validatorCount,
+			agentCount: Number(stats?.["agentCount"] ?? registeredAgents.size),
+			totalConsciousnessStored: Number(stats?.["consciousnessCount"] ?? consciousnessStore.size),
+			peers: net.alive,
 		};
 	});
 
@@ -838,6 +778,80 @@ async function main(): Promise<void> {
 
 	app.get("/v1/network/version", async () => {
 		return { version: "1.0.0", minimumVersion: "1.0.0" };
+	});
+
+	// ── Stats (from ABCI, single source of truth) ────────────────
+
+	app.get("/v1/stats", async () => {
+		const stats = await abciQuery("/stats");
+		if (stats) return stats;
+		// Fallback
+		const net = await queryValidatorStatus();
+		return { height: net.height, agentCount: registeredAgents.size, consciousnessCount: consciousnessStore.size };
+	});
+
+	// ── Genesis file for new validators ──────────────────────────
+
+	app.get("/genesis", async (_req, reply) => {
+		try {
+			const genesisPath = join(homedir(), ".cometbft-ensoul", "node", "config", "genesis.json");
+			const raw = await readFile(genesisPath, "utf-8");
+			return reply.type("application/json").send(raw);
+		} catch {
+			return reply.status(404).send({ error: "Genesis file not found" });
+		}
+	});
+
+	// ── Transaction broadcast (forward to CometBFT) ─────────────
+
+	app.post<{ Body: Record<string, unknown> }>("/v1/tx/broadcast", async (req, reply) => {
+		const tx = req.body;
+		const txJson = JSON.stringify(tx);
+		const txBase64 = Buffer.from(txJson).toString("base64");
+
+		try {
+			const resp = await fetch(CMT_RPC, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					jsonrpc: "2.0", id: "tx",
+					method: "broadcast_tx_commit",
+					params: { tx: txBase64 },
+				}),
+				signal: AbortSignal.timeout(30000),
+			});
+			const result = (await resp.json()) as {
+				result?: {
+					check_tx?: { code?: number; log?: string };
+					tx_result?: { code?: number; log?: string };
+					height?: string;
+					hash?: string;
+				};
+			};
+
+			const cc = result.result?.check_tx?.code ?? 0;
+			const dc = result.result?.tx_result?.code ?? 0;
+			return {
+				applied: cc === 0 && dc === 0,
+				height: Number(result.result?.height ?? 0),
+				hash: result.result?.hash ?? "",
+				error: cc !== 0 ? result.result?.check_tx?.log : (dc !== 0 ? result.result?.tx_result?.log : undefined),
+			};
+		} catch (err) {
+			return reply.status(502).send({
+				applied: false,
+				error: err instanceof Error ? err.message : "broadcast failed",
+			});
+		}
+	});
+
+	// ── Validators (from ABCI) ───────────────────────────────────
+
+	app.get("/v1/validators", async () => {
+		const data = await abciQuery("/validators");
+		if (data) return data;
+		// Fallback
+		return { validators: [], error: "ABCI unreachable" };
 	});
 
 	// ── Consciousness Store ──────────────────────────────────────
@@ -883,11 +897,12 @@ async function main(): Promise<void> {
 			}
 		}
 
+		const netStatus = await queryValidatorStatus();
 		const result: Record<string, unknown> = {
 			stored: true,
 			version: body.version,
 			stateRoot: body.stateRoot,
-			validators: VALIDATORS.length,
+			validators: netStatus.validatorCount,
 		};
 		if (bonusSent) {
 			result["welcomeBonus"] = "100 ENSL";
@@ -1000,6 +1015,18 @@ async function main(): Promise<void> {
 		};
 	});
 
+	// ── Single Agent Lookup (from ABCI) ─────────────────────────
+
+	app.get<{ Params: { did: string } }>("/v1/agents/:did", async (req) => {
+		const did = decodeURIComponent(req.params.did);
+		const data = await abciQuery(`/agent/${did}`);
+		if (data) return data;
+		// Check disk cache as fallback
+		const cached = registeredAgents.get(did);
+		if (cached) return { did: cached.did, registered: true, source: "disk-cache" };
+		return { did, registered: false };
+	});
+
 	// ── Agent Registration ───────────────────────────────────────
 
 	app.post<{ Body: AgentRegisterRequest }>("/v1/agents/register", { bodyLimit: 10240 }, async (req, reply) => {
@@ -1069,23 +1096,37 @@ async function main(): Promise<void> {
 			return reply.status(403).send({ error: "Forbidden" });
 		}
 
-		const agents = [...registeredAgents.values()].map((a) => {
-			const consciousness = consciousnessStore.get(a.did);
-			return {
+		// Query ABCI for the authoritative agent list (on-chain source of truth)
+		const page = Number((req.query as Record<string, string>)["page"] ?? "1");
+		const limit = Number((req.query as Record<string, string>)["limit"] ?? "500");
+		const abciAgents = await abciQuery(`/agents?page=${page}&limit=${limit}`);
+		if (abciAgents && Array.isArray(abciAgents["agents"])) {
+			const agentList = abciAgents["agents"] as Array<{
+				did: string; publicKey: string; registeredAt: number; metadata?: string;
+			}>;
+			const agents = agentList.map((a) => ({
 				did: a.did,
-				didShort: a.did.length > 24
-					? `${a.did.slice(0, 16)}...${a.did.slice(-6)}`
-					: a.did,
-				registeredAt: new Date(a.registeredAt).toISOString(),
-				bonusSent: consciousness !== undefined,
-				lastStore: consciousness?.storedAt
-					? new Date(consciousness.storedAt).toISOString()
-					: null,
-				version: consciousness?.version ?? 0,
+				didShort: a.did.length > 24 ? `${a.did.slice(0, 16)}...${a.did.slice(-6)}` : a.did,
+				registeredAt: a.registeredAt,
+				publicKey: a.publicKey,
+				metadata: a.metadata ?? null,
+			}));
+			const totalFromAbci = Number(abciAgents["total"] ?? agents.length);
+			return {
+				total: totalFromAbci,
+				page: Number(abciAgents["page"] ?? 1),
+				pages: Number(abciAgents["pages"] ?? 1),
+				agents,
 			};
-		});
+		}
 
-		return { total: agents.length, agents };
+		// Fallback to disk cache if ABCI is unreachable
+		const agents = [...registeredAgents.values()].map((a) => ({
+			did: a.did,
+			didShort: a.did.length > 24 ? `${a.did.slice(0, 16)}...${a.did.slice(-6)}` : a.did,
+			registeredAt: new Date(a.registeredAt).toISOString(),
+		}));
+		return { total: agents.length, agents, source: "disk-cache" };
 	});
 
 	// ── Validator Registration ───────────────────────────────────
@@ -1132,19 +1173,11 @@ async function main(): Promise<void> {
 			};
 		}
 
-		// Check if DID already has enough stake
+		// Check if DID already has enough stake via ABCI
 		let currentStake = 0n;
-		for (const url of VALIDATORS) {
-			try {
-				const resp = await fetch(
-					`${url}/peer/account/${encodeURIComponent(body.did)}`,
-					{ signal: AbortSignal.timeout(5000) },
-				);
-				if (!resp.ok) continue;
-				const data = (await resp.json()) as { staked: string; balance: string };
-				currentStake = BigInt(data.staked) + BigInt(data.balance);
-				break;
-			} catch { continue; }
+		const acctData = await abciQuery(`/balance/${body.did}`);
+		if (acctData) {
+			currentStake = BigInt(String(acctData["stakedBalance"] ?? "0")) + BigInt(String(acctData["balance"] ?? "0"));
 		}
 
 		const minimumStake = 100_000n * (10n ** 18n);
@@ -1255,31 +1288,21 @@ async function main(): Promise<void> {
 
 	// ── Validator Stats ──────────────────────────────────────────
 
-	/** Fetch account data for a DID from validators. */
+	/** Fetch account data for a DID via ABCI. */
 	async function fetchAccountData(did: string): Promise<{
 		balance: bigint; staked: bigint; delegated: bigint;
 		unstaking: bigint; pending: bigint; nonce: number;
 	} | null> {
-		const encoded = encodeURIComponent(did);
-		for (const url of VALIDATORS) {
-			try {
-				const resp = await fetch(`${url}/peer/account/${encoded}`, { signal: AbortSignal.timeout(5000) });
-				if (!resp.ok) continue;
-				const d = (await resp.json()) as {
-					balance: string; staked: string; delegatedBalance?: string;
-					unstaking?: string; pendingRewards?: string; nonce: number;
-				};
-				return {
-					balance: BigInt(d.balance),
-					staked: BigInt(d.staked),
-					delegated: BigInt(d.delegatedBalance ?? "0"),
-					unstaking: BigInt(d.unstaking ?? "0"),
-					pending: BigInt(d.pendingRewards ?? "0"),
-					nonce: d.nonce,
-				};
-			} catch { continue; }
-		}
-		return null;
+		const d = await abciQuery(`/balance/${did}`);
+		if (!d) return null;
+		return {
+			balance: BigInt(String(d["balance"] ?? "0")),
+			staked: BigInt(String(d["stakedBalance"] ?? "0")),
+			delegated: BigInt(String(d["delegatedBalance"] ?? "0")),
+			unstaking: BigInt(String(d["unstaking"] ?? "0")),
+			pending: BigInt(String(d["pendingRewards"] ?? "0")),
+			nonce: Number(d["nonce"] ?? 0),
+		};
 	}
 
 	// In-memory validator stats cache (refreshed on request, max once per 30s)
@@ -1486,7 +1509,7 @@ async function main(): Promise<void> {
 	process.stdout.write(`    POST /v1/validators/register-pioneer\n`);
 	process.stdout.write(`    GET  /v1/validators/:did/stats\n`);
 	process.stdout.write(`    GET  /v1/validators/leaderboard\n`);
-	process.stdout.write(`\n  Backend validators: ${VALIDATORS.length} (${net.alive} alive)\n`);
+	process.stdout.write(`\n  Validators: ${net.validatorCount} (${net.alive} peers connected)\n`);
 	process.stdout.write(`  Block height: ${net.height}\n\n`);
 
 	const shutdown = async (): Promise<void> => {
