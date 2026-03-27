@@ -36,17 +36,35 @@ alert() {
     local priority="${3:-default}"
     log "ALERT: $title: $body"
 
+    # ntfy.sh (primary)
     local topic
     topic=$(cat "$NTFY_TOPIC_FILE" 2>/dev/null)
-    [ -z "$topic" ] && return
+    if [ -n "$topic" ]; then
+        curl -s -o /dev/null \
+            -H "Title: $title" \
+            -H "Priority: $priority" \
+            -H "Tags: ${4:-warning}" \
+            -d "$body" \
+            "ntfy.sh/$topic" 2>/dev/null &
+        log "ALERT SENT via ntfy.sh"
+    fi
 
-    curl -s -o /dev/null \
-        -H "Title: $title" \
-        -H "Priority: $priority" \
-        -H "Tags: ${4:-warning}" \
-        -d "$body" \
-        "ntfy.sh/$topic" 2>/dev/null &
-    log "ALERT SENT via ntfy.sh"
+    # Telegram (backup)
+    local tg_env="$HOME/.ensoul/telegram-bot.env"
+    if [ -f "$tg_env" ]; then
+        local tg_token tg_user
+        tg_token=$(grep "^TELEGRAM_BOT_TOKEN=" "$tg_env" 2>/dev/null | cut -d= -f2-)
+        tg_user=$(grep "^TELEGRAM_AUTHORIZED_USER=" "$tg_env" 2>/dev/null | cut -d= -f2-)
+        if [ -n "$tg_token" ] && [ -n "$tg_user" ]; then
+            local msg
+            msg=$(printf '\xF0\x9F\x9A\xA8 <b>%s</b>\n%s' "$title" "$body")
+            curl -s -o /dev/null -X POST \
+                "https://api.telegram.org/bot${tg_token}/sendMessage" \
+                -H "Content-Type: application/json" \
+                -d "{\"chat_id\":${tg_user},\"text\":\"${msg}\",\"parse_mode\":\"HTML\"}" 2>/dev/null &
+            log "ALERT SENT via Telegram"
+        fi
+    fi
 }
 
 # Prevent concurrent runs (launchd can trigger overlapping executions)
@@ -76,6 +94,7 @@ is_abci_alive()    { is_port_alive 26658; }
 is_cometbft_alive(){ is_port_alive 26657; }
 is_proxy_alive()   { is_port_alive 9000;  }
 is_api_alive()     { is_port_alive 5050;  }
+is_tgbot_alive()   { pgrep -f "telegram-bot/start.ts" >/dev/null 2>&1; }
 
 # ── Start functions ───────────────────────────────────────────────────
 
@@ -123,6 +142,12 @@ start_api() {
     log "START: API gateway on port 5050"
     bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/api/start.ts --port 5050 >> $HOME/.ensoul/api.log 2>&1 &"
     log "START: API launched"
+}
+
+start_tgbot() {
+    log "START: Telegram bot"
+    bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/telegram-bot/start.ts >> $HOME/.ensoul/telegram-bot.log 2>&1 &"
+    log "START: Telegram bot launched"
 }
 
 # ── Kill functions (by port, safe) ────────────────────────────────────
@@ -187,12 +212,13 @@ restart_proxy_only() {
 # ── Main check ────────────────────────────────────────────────────────
 
 main() {
-    local abci_ok cmt_ok proxy_ok api_ok
+    local abci_ok cmt_ok proxy_ok api_ok tgbot_ok
 
     is_abci_alive    && abci_ok=true  || abci_ok=false
     is_cometbft_alive && cmt_ok=true  || cmt_ok=false
     is_proxy_alive   && proxy_ok=true || proxy_ok=false
     is_api_alive     && api_ok=true   || api_ok=false
+    is_tgbot_alive   && tgbot_ok=true || tgbot_ok=false
 
     # Case 1: ABCI dead (everything must restart in order)
     if [ "$abci_ok" = "false" ]; then
@@ -226,7 +252,13 @@ main() {
         start_api
     fi
 
-    # Case 5: Everything alive. Check block freshness and disk space.
+    # Case 5: Telegram bot dead, restart it (MBP only)
+    if [ "$tgbot_ok" = "false" ] && [ -f "$HOME/.ensoul/telegram-bot.env" ]; then
+        log "ALERT: Telegram bot is dead, restarting"
+        start_tgbot
+    fi
+
+    # Case 6: Everything alive. Check block freshness and disk space.
     local age=0 height="?"
     local result
     result=$(curl -s -m 5 "http://localhost:26657/status" 2>/dev/null)
