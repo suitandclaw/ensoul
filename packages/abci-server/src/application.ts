@@ -694,18 +694,19 @@ async function handleFinalizeBlock(
 		}
 
 		// ── Signature verification (Byzantine proposer protection) ────
-		// Re-verify in FinalizeBlock even though CheckTx already verified.
-		// A Byzantine proposer could include transactions that never passed CheckTx.
-		const sigErr = await verifySignature(tx);
-		if (sigErr) {
-			txResults.push({ code: 31, log: sigErr });
-			continue;
-		}
+		// Only enforced from EMISSION_V2_HEIGHT onward for deterministic replay
+		if (height >= EMISSION_V2_HEIGHT) {
+			const sigErr = await verifySignature(tx);
+			if (sigErr) {
+				txResults.push({ code: 31, log: sigErr });
+				continue;
+			}
 
-		// ── Payload size limit ────────────────────────────────────────
-		if (tx.data && tx.data.length > MAX_TX_DATA_SIZE) {
-			txResults.push({ code: 32, log: "payload too large" });
-			continue;
+			// Payload size limit
+			if (tx.data && tx.data.length > MAX_TX_DATA_SIZE) {
+				txResults.push({ code: 32, log: "payload too large" });
+				continue;
+			}
 		}
 
 		// Handle upgrade transactions (governance, not standard ledger txs)
@@ -737,64 +738,105 @@ async function handleFinalizeBlock(
 			continue;
 		}
 
-		// Agent registration: full validation + stores agent DID on-chain
+		// Agent registration
 		if (tx.type === "agent_register" as TransactionType) {
-			let agentData: { publicKey?: string; metadata?: string } | null = null;
-			try {
-				agentData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as { publicKey?: string; metadata?: string } : null;
-			} catch {
-				txResults.push({ code: 34, log: "Invalid JSON in tx.data" });
-				continue;
+			if (height >= EMISSION_V2_HEIGHT) {
+				// v2: full validation with nonce tracking
+				let agentData: { publicKey?: string; metadata?: string } | null = null;
+				try {
+					agentData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as { publicKey?: string; metadata?: string } : null;
+				} catch {
+					txResults.push({ code: 34, log: "Invalid JSON in tx.data" });
+					continue;
+				}
+				if (!agentData?.publicKey) {
+					txResults.push({ code: 20, log: "agent_register requires publicKey in data" });
+					continue;
+				}
+				if (agentData.metadata && agentData.metadata.length > MAX_METADATA_SIZE) {
+					txResults.push({ code: 33, log: "metadata too large" });
+					continue;
+				}
+				if (state.agents.has(tx.from)) {
+					txResults.push({ code: 21, log: "agent already registered" });
+					continue;
+				}
+				state.agents.set(tx.from, {
+					did: tx.from,
+					publicKey: agentData.publicKey,
+					registeredAt: height,
+					metadata: agentData.metadata,
+				});
+				state.working.incrementNonce(tx.from);
+			} else {
+				// v1: original behavior (no nonce increment, lenient validation)
+				const agentData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as {
+					publicKey?: string; metadata?: string;
+				} : null;
+				if (!agentData?.publicKey) {
+					txResults.push({ code: 20, log: "agent_register requires publicKey in data" });
+					continue;
+				}
+				if (state.agents.has(tx.from)) {
+					txResults.push({ code: 21, log: "agent already registered" });
+					continue;
+				}
+				state.agents.set(tx.from, {
+					did: tx.from,
+					publicKey: agentData.publicKey,
+					registeredAt: height,
+					metadata: agentData.metadata,
+				});
 			}
-			if (!agentData?.publicKey) {
-				txResults.push({ code: 20, log: "agent_register requires publicKey in data" });
-				continue;
-			}
-			if (agentData.metadata && agentData.metadata.length > MAX_METADATA_SIZE) {
-				txResults.push({ code: 33, log: "metadata too large" });
-				continue;
-			}
-			if (state.agents.has(tx.from)) {
-				txResults.push({ code: 21, log: "agent already registered" });
-				continue;
-			}
-			state.agents.set(tx.from, {
-				did: tx.from,
-				publicKey: agentData.publicKey,
-				registeredAt: height,
-				metadata: agentData.metadata,
-			});
-			state.working.incrementNonce(tx.from);
 			validTxCount++;
 			txResults.push({ code: 0, log: "agent registered" });
 			continue;
 		}
 
-		// Consciousness store: full validation + stores state root on-chain
+		// Consciousness store
 		if (tx.type === "consciousness_store" as TransactionType) {
-			if (!state.agents.has(tx.from)) {
-				txResults.push({ code: 35, log: "agent not registered" });
-				continue;
+			if (height >= EMISSION_V2_HEIGHT) {
+				// v2: full validation with nonce tracking and agent check
+				if (!state.agents.has(tx.from)) {
+					txResults.push({ code: 35, log: "agent not registered" });
+					continue;
+				}
+				let csData: { stateRoot?: string; version?: number; shardCount?: number } | null = null;
+				try {
+					csData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as { stateRoot?: string; version?: number; shardCount?: number } : null;
+				} catch {
+					txResults.push({ code: 34, log: "Invalid JSON in tx.data" });
+					continue;
+				}
+				if (!csData?.stateRoot) {
+					txResults.push({ code: 22, log: "consciousness_store requires stateRoot in data" });
+					continue;
+				}
+				state.consciousness.set(tx.from, {
+					did: tx.from,
+					stateRoot: csData.stateRoot,
+					version: csData.version ?? 1,
+					shardCount: csData.shardCount ?? 0,
+					storedAt: height,
+				});
+				state.working.incrementNonce(tx.from);
+			} else {
+				// v1: original behavior (no nonce increment, no agent check)
+				const csData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as {
+					stateRoot?: string; version?: number; shardCount?: number;
+				} : null;
+				if (!csData?.stateRoot) {
+					txResults.push({ code: 22, log: "consciousness_store requires stateRoot in data" });
+					continue;
+				}
+				state.consciousness.set(tx.from, {
+					did: tx.from,
+					stateRoot: csData.stateRoot,
+					version: csData.version ?? 1,
+					shardCount: csData.shardCount ?? 0,
+					storedAt: height,
+				});
 			}
-			let csData: { stateRoot?: string; version?: number; shardCount?: number } | null = null;
-			try {
-				csData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as { stateRoot?: string; version?: number; shardCount?: number } : null;
-			} catch {
-				txResults.push({ code: 34, log: "Invalid JSON in tx.data" });
-				continue;
-			}
-			if (!csData?.stateRoot) {
-				txResults.push({ code: 22, log: "consciousness_store requires stateRoot in data" });
-				continue;
-			}
-			state.consciousness.set(tx.from, {
-				did: tx.from,
-				stateRoot: csData.stateRoot,
-				version: csData.version ?? 1,
-				shardCount: csData.shardCount ?? 0,
-				storedAt: height,
-			});
-			state.working.incrementNonce(tx.from);
 			validTxCount++;
 			txResults.push({ code: 0, log: "consciousness stored" });
 			continue;
