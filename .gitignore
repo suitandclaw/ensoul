@@ -4,4 +4,13 @@ dist
 *.tsbuildinfo
 coverage/
 *.lcov
+
+# Secrets and key material
 genesis-keys/
+key-vault/
+*.env
+*.env.*
+*-key.json
+*-seed.txt
+*-secret.json
+.favicon-build/
