@@ -335,35 +335,9 @@ configure_cometbft() {
     # Max inbound peers (support many validators)
     sed -i.bak 's/^max_num_inbound_peers = .*/max_num_inbound_peers = 50/' "$CONFIG"
 
-    # State sync: fetch a recent snapshot instead of replaying from genesis
-    log "Configuring state sync..."
-    local SEED_IP
-    SEED_IP=$(echo "$SEED_NODE" | sed 's/.*@//' | sed 's/:.*//')
-    local RPC_URL="http://${SEED_IP}:26657"
-
-    # Get a trust height (most recent snapshot boundary, aligned to 1000)
-    local CURRENT_HEIGHT
-    CURRENT_HEIGHT=$(curl -s -m 10 "${RPC_URL}/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])" 2>/dev/null || echo "0")
-
-    if [ "$CURRENT_HEIGHT" -gt 2000 ] 2>/dev/null; then
-        local SNAP_HEIGHT=$(( (CURRENT_HEIGHT / 1000 - 1) * 1000 ))
-        local SNAP_HASH
-        SNAP_HASH=$(curl -s -m 10 "${RPC_URL}/block?height=${SNAP_HEIGHT}" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['block_id']['hash'])" 2>/dev/null || echo "")
-
-        if [ -n "$SNAP_HASH" ] && [ "$SNAP_HASH" != "" ]; then
-            sed -i.bak "s|^enable = false|enable = true|" "$CONFIG"
-            sed -i.bak "s|^rpc_servers = .*|rpc_servers = \"${RPC_URL},${RPC_URL}\"|" "$CONFIG"
-            sed -i.bak "s|^trust_height = .*|trust_height = ${SNAP_HEIGHT}|" "$CONFIG"
-            sed -i.bak "s|^trust_hash = .*|trust_hash = \"${SNAP_HASH}\"|" "$CONFIG"
-            sed -i.bak 's|^trust_period = .*|trust_period = "168h0m0s"|' "$CONFIG"
-            sed -i.bak 's|^discovery_time = .*|discovery_time = "30s"|' "$CONFIG"
-            log "State sync enabled: trust_height=${SNAP_HEIGHT}, hash=${SNAP_HASH:0:16}..."
-        else
-            log "WARNING: Could not get trust hash. State sync disabled. Will sync from genesis (slower)."
-        fi
-    else
-        log "WARNING: Seed node unreachable or chain too short. State sync disabled."
-    fi
+    # Block sync from genesis (state sync to be enabled in a future update
+    # once CometBFT snapshot reactor compatibility is verified)
+    log "Block sync mode: will replay from genesis (typically 1 to 3 hours)."
 
     # P2P listen on all interfaces
     sed -i.bak 's|^laddr = "tcp://0.0.0.0:26656"|laddr = "tcp://0.0.0.0:26656"|' "$CONFIG"
