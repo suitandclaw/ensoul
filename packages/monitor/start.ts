@@ -110,6 +110,7 @@ interface ValidatorConfig {
 	rpcPort: number;
 	role: string;
 	ssh: string;
+	sshPort?: number;
 	user: string;
 	cometbftAddress?: string;
 	did?: string;
@@ -136,7 +137,8 @@ const VALIDATORS: Array<{ name: string; url: string }> = VALIDATOR_CONFIGS.map((
 /** Build an SSH command prefix for a validator. */
 function sshCmd(vc: ValidatorConfig): string {
 	if (vc.ssh === "localhost") return "";
-	return `ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${vc.user}@${vc.tailscaleIp}`;
+	const portFlag = vc.sshPort ? `-p ${vc.sshPort}` : "";
+	return `ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${portFlag} ${vc.user}@${vc.tailscaleIp}`;
 }
 
 /** Run a command on a validator (local or remote via SSH). Returns stdout. */
