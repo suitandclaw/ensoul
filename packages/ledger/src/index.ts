@@ -31,6 +31,7 @@ export {
 	computeBlockHash,
 	computeTransactionsRoot,
 	computeBlockReward,
+	EMISSION_V2_HEIGHT,
 } from "./blocks.js";
 
 export { createDefaultGenesis, validateGenesis, buildGenesisTransactions } from "./genesis.js";
