@@ -94,6 +94,8 @@ is_abci_alive()    { is_port_alive 26658; }
 is_cometbft_alive(){ is_port_alive 26657; }
 is_proxy_alive()   { is_port_alive 9000;  }
 is_api_alive()     { is_port_alive 5050;  }
+is_explorer_alive(){ is_port_alive 3000;  }
+is_monitor_alive() { is_port_alive 4000;  }
 is_tgbot_alive()   { pgrep -f "telegram-bot/start.ts" >/dev/null 2>&1; }
 
 # ── Start functions ───────────────────────────────────────────────────
@@ -144,9 +146,21 @@ start_api() {
     log "START: API launched"
 }
 
+start_explorer() {
+    log "START: Explorer on port 3000"
+    bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/explorer/start.ts --port 3000 --network-peers https://v0.ensoul.dev >> $HOME/.ensoul/explorer.log 2>&1 &"
+    log "START: Explorer launched"
+}
+
+start_monitor() {
+    log "START: Monitor on port 4000"
+    bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/monitor/start.ts --port 4000 >> $HOME/.ensoul/monitor.log 2>&1 &"
+    log "START: Monitor launched"
+}
+
 start_tgbot() {
     log "START: Telegram bot"
-    bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/telegram-bot/start.ts >> $HOME/.ensoul/telegram-bot.log 2>&1 &"
+    bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/telegram-bot/start.ts > /dev/null 2>> $HOME/.ensoul/telegram-bot.log &"
     log "START: Telegram bot launched"
 }
 
@@ -212,13 +226,15 @@ restart_proxy_only() {
 # ── Main check ────────────────────────────────────────────────────────
 
 main() {
-    local abci_ok cmt_ok proxy_ok api_ok tgbot_ok
+    local abci_ok cmt_ok proxy_ok api_ok explorer_ok monitor_ok tgbot_ok
 
-    is_abci_alive    && abci_ok=true  || abci_ok=false
-    is_cometbft_alive && cmt_ok=true  || cmt_ok=false
-    is_proxy_alive   && proxy_ok=true || proxy_ok=false
-    is_api_alive     && api_ok=true   || api_ok=false
-    is_tgbot_alive   && tgbot_ok=true || tgbot_ok=false
+    is_abci_alive    && abci_ok=true    || abci_ok=false
+    is_cometbft_alive && cmt_ok=true    || cmt_ok=false
+    is_proxy_alive   && proxy_ok=true   || proxy_ok=false
+    is_api_alive     && api_ok=true     || api_ok=false
+    is_explorer_alive && explorer_ok=true || explorer_ok=false
+    is_monitor_alive && monitor_ok=true  || monitor_ok=false
+    is_tgbot_alive   && tgbot_ok=true   || tgbot_ok=false
 
     # Case 1: ABCI dead (everything must restart in order)
     if [ "$abci_ok" = "false" ]; then
@@ -252,13 +268,27 @@ main() {
         start_api
     fi
 
-    # Case 5: Telegram bot dead, restart it (MBP only)
+    # Case 5: Explorer dead (MBP only, port 3000)
+    if [ "$explorer_ok" = "false" ] && [ -d "$HOME/ensoul/packages/explorer" ]; then
+        log "ALERT: Explorer is dead, restarting on port 3000"
+        alert "[$HOSTNAME_SHORT] Explorer DEAD" "Restarting explorer on port 3000" "default" "warning"
+        start_explorer
+    fi
+
+    # Case 6: Monitor dead (MBP only, port 4000)
+    if [ "$monitor_ok" = "false" ] && [ -d "$HOME/ensoul/packages/monitor" ]; then
+        log "ALERT: Monitor is dead, restarting on port 4000"
+        alert "[$HOSTNAME_SHORT] Monitor DEAD" "Restarting monitor on port 4000" "default" "warning"
+        start_monitor
+    fi
+
+    # Case 7: Telegram bot dead, restart it (MBP only)
     if [ "$tgbot_ok" = "false" ] && [ -f "$HOME/.ensoul/telegram-bot.env" ]; then
         log "ALERT: Telegram bot is dead, restarting"
         start_tgbot
     fi
 
-    # Case 6: Everything alive. Check block freshness and disk space.
+    # Case 8: Everything alive. Check block freshness and disk space.
     local age=0 height="?"
     local result
     result=$(curl -s -m 5 "http://localhost:26657/status" 2>/dev/null)
