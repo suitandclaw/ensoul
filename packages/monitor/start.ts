@@ -19,6 +19,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { exec } from "node:child_process";
 
 const port = Number(process.argv.find((_, i, a) => a[i - 1] === "--port") ?? 4000);
 const POLL_INTERVAL = 30_000;
@@ -99,24 +100,84 @@ async function sendNtfy(msg: string, priority = "default"): Promise<void> {
 
 // ── Polling ──────────────────────────────────────────────────────────
 
-// Load validator list from config file (not hardcoded)
-// Always use Tailscale IP + CometBFT RPC for health checks (reliable, no tunnel dependency)
-const VALIDATORS: Array<{ name: string; url: string }> = (() => {
+// Full validator config with SSH info for remote management
+interface ValidatorConfig {
+	name: string;
+	moniker: string;
+	tailscaleIp: string;
+	publicUrl: string | null;
+	publicIp?: string;
+	rpcPort: number;
+	role: string;
+	ssh: string;
+	user: string;
+	cometbftAddress?: string;
+	did?: string;
+}
+
+const VALIDATOR_CONFIGS: ValidatorConfig[] = (() => {
 	try {
 		const configPath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "configs", "validators.json");
 		const raw = readFileSync(configPath, "utf-8");
-		const config = JSON.parse(raw) as { validators: Array<{ name: string; publicUrl: string | null; tailscaleIp: string; publicIp?: string; rpcPort: number }> };
-		return config.validators.map((v) => ({
-			name: v.name,
-			url: `http://${v.tailscaleIp}:${v.rpcPort}`,
-		}));
+		const config = JSON.parse(raw) as { validators: ValidatorConfig[] };
+		return config.validators;
 	} catch {
-		// Fallback if config file is missing
-		return [
-			{ name: "Validator v0 (MacBook Pro)", url: "http://localhost:26657" },
-		];
+		return [];
 	}
 })();
+
+// Load validator list from config file (not hardcoded)
+// Always use Tailscale IP + CometBFT RPC for health checks (reliable, no tunnel dependency)
+const VALIDATORS: Array<{ name: string; url: string }> = VALIDATOR_CONFIGS.map((v) => ({
+	name: v.name,
+	url: `http://${v.tailscaleIp}:${v.rpcPort}`,
+}));
+
+/** Build an SSH command prefix for a validator. */
+function sshCmd(vc: ValidatorConfig): string {
+	if (vc.ssh === "localhost") return "";
+	return `ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${vc.user}@${vc.tailscaleIp}`;
+}
+
+/** Run a command on a validator (local or remote via SSH). Returns stdout. */
+function runOnValidator(vc: ValidatorConfig, cmd: string, timeoutMs = 120_000): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const prefix = sshCmd(vc);
+		const fullCmd = prefix ? `${prefix} '${cmd.replace(/'/g, "'\\''")}'` : cmd;
+		const child = exec(fullCmd, { timeout: timeoutMs, maxBuffer: 1024 * 1024 });
+		let stdout = "";
+		let stderr = "";
+		child.stdout?.on("data", (d: string) => { stdout += d; });
+		child.stderr?.on("data", (d: string) => { stderr += d; });
+		child.on("close", (code) => {
+			if (code === 0) resolve(stdout);
+			else reject(new Error(`Exit ${code}: ${stderr.slice(0, 500)}`));
+		});
+		child.on("error", reject);
+	});
+}
+
+/** Check if a validator is signing blocks by querying CometBFT RPC. */
+async function waitForBlock(vc: ValidatorConfig, timeoutSec = 60): Promise<boolean> {
+	const url = `http://${vc.tailscaleIp}:${vc.rpcPort}`;
+	const deadline = Date.now() + timeoutSec * 1000;
+	while (Date.now() < deadline) {
+		try {
+			const resp = await fetch(`${url}/status`, { signal: AbortSignal.timeout(5000) });
+			if (resp.ok) {
+				const data = (await resp.json()) as { result: { sync_info: { catching_up: boolean; latest_block_height: string } } };
+				if (!data.result.sync_info.catching_up && Number(data.result.sync_info.latest_block_height) > 0) {
+					return true;
+				}
+			}
+		} catch { /* not ready yet */ }
+		await new Promise((r) => setTimeout(r, 3000));
+	}
+	return false;
+}
+
+/** In-progress admin operations tracked for polling. */
+const adminOps: Map<string, { status: string; log: string[]; done: boolean; success: boolean }> = new Map();
 
 /** Check a validator via CometBFT RPC /status endpoint (not the compat proxy). */
 async function checkValidator(name: string, url: string): Promise<ServiceStatus> {
@@ -645,79 +706,98 @@ poll();
 setInterval(poll,30000);
 
 // ── Validator Management Panel ──────────────────────────
-var ADMIN_VALIDATORS=${JSON.stringify(VALIDATORS.map((v) => ({
-	name: v.name.replace(/^Validator /, ""),
-	url: v.url.includes("localhost") || v.url.includes("127.0.0.1") ? "http://localhost:9000" : v.url,
-})))};
-var PEER_KEY="";
 var adminData={};
-var latestVersion="?";
+var currentOpId=null;
+var logsModal={open:false,index:-1,timer:null};
+
+function authHeaders(){
+var c=document.cookie.match(/(?:^|;\\s*)auth=([^;]*)/);
+return {};
+}
+
+function adminFetch(url,opts){
+opts=opts||{};
+opts.credentials="same-origin";
+return fetch(url,opts);
+}
 
 function renderAdmin(){
 var el=document.getElementById("admin");
 if(!el)return;
 var s='<h2>Validator Management</h2>';
-
-// Key input
-s+='<div style="margin:8px 0"><input type="password" id="peer-key-input" placeholder="Peer Key (for update/reset)" style="padding:6px 10px;background:#1a1a24;border:1px solid #2d2d3f;border-radius:4px;color:#e0e0e0;width:280px;font-size:0.85em" oninput="PEER_KEY=this.value"></div>';
-
-// Bulk actions
 s+='<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap">';
 s+='<button onclick="adminHealthAll()" style="padding:6px 14px;background:#1e2a3f;color:#60a5fa;border:1px solid #2d2d3f;border-radius:4px;cursor:pointer;font-size:0.85em">Health Check All</button>';
 s+='<button onclick="adminUpdateAll()" style="padding:6px 14px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:4px;cursor:pointer;font-size:0.85em">Update All</button>';
 s+='<button onclick="adminRefresh()" style="padding:6px 14px;background:#12121a;color:#888;border:1px solid #2d2d3f;border-radius:4px;cursor:pointer;font-size:0.85em">Refresh</button>';
 s+='</div>';
 
-// Version distribution
-var versions={};
 var onlineCount=0;
-ADMIN_VALIDATORS.forEach(function(v){
-var d=adminData[v.url];
-if(d&&d.version){versions[d.version]=(versions[d.version]||0)+1;onlineCount++;}
+${JSON.stringify(VALIDATOR_CONFIGS.map((v, i) => ({ name: v.name.replace(/^Validator /, ""), index: i, moniker: v.moniker })))}.forEach(function(vc){
+var d=adminData[vc.index]||{};
+if(d.height)onlineCount++;
 });
-var versionStr=Object.entries(versions).map(function(e){return e[1]+"x v"+e[0]}).join(", ")||"unknown";
-s+='<div style="font-size:0.8em;color:#888;margin:6px 0">Online: '+onlineCount+'/'+ADMIN_VALIDATORS.length+' | Versions: '+versionStr+'</div>';
+s+='<div style="font-size:0.8em;color:#888;margin:6px 0">Online: '+onlineCount+'/${VALIDATOR_CONFIGS.length}</div>';
 
-// Table
 s+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:0.85em">';
-s+='<tr style="border-bottom:1px solid #2d2d3f"><th style="padding:6px 8px;text-align:left;color:#888">Validator</th><th style="padding:6px;color:#888">Version</th><th style="padding:6px;color:#888">Height</th><th style="padding:6px;color:#888">Peers</th><th style="padding:6px;color:#888">Consensus</th><th style="padding:6px;color:#888">Health</th><th style="padding:6px;color:#888">Actions</th></tr>';
+s+='<tr style="border-bottom:1px solid #2d2d3f"><th style="padding:6px 8px;text-align:left;color:#888">Validator</th><th style="padding:6px;color:#888">Height</th><th style="padding:6px;color:#888">Peers</th><th style="padding:6px;color:#888">Health</th><th style="padding:6px;color:#888">Actions</th></tr>';
 
-ADMIN_VALIDATORS.forEach(function(v){
-var d=adminData[v.url]||{};
-var isOnline=!!d.version;
-var versionColor=d.version&&d.version!==latestVersion?"#f87171":"#4ade80";
+${JSON.stringify(VALIDATOR_CONFIGS.map((v, i) => ({ name: v.name.replace(/^Validator /, ""), index: i, moniker: v.moniker })))}.forEach(function(vc){
+var d=adminData[vc.index]||{};
+var isOnline=!!d.height;
 var dot=isOnline?'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80"></span>':'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f87171"></span>';
+var statusText=d.catchingUp?'<span style="color:#fbbf24">SYNCING</span>':(isOnline?'<span style="color:#4ade80">OK</span>':'<span style="color:#f87171">DOWN</span>');
 
 s+='<tr style="border-bottom:1px solid #1e1e2a">';
-s+='<td style="padding:6px 8px">'+dot+' '+v.name+'</td>';
-s+='<td style="padding:6px;color:'+(isOnline?versionColor:'#666')+'">'+(d.version||'offline')+'</td>';
+s+='<td style="padding:6px 8px">'+dot+' '+vc.name+'</td>';
 s+='<td style="padding:6px">'+(d.height||'-')+'</td>';
-s+='<td style="padding:6px">'+(d.peers||'-')+'</td>';
-s+='<td style="padding:6px">'+(d.consensusRound!=null?'R'+d.consensusRound:'-')+'</td>';
-s+='<td style="padding:6px">'+(isOnline?'<span style="color:#4ade80">OK</span>':'<span style="color:#f87171">DOWN</span>')+'</td>';
+s+='<td style="padding:6px">'+(d.peers!=null?d.peers:'-')+'</td>';
+s+='<td style="padding:6px">'+statusText+'</td>';
 s+='<td style="padding:6px;white-space:nowrap">';
-s+='<button data-url="'+v.url+'" onclick="adminUpdate(this.dataset.url)" style="padding:2px 8px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Update</button>';
+s+='<button onclick="adminUpdate('+vc.index+')" style="padding:2px 8px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px" title="Pull, build, restart">Update</button> ';
+s+='<button onclick="adminRestart('+vc.index+')" style="padding:2px 8px;background:#1e3f2d;color:#4ade80;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px" title="Restart ABCI and CometBFT">Restart</button> ';
+s+='<button onclick="adminLogs('+vc.index+')" style="padding:2px 8px;background:#1e2a3f;color:#60a5fa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px" title="View recent logs">Logs</button>';
 s+='</td></tr>';
 });
 
 s+='</table></div>';
 s+='<div id="admin-status" style="font-size:0.8em;color:#888;margin:4px 0"></div>';
+s+='<pre id="admin-log" style="display:none;background:#0a0a0f;border:1px solid #2d2d3f;border-radius:6px;padding:12px;font-size:0.8em;max-height:300px;overflow-y:auto;white-space:pre-wrap;margin:8px 0"></pre>';
+s+='<div id="logs-modal" style="display:none;background:#0a0a0f;border:1px solid #2d2d3f;border-radius:8px;padding:16px;margin:8px 0"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 id="logs-title" style="margin:0;font-size:0.95em;color:#60a5fa">Logs</h3><button onclick="closeLogs()" style="background:none;border:1px solid #2d2d3f;color:#888;border-radius:3px;cursor:pointer;padding:2px 8px">Close</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><div style="color:#888;font-size:0.75em;margin-bottom:4px">ABCI Server</div><pre id="logs-abci" style="background:#12121a;border:1px solid #1e1e2a;border-radius:4px;padding:8px;font-size:0.75em;max-height:250px;overflow-y:auto;white-space:pre-wrap;margin:0"></pre></div><div><div style="color:#888;font-size:0.75em;margin-bottom:4px">CometBFT</div><pre id="logs-cometbft" style="background:#12121a;border:1px solid #1e1e2a;border-radius:4px;padding:8px;font-size:0.75em;max-height:250px;overflow-y:auto;white-space:pre-wrap;margin:0"></pre></div></div></div>';
 el.innerHTML=s;
 }
 
 function adminStatus(msg){var el=document.getElementById("admin-status");if(el)el.textContent=msg;}
 
-function adminRefresh(){
-fetch("/api/validators-admin").then(function(r){return r.json()}).then(function(data){
-var validators=data.validators||[];
-validators.forEach(function(v){
-if(v.error){adminData[v.url]={};return;}
-adminData[v.url]={version:v.version,height:v.height,peers:v.peerCount};
-if(v.version&&v.version>latestVersion)latestVersion=v.version;
-if(v.consensus){
-adminData[v.url].consensusRound=v.consensus.round;
-adminData[v.url].stallDetected=v.consensus.stallDetected;
+function showOpLog(lines){
+var el=document.getElementById("admin-log");
+if(!el)return;
+el.style.display="block";
+el.textContent=lines.join("\\n");
+el.scrollTop=el.scrollHeight;
 }
+
+function pollOp(opId){
+currentOpId=opId;
+var interval=setInterval(function(){
+adminFetch("/admin/op/"+opId).then(function(r){return r.json()}).then(function(d){
+showOpLog(d.log||[]);
+adminStatus(d.status);
+if(d.done){
+clearInterval(interval);
+currentOpId=null;
+adminStatus(d.success?"Completed successfully.":"Completed with errors.");
+setTimeout(adminRefresh,3000);
+}
+}).catch(function(){clearInterval(interval);currentOpId=null;});
+},2000);
+}
+
+function adminRefresh(){
+adminFetch("/api/validators-admin").then(function(r){return r.json()}).then(function(data){
+var validators=data.validators||[];
+validators.forEach(function(v,i){
+if(v.error){adminData[i]={};return;}
+adminData[i]={height:v.height,peers:v.peerCount,catchingUp:v.catchingUp,moniker:v.moniker};
 });
 renderAdmin();
 }).catch(function(){renderAdmin();});
@@ -726,29 +806,69 @@ renderAdmin();
 function adminHealthAll(){
 adminStatus("Checking health...");
 adminRefresh();
-setTimeout(function(){adminStatus("Health check complete.");},3000);
+setTimeout(function(){adminStatus("Health check complete.");},2000);
 }
 
-function adminUpdate(url){
-if(!PEER_KEY){adminStatus("Enter peer key first.");return;}
-if(!confirm("Update validator at "+url+"?"))return;
-adminStatus("Sending update to "+url+"...");
-fetch(url+"/peer/update",{method:"POST",headers:{"X-Ensoul-Peer-Key":PEER_KEY,"Content-Type":"application/json"},body:"{}",mode:"cors"}).then(function(r){return r.json()}).then(function(d){
-adminStatus("Update triggered: "+JSON.stringify(d));
-}).catch(function(e){adminStatus("Update failed: "+e);});
+function adminUpdate(idx){
+if(currentOpId){adminStatus("Another operation is in progress.");return;}
+if(!confirm("Update validator "+idx+"? This will pull, build, and restart."))return;
+adminStatus("Starting update...");
+adminFetch("/admin/update/"+idx,{method:"POST"}).then(function(r){return r.json()}).then(function(d){
+if(d.error){adminStatus("Error: "+d.error);return;}
+adminStatus(d.message);
+pollOp(d.opId);
+}).catch(function(e){adminStatus("Failed: "+e);});
+}
+
+function adminRestart(idx){
+if(currentOpId){adminStatus("Another operation is in progress.");return;}
+if(!confirm("Restart CometBFT and ABCI on validator "+idx+"? The chain continues on other validators."))return;
+adminStatus("Starting restart...");
+adminFetch("/admin/restart/"+idx,{method:"POST"}).then(function(r){return r.json()}).then(function(d){
+if(d.error){adminStatus("Error: "+d.error);return;}
+adminStatus(d.message);
+pollOp(d.opId);
+}).catch(function(e){adminStatus("Failed: "+e);});
 }
 
 function adminUpdateAll(){
-if(!PEER_KEY){adminStatus("Enter peer key first.");return;}
-if(!confirm("Update ALL validators?"))return;
-var i=0;
-function next(){
-if(i>=ADMIN_VALIDATORS.length){adminStatus("All updates sent. Refreshing in 30s...");setTimeout(adminRefresh,30000);return;}
-var v=ADMIN_VALIDATORS[i];
-adminStatus("Updating "+(i+1)+"/"+ADMIN_VALIDATORS.length+": "+v.name+"...");
-fetch(v.url+"/peer/update",{method:"POST",headers:{"X-Ensoul-Peer-Key":PEER_KEY,"Content-Type":"application/json"},body:"{}",mode:"cors"}).then(function(){i++;setTimeout(next,2000);}).catch(function(){adminStatus(v.name+" failed. Continuing...");i++;setTimeout(next,2000);});
+if(currentOpId){adminStatus("Another operation is in progress.");return;}
+if(!confirm("Update ALL validators sequentially? This will take several minutes."))return;
+adminStatus("Starting sequential update...");
+adminFetch("/admin/update-all",{method:"POST"}).then(function(r){return r.json()}).then(function(d){
+if(d.error){adminStatus("Error: "+d.error);return;}
+adminStatus(d.message);
+pollOp(d.opId);
+}).catch(function(e){adminStatus("Failed: "+e);});
 }
-next();
+
+function adminLogs(idx){
+var modal=document.getElementById("logs-modal");
+var title=document.getElementById("logs-title");
+if(!modal)return;
+modal.style.display="block";
+title.textContent="Logs: Validator "+idx;
+logsModal.open=true;
+logsModal.index=idx;
+fetchLogs(idx);
+if(logsModal.timer)clearInterval(logsModal.timer);
+logsModal.timer=setInterval(function(){if(logsModal.open)fetchLogs(logsModal.index);},10000);
+}
+
+function fetchLogs(idx){
+adminFetch("/admin/logs/"+idx).then(function(r){return r.json()}).then(function(d){
+var a=document.getElementById("logs-abci");
+var c=document.getElementById("logs-cometbft");
+if(a)a.textContent=d.abci||"No data";
+if(c)c.textContent=d.cometbft||"No data";
+}).catch(function(){});
+}
+
+function closeLogs(){
+logsModal.open=false;
+if(logsModal.timer){clearInterval(logsModal.timer);logsModal.timer=null;}
+var modal=document.getElementById("logs-modal");
+if(modal)modal.style.display="none";
 }
 
 adminRefresh();
@@ -818,28 +938,28 @@ async function main(): Promise<void> {
 		return { alerts: alertHistory, count: alertHistory.length };
 	});
 
-	// Proxy validator status to avoid CORS issues (browser can't fetch cross-origin)
+	// Proxy validator status via CometBFT RPC on Tailscale IPs
 	app.get("/api/validators-admin", async () => {
-		// Build URLs from config: use publicUrl for remote, localhost:9000 for local
-		const urls = VALIDATORS.map((v) =>
-			v.url.includes("localhost") || v.url.includes("127.0.0.1")
-				? "http://localhost:9000"
-				: v.url,
-		);
 		const results: Array<Record<string, unknown>> = [];
-		for (const url of urls) {
+		for (const vc of VALIDATOR_CONFIGS) {
+			const url = `http://${vc.tailscaleIp}:${vc.rpcPort}`;
 			try {
-				const statusResp = await fetch(`${url}/peer/status`, { signal: AbortSignal.timeout(5000) });
-				if (!statusResp.ok) { results.push({ url, error: true }); continue; }
-				const status = (await statusResp.json()) as Record<string, unknown>;
-				let consensus: Record<string, unknown> = {};
+				const resp = await fetch(`${url}/status`, { signal: AbortSignal.timeout(5000) });
+				if (!resp.ok) { results.push({ url, name: vc.name, error: true }); continue; }
+				const data = (await resp.json()) as { result: { sync_info: { latest_block_height: string; catching_up: boolean }; node_info: { moniker: string } } };
+				const si = data.result.sync_info;
+				const ni = data.result.node_info;
+				let peers = 0;
 				try {
-					const csResp = await fetch(`${url}/peer/consensus-state`, { signal: AbortSignal.timeout(3000) });
-					if (csResp.ok) consensus = (await csResp.json()) as Record<string, unknown>;
-				} catch { /* endpoint may not exist on older versions */ }
-				results.push({ url, ...status, consensus });
+					const netResp = await fetch(`${url}/net_info`, { signal: AbortSignal.timeout(3000) });
+					if (netResp.ok) {
+						const nd = (await netResp.json()) as { result: { n_peers: string } };
+						peers = Number(nd.result.n_peers);
+					}
+				} catch { /* non-fatal */ }
+				results.push({ url, name: vc.name, moniker: ni.moniker, height: Number(si.latest_block_height), peerCount: peers, catchingUp: si.catching_up, version: "1.0" });
 			} catch {
-				results.push({ url, error: true });
+				results.push({ url, name: vc.name, error: true });
 			}
 		}
 		return { validators: results };
@@ -899,6 +1019,233 @@ async function main(): Promise<void> {
 			await parseSocialActivity();
 		}
 		return socialFeed;
+	});
+
+	// ── Admin operations (require basic auth) ───────────────────
+
+	/** Verify admin auth for POST admin routes. */
+	function requireAdmin(authHeader: string | undefined): boolean {
+		if (!STATUS_PASSWORD) return true;
+		return checkBasicAuth(authHeader);
+	}
+
+	/** POST /admin/update/:index - Pull, build, restart a single validator. */
+	app.post<{ Params: { index: string } }>("/admin/update/:index", async (req, reply) => {
+		if (!requireAdmin(req.headers.authorization)) {
+			return reply.status(401).send({ error: "Unauthorized" });
+		}
+		const idx = Number(req.params.index);
+		const vc = VALIDATOR_CONFIGS[idx];
+		if (!vc) return reply.status(404).send({ error: "Validator not found" });
+
+		const opId = `update-${idx}-${Date.now()}`;
+		const op = { status: "running", log: [] as string[], done: false, success: false };
+		adminOps.set(opId, op);
+
+		const addLog = (msg: string): void => { op.log.push(`[${new Date().toISOString().slice(11, 19)}] ${msg}`); op.status = msg; };
+
+		// Run in background so the response returns immediately
+		void (async () => {
+			try {
+				addLog(`Starting update on ${vc.moniker}...`);
+
+				addLog("Pulling latest code...");
+				await runOnValidator(vc, "cd ~/ensoul && git pull origin main", 30_000);
+				addLog("Pull complete.");
+
+				addLog("Clearing build cache...");
+				await runOnValidator(vc, "cd ~/ensoul && rm -rf .turbo node_modules/.cache packages/*/dist", 15_000);
+				addLog("Cache cleared.");
+
+				addLog("Building...");
+				await runOnValidator(vc, "cd ~/ensoul && bash -l -c 'pnpm install --frozen-lockfile && pnpm build'", 300_000);
+				addLog("Build complete.");
+
+				addLog("Restarting ABCI server...");
+				if (vc.role === "cloud") {
+					await runOnValidator(vc, "systemctl restart ensoul-abci", 15_000);
+				} else {
+					// macOS: kill by port and restart via process-manager pattern
+					await runOnValidator(vc, "lsof -ti :26658 | xargs kill 2>/dev/null; sleep 2; cd ~/ensoul && nohup bash -l -c 'npx tsx packages/abci-server/src/index.ts --port 26658' >> ~/.ensoul/abci-server.log 2>&1 &", 15_000);
+				}
+				addLog("ABCI restarted. Waiting 5s...");
+				await new Promise((r) => setTimeout(r, 5000));
+
+				addLog("Restarting CometBFT...");
+				if (vc.role === "cloud") {
+					await runOnValidator(vc, "systemctl restart ensoul-cometbft", 15_000);
+				} else {
+					await runOnValidator(vc, "lsof -ti :26657 | xargs kill 2>/dev/null; lsof -ti :26656 | xargs kill 2>/dev/null; sleep 2; cd ~/ensoul && DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node DAEMON_DATA_BACKUP_DIR=~/.cometbft-ensoul/node/backups DAEMON_ALLOW_DOWNLOAD_BINARIES=false DAEMON_RESTART_AFTER_UPGRADE=true nohup ~/go/bin/cosmovisor run start --proxy_app=tcp://127.0.0.1:26658 --home ~/.cometbft-ensoul/node >> ~/.ensoul/cometbft.log 2>&1 &", 15_000);
+				}
+				addLog("CometBFT restarted. Waiting for block...");
+
+				const healthy = await waitForBlock(vc, 90);
+				if (healthy) {
+					addLog("Validator is healthy and signing blocks.");
+					op.success = true;
+				} else {
+					addLog("WARNING: Validator did not become healthy within 90 seconds.");
+				}
+			} catch (err) {
+				addLog(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+			} finally {
+				op.done = true;
+			}
+		})();
+
+		return { opId, message: `Update started on ${vc.moniker}` };
+	});
+
+	/** POST /admin/restart/:index - Restart ABCI and CometBFT. */
+	app.post<{ Params: { index: string } }>("/admin/restart/:index", async (req, reply) => {
+		if (!requireAdmin(req.headers.authorization)) {
+			return reply.status(401).send({ error: "Unauthorized" });
+		}
+		const idx = Number(req.params.index);
+		const vc = VALIDATOR_CONFIGS[idx];
+		if (!vc) return reply.status(404).send({ error: "Validator not found" });
+
+		const opId = `restart-${idx}-${Date.now()}`;
+		const op = { status: "running", log: [] as string[], done: false, success: false };
+		adminOps.set(opId, op);
+
+		const addLog = (msg: string): void => { op.log.push(`[${new Date().toISOString().slice(11, 19)}] ${msg}`); op.status = msg; };
+
+		void (async () => {
+			try {
+				addLog(`Restarting services on ${vc.moniker}...`);
+
+				addLog("Stopping CometBFT...");
+				if (vc.role === "cloud") {
+					await runOnValidator(vc, "systemctl stop ensoul-cometbft", 15_000);
+				} else {
+					await runOnValidator(vc, "lsof -ti :26657 | xargs kill 2>/dev/null; lsof -ti :26656 | xargs kill 2>/dev/null", 10_000);
+				}
+
+				addLog("Stopping ABCI...");
+				if (vc.role === "cloud") {
+					await runOnValidator(vc, "systemctl stop ensoul-abci", 15_000);
+				} else {
+					await runOnValidator(vc, "lsof -ti :26658 | xargs kill 2>/dev/null", 10_000);
+				}
+
+				await new Promise((r) => setTimeout(r, 2000));
+
+				addLog("Starting ABCI...");
+				if (vc.role === "cloud") {
+					await runOnValidator(vc, "systemctl start ensoul-abci", 15_000);
+				} else {
+					await runOnValidator(vc, "cd ~/ensoul && nohup bash -l -c 'npx tsx packages/abci-server/src/index.ts --port 26658' >> ~/.ensoul/abci-server.log 2>&1 &", 15_000);
+				}
+
+				addLog("Waiting 3s for ABCI...");
+				await new Promise((r) => setTimeout(r, 3000));
+
+				addLog("Starting CometBFT...");
+				if (vc.role === "cloud") {
+					await runOnValidator(vc, "systemctl start ensoul-cometbft", 15_000);
+				} else {
+					await runOnValidator(vc, "cd ~/ensoul && DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node DAEMON_DATA_BACKUP_DIR=~/.cometbft-ensoul/node/backups DAEMON_ALLOW_DOWNLOAD_BINARIES=false DAEMON_RESTART_AFTER_UPGRADE=true nohup ~/go/bin/cosmovisor run start --proxy_app=tcp://127.0.0.1:26658 --home ~/.cometbft-ensoul/node >> ~/.ensoul/cometbft.log 2>&1 &", 15_000);
+				}
+
+				addLog("Waiting for validator to sign a block...");
+				const healthy = await waitForBlock(vc, 60);
+				if (healthy) {
+					addLog("Validator is healthy.");
+					op.success = true;
+				} else {
+					addLog("WARNING: Validator did not recover within 60 seconds.");
+				}
+			} catch (err) {
+				addLog(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+			} finally {
+				op.done = true;
+			}
+		})();
+
+		return { opId, message: `Restart started on ${vc.moniker}` };
+	});
+
+	/** POST /admin/update-all - Sequential update across all validators. */
+	app.post("/admin/update-all", async (req, reply) => {
+		if (!requireAdmin(req.headers.authorization)) {
+			return reply.status(401).send({ error: "Unauthorized" });
+		}
+
+		const opId = `update-all-${Date.now()}`;
+		const op = { status: "running", log: [] as string[], done: false, success: false };
+		adminOps.set(opId, op);
+
+		const addLog = (msg: string): void => { op.log.push(`[${new Date().toISOString().slice(11, 19)}] ${msg}`); op.status = msg; };
+
+		void (async () => {
+			let allOk = true;
+			for (let i = 0; i < VALIDATOR_CONFIGS.length; i++) {
+				const vc = VALIDATOR_CONFIGS[i]!;
+				addLog(`[${i + 1}/${VALIDATOR_CONFIGS.length}] Updating ${vc.moniker}...`);
+				try {
+					await runOnValidator(vc, "cd ~/ensoul && git pull origin main", 30_000);
+					await runOnValidator(vc, "cd ~/ensoul && rm -rf .turbo node_modules/.cache packages/*/dist", 15_000);
+					await runOnValidator(vc, "cd ~/ensoul && bash -l -c 'pnpm install --frozen-lockfile && pnpm build'", 300_000);
+					addLog(`${vc.moniker} built. Restarting ABCI...`);
+
+					if (vc.role === "cloud") {
+						await runOnValidator(vc, "systemctl restart ensoul-abci", 15_000);
+						await new Promise((r) => setTimeout(r, 5000));
+						await runOnValidator(vc, "systemctl restart ensoul-cometbft", 15_000);
+					} else {
+						await runOnValidator(vc, "lsof -ti :26658 | xargs kill 2>/dev/null; sleep 2; cd ~/ensoul && nohup bash -l -c 'npx tsx packages/abci-server/src/index.ts --port 26658' >> ~/.ensoul/abci-server.log 2>&1 &", 15_000);
+						await new Promise((r) => setTimeout(r, 5000));
+						await runOnValidator(vc, "lsof -ti :26657 | xargs kill 2>/dev/null; lsof -ti :26656 | xargs kill 2>/dev/null; sleep 2; cd ~/ensoul && DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node DAEMON_DATA_BACKUP_DIR=~/.cometbft-ensoul/node/backups DAEMON_ALLOW_DOWNLOAD_BINARIES=false DAEMON_RESTART_AFTER_UPGRADE=true nohup ~/go/bin/cosmovisor run start --proxy_app=tcp://127.0.0.1:26658 --home ~/.cometbft-ensoul/node >> ~/.ensoul/cometbft.log 2>&1 &", 15_000);
+					}
+
+					addLog(`${vc.moniker} restarted. Waiting for block...`);
+					const healthy = await waitForBlock(vc, 90);
+					if (healthy) {
+						addLog(`${vc.moniker} healthy.`);
+					} else {
+						addLog(`WARNING: ${vc.moniker} did not recover. Continuing.`);
+						allOk = false;
+					}
+				} catch (err) {
+					addLog(`ERROR on ${vc.moniker}: ${err instanceof Error ? err.message : String(err)}`);
+					allOk = false;
+				}
+			}
+			op.success = allOk;
+			addLog(allOk ? "All validators updated successfully." : "Update completed with errors.");
+			op.done = true;
+		})();
+
+		return { opId, message: "Sequential update started" };
+	});
+
+	/** GET /admin/op/:id - Poll operation progress. */
+	app.get<{ Params: { id: string } }>("/admin/op/:id", async (req, reply) => {
+		if (!requireAdmin(req.headers.authorization)) {
+			return reply.status(401).send({ error: "Unauthorized" });
+		}
+		const op = adminOps.get(req.params.id);
+		if (!op) return reply.status(404).send({ error: "Operation not found" });
+		return { status: op.status, log: op.log, done: op.done, success: op.success };
+	});
+
+	/** GET /admin/logs/:index - Retrieve recent logs from a validator. */
+	app.get<{ Params: { index: string } }>("/admin/logs/:index", async (req, reply) => {
+		if (!requireAdmin(req.headers.authorization)) {
+			return reply.status(401).send({ error: "Unauthorized" });
+		}
+		const idx = Number(req.params.index);
+		const vc = VALIDATOR_CONFIGS[idx];
+		if (!vc) return reply.status(404).send({ error: "Validator not found" });
+
+		try {
+			const abciLog = await runOnValidator(vc, "tail -50 ~/.ensoul/abci-server.log 2>/dev/null || echo 'No ABCI log'", 10_000);
+			const cometLog = await runOnValidator(vc, "tail -50 ~/.ensoul/cometbft.log 2>/dev/null || echo 'No CometBFT log'", 10_000);
+			return { validator: vc.moniker, abci: abciLog, cometbft: cometLog };
+		} catch (err) {
+			return reply.status(500).send({ error: err instanceof Error ? err.message : "Failed to retrieve logs" });
+		}
 	});
 
 	// Initial poll
