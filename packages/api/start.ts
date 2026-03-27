@@ -161,13 +161,14 @@ async function signAndSubmitDelegation(validatorDid: string, amount: bigint = FO
 	if (!treasuryDid || !treasuryKeyPath) return false;
 
 	try {
+		const ts = Date.now();
 		const txPayload = JSON.stringify({
 			type: "delegate",
 			from: treasuryDid,
 			to: validatorDid,
 			amount: amount.toString(),
 			nonce: treasuryNonce,
-			timestamp: Date.now(),
+			timestamp: ts,
 		});
 
 		const seedHex = await loadTreasurySeed();
@@ -190,7 +191,7 @@ async function signAndSubmitDelegation(validatorDid: string, amount: bigint = FO
 			to: validatorDid,
 			amount: amount.toString(),
 			nonce: treasuryNonce,
-			timestamp: Date.now(),
+			timestamp: ts,
 			signature: bytesToHexLocal(signature),
 		};
 
@@ -464,14 +465,15 @@ async function signAndSubmitWelcomeBonus(agentDid: string): Promise<boolean> {
 	if (!onboardingDid || !onboardingKeyPath) return false;
 
 	try {
-		// Build the transaction payload (same format as @ensoul/ledger encodeTxPayload)
+		const ts = Date.now();
+		// Build the transaction payload (same format used for signature verification)
 		const txPayload = JSON.stringify({
 			type: "transfer",
 			from: onboardingDid,
 			to: agentDid,
 			amount: WELCOME_BONUS.toString(),
 			nonce: onboardingNonce,
-			timestamp: Date.now(),
+			timestamp: ts,
 		});
 
 		// Load seed from file, sign, then discard immediately
@@ -490,14 +492,14 @@ async function signAndSubmitWelcomeBonus(agentDid: string): Promise<boolean> {
 		// Clear seed from memory
 		seed.fill(0);
 
-		// Build serialized transaction for the peer API
+		// Build serialized transaction (MUST use the same timestamp as the signed payload)
 		const serializedTx = {
 			type: "transfer",
 			from: onboardingDid!,
 			to: agentDid,
 			amount: WELCOME_BONUS.toString(),
 			nonce: onboardingNonce,
-			timestamp: Date.now(),
+			timestamp: ts,
 			signature: bytesToHexLocal(signature),
 		};
 

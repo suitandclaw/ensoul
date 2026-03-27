@@ -7,6 +7,13 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@noble/ed25519':
+        specifier: ^3.0.0
+        version: 3.0.0
+      '@noble/hashes':
+        specifier: ^2.0.1
+        version: 2.0.1
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
@@ -32,6 +39,9 @@ importers:
       '@ensoul/ledger':
         specifier: workspace:*
         version: link:../ledger
+      '@noble/ed25519':
+        specifier: ^3.0.0
+        version: 3.0.0
       '@noble/hashes':
         specifier: ^1.7.0
         version: 1.8.0
@@ -345,6 +355,8 @@ importers:
       memory-level:
         specifier: ^3.1.0
         version: 3.1.0
+
+  packages/telegram-bot: {}
 
   packages/website: {}
 
