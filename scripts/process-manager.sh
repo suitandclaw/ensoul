@@ -20,9 +20,22 @@
 #
 
 LOG="$HOME/.ensoul/process-manager.log"
+LOCKFILE="$HOME/.ensoul/process-manager.lock"
 mkdir -p "$HOME/.ensoul"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"; }
+
+# Prevent concurrent runs (launchd can trigger overlapping executions)
+if [ -f "$LOCKFILE" ]; then
+    lock_age=$(( $(date +%s) - $(stat -f %m "$LOCKFILE" 2>/dev/null || stat -c %Y "$LOCKFILE" 2>/dev/null || echo 0) ))
+    if [ "$lock_age" -lt 60 ] 2>/dev/null; then
+        exit 0  # Another instance is running or just ran
+    fi
+    # Stale lock (over 60s old), remove it
+    rm -f "$LOCKFILE"
+fi
+echo $$ > "$LOCKFILE"
+trap 'rm -f "$LOCKFILE"' EXIT
 
 # ── Environment setup (run once at script start) ──────────────────────
 
@@ -126,10 +139,14 @@ restart_full_stack() {
 
     # Start CometBFT
     start_cometbft
-    sleep 5
+    sleep 8
 
-    # Start proxy
-    start_proxy
+    # Start proxy (only if CometBFT is now listening)
+    if is_cometbft_alive; then
+        start_proxy
+    else
+        log "WARN: CometBFT not yet listening, proxy start deferred to next cycle"
+    fi
 }
 
 restart_cometbft_only() {
