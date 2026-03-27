@@ -449,6 +449,10 @@ function renderDashboard(): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ensoul Network Status</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0f;color:#e0e0e0;line-height:1.6;-webkit-font-smoothing:antialiased}
@@ -756,6 +760,29 @@ async function main(): Promise<void> {
 			done();
 		});
 		await logAlert("Basic auth enabled (ENSOUL_STATUS_PASSWORD set)");
+	}
+
+	// ── Favicons ────────────────────────────────────────────────
+
+	const faviconDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "assets", "favicons");
+	const faviconFiles: Record<string, { file: string; mime: string }> = {
+		"/favicon.ico": { file: "favicon.ico", mime: "image/x-icon" },
+		"/favicon-32x32.png": { file: "favicon-32x32.png", mime: "image/png" },
+		"/favicon-16x16.png": { file: "favicon-16x16.png", mime: "image/png" },
+		"/apple-touch-icon.png": { file: "apple-touch-icon.png", mime: "image/png" },
+		"/android-chrome-192x192.png": { file: "android-chrome-192x192.png", mime: "image/png" },
+		"/android-chrome-512x512.png": { file: "android-chrome-512x512.png", mime: "image/png" },
+	};
+
+	for (const [route, info] of Object.entries(faviconFiles)) {
+		app.get(route, async (_req, reply) => {
+			try {
+				const data = await readFile(join(faviconDir, info.file));
+				return reply.type(info.mime).send(data);
+			} catch {
+				return reply.status(404).send("Not found");
+			}
+		});
 	}
 
 	app.get("/", async (_req, reply) => {
