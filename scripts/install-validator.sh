@@ -765,7 +765,10 @@ wait_and_report() {
     echo "    3. Stake tokens to begin producing blocks"
     echo ""
 
-    if [ -z "$public_ip" ] 2>/dev/null; then
+    # Check if the node has a public IP set
+    local public_ip_check
+    public_ip_check=$(curl -4 -s -m 5 https://ifconfig.me 2>/dev/null || echo "")
+    if [ -z "$public_ip_check" ] 2>/dev/null; then
         echo "  WARNING: No public IP detected."
         echo "    Option A: Forward port 26656 on your router to this machine."
         echo "    Option B: Use Tailscale (https://tailscale.com) and share your"
