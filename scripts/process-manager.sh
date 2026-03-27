@@ -57,8 +57,8 @@ is_proxy_alive()   { is_port_alive 9000;  }
 
 start_abci() {
     log "START: ABCI server on port 26658"
-    nohup bash -l -c "cd $HOME/ensoul && npx tsx packages/abci-server/src/index.ts --port 26658" >> "$HOME/.ensoul/abci-server.log" 2>&1 &
-    log "START: ABCI PID $!"
+    bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/abci-server/src/index.ts --port 26658 >> $HOME/.ensoul/abci-server.log 2>&1 &"
+    log "START: ABCI launched"
 }
 
 start_cometbft() {
@@ -93,8 +93,8 @@ start_cometbft() {
 
 start_proxy() {
     log "START: Compat proxy on port 9000"
-    nohup bash -l -c "cd $HOME/ensoul && npx tsx packages/abci-server/src/compat-proxy.ts --port 9000" >> "$HOME/.ensoul/compat-proxy.log" 2>&1 &
-    log "START: Proxy PID $!"
+    bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/abci-server/src/compat-proxy.ts --port 9000 >> $HOME/.ensoul/compat-proxy.log 2>&1 &"
+    log "START: Proxy launched"
 }
 
 # ── Kill functions (by port, safe) ────────────────────────────────────
