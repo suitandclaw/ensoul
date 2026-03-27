@@ -11,19 +11,43 @@
 #   - ABCI dies:     kill CometBFT, restart ABCI, wait, restart CometBFT, restart proxy
 #   - CometBFT dies: restart CometBFT only (ABCI is still running)
 #   - Proxy dies:    restart proxy only
-#   - Stale blocks:  LOG ONLY, never act
+#   - Stale blocks:  ALERT + LOG, never restart (consensus issue, not process issue)
 #   - NEVER kill cloudflared, explorer (3000), monitor (4000), or API (5050)
 #
-# Usage:
-#   bash scripts/process-manager.sh          # single check + restart cycle
-#   launchd runs this every 30 seconds
+# Alerts via ntfy.sh push notifications.
+#   Topic stored in ~/.ensoul/ntfy-topic.txt
+#   Install ntfy app on phone and subscribe to the topic.
 #
 
 LOG="$HOME/.ensoul/process-manager.log"
 LOCKFILE="$HOME/.ensoul/process-manager.lock"
+NTFY_TOPIC_FILE="$HOME/.ensoul/ntfy-topic.txt"
+STALE_ALERT_FILE="$HOME/.ensoul/.stale-alerted"
+HOSTNAME_SHORT=$(hostname -s 2>/dev/null || echo "unknown")
 mkdir -p "$HOME/.ensoul"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"; }
+
+# ── Push notification via ntfy.sh ─────────────────────────────────────
+
+alert() {
+    local title="$1"
+    local body="$2"
+    local priority="${3:-default}"
+    log "ALERT: $title: $body"
+
+    local topic
+    topic=$(cat "$NTFY_TOPIC_FILE" 2>/dev/null)
+    [ -z "$topic" ] && return
+
+    curl -s -o /dev/null \
+        -H "Title: $title" \
+        -H "Priority: $priority" \
+        -H "Tags: ${4:-warning}" \
+        -d "$body" \
+        "ntfy.sh/$topic" 2>/dev/null &
+    log "ALERT SENT via ntfy.sh"
+}
 
 # Prevent concurrent runs (launchd can trigger overlapping executions)
 if [ -f "$LOCKFILE" ]; then
@@ -31,7 +55,6 @@ if [ -f "$LOCKFILE" ]; then
     if [ "$lock_age" -lt 60 ] 2>/dev/null; then
         exit 0  # Another instance is running or just ran
     fi
-    # Stale lock (over 60s old), remove it
     rm -f "$LOCKFILE"
 fi
 echo $$ > "$LOCKFILE"
@@ -64,7 +87,6 @@ start_abci() {
 start_cometbft() {
     log "START: CometBFT via Cosmovisor"
 
-
     local NODE_DIR="$HOME/.cometbft-ensoul/node"
     export DAEMON_NAME=cometbft
     export DAEMON_HOME="$NODE_DIR"
@@ -74,7 +96,6 @@ start_cometbft() {
 
     mkdir -p "$NODE_DIR/cosmovisor/genesis/bin" "$NODE_DIR/backups"
 
-    # Ensure genesis binary exists
     if [ ! -f "$NODE_DIR/cosmovisor/genesis/bin/cometbft" ]; then
         local CMT_BIN
         CMT_BIN=$(which cometbft 2>/dev/null || echo "$HOME/go/bin/cometbft")
@@ -106,7 +127,6 @@ kill_by_port() {
     if [ -n "$pids" ]; then
         echo "$pids" | xargs kill 2>/dev/null
         sleep 2
-        # Force kill if still alive
         pids=$(lsof -ti :"$port" 2>/dev/null)
         [ -n "$pids" ] && echo "$pids" | xargs kill -9 2>/dev/null
     fi
@@ -115,38 +135,35 @@ kill_by_port() {
 # ── Restart sequences ────────────────────────────────────────────────
 
 restart_full_stack() {
-    log "ACTION: Full stack restart (ABCI -> CometBFT -> Proxy)"
+    alert "[$HOSTNAME_SHORT] ABCI DEAD" "Full stack restart in progress (ABCI, CometBFT, proxy)" "high" "rotating_light"
 
-    # Kill CometBFT and proxy first (they depend on ABCI)
     kill_by_port 26657
     kill_by_port 26656
     kill_by_port 9000
     sleep 1
 
-    # Start ABCI
     start_abci
     sleep 5
 
-    # Verify ABCI is listening
     if ! is_abci_alive; then
         log "ERROR: ABCI failed to start on port 26658"
+        alert "[$HOSTNAME_SHORT] ABCI FAILED" "ABCI did not start after restart. Manual intervention needed." "urgent" "skull"
         return 1
     fi
 
-    # Start CometBFT
     start_cometbft
     sleep 8
 
-    # Start proxy (only if CometBFT is now listening)
     if is_cometbft_alive; then
         start_proxy
+        alert "[$HOSTNAME_SHORT] RECOVERED" "Full stack restarted successfully" "low" "white_check_mark"
     else
-        log "WARN: CometBFT not yet listening, proxy start deferred to next cycle"
+        log "WARN: CometBFT not yet listening, proxy deferred to next cycle"
     fi
 }
 
 restart_cometbft_only() {
-    log "ACTION: Restarting CometBFT only (ABCI is alive)"
+    alert "[$HOSTNAME_SHORT] CometBFT DEAD" "Restarting CometBFT (ABCI still alive)" "default" "warning"
     kill_by_port 26657
     kill_by_port 26656
     sleep 2
@@ -154,7 +171,7 @@ restart_cometbft_only() {
 }
 
 restart_proxy_only() {
-    log "ACTION: Restarting compat proxy only"
+    alert "[$HOSTNAME_SHORT] Proxy DEAD" "Restarting compat proxy on port 9000" "default" "warning"
     kill_by_port 9000
     sleep 1
     start_proxy
@@ -180,7 +197,6 @@ main() {
     if [ "$cmt_ok" = "false" ]; then
         log "ALERT: CometBFT is dead (ABCI is alive)"
         restart_cometbft_only
-        # Also check proxy after CometBFT restarts
         sleep 3
         if ! is_proxy_alive; then
             start_proxy
@@ -195,7 +211,7 @@ main() {
         return
     fi
 
-    # Case 4: Everything alive. Check block freshness for logging only.
+    # Case 4: Everything alive. Check block freshness and disk space.
     local age=0 height="?"
     local result
     result=$(curl -s -m 5 "http://localhost:26657/status" 2>/dev/null)
@@ -213,12 +229,38 @@ except:
 " 2>/dev/null || echo "0")
     fi
 
-    # Log stale blocks (never act on them)
+    # Alert on stale blocks (once per stall, not every 30s)
     if [ "$age" -gt 120 ] 2>/dev/null; then
+        if [ ! -f "$STALE_ALERT_FILE" ]; then
+            alert "[$HOSTNAME_SHORT] CHAIN STALLED" "No new block in ${age}s at height $height. All processes alive." "high" "rotating_light"
+            touch "$STALE_ALERT_FILE"
+        fi
         log "WARN: Blocks stale for ${age}s at h=$height (all processes alive, not restarting)"
+    else
+        # Clear the stale alert flag when blocks resume
+        if [ -f "$STALE_ALERT_FILE" ]; then
+            alert "[$HOSTNAME_SHORT] Chain resumed" "Blocks producing again at height $height" "low" "white_check_mark"
+            rm -f "$STALE_ALERT_FILE"
+        fi
     fi
 
-    # Periodic health log (every ~300 blocks, roughly every 10 minutes)
+    # Check disk space (alert if below 10%)
+    local disk_pct
+    disk_pct=$(df -h "$HOME" 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5}')
+    if [ -n "$disk_pct" ] && [ "$disk_pct" -gt 90 ] 2>/dev/null; then
+        alert "[$HOSTNAME_SHORT] DISK LOW" "Disk usage at ${disk_pct}% on $HOME" "high" "floppy_disk"
+    fi
+
+    # Check peer count (alert if below 2)
+    if [ "$height" != "?" ]; then
+        local peers
+        peers=$(curl -s -m 3 "http://localhost:26657/net_info" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['n_peers'])" 2>/dev/null || echo "?")
+        if [ "$peers" != "?" ] && [ "$peers" -lt 2 ] 2>/dev/null; then
+            alert "[$HOSTNAME_SHORT] LOW PEERS" "Only $peers peers connected at height $height" "high" "warning"
+        fi
+    fi
+
+    # Periodic health log (every ~300 blocks)
     if [ "$height" != "?" ] && [ $((height % 300)) -lt 2 ] 2>/dev/null; then
         log "OK: h=$height age=${age}s abci=ok cmt=ok proxy=ok"
     fi

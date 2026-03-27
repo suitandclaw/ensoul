@@ -67,6 +67,36 @@ let lastHeight = 0;
 let lastHeightAt = Date.now();
 const previousStatuses = new Map<string, "healthy" | "down" | "degraded">();
 
+// Alert history (kept in memory, shown on dashboard)
+interface AlertEntry {
+	timestamp: string;
+	message: string;
+	level: "up" | "down" | "degraded" | "info";
+}
+const alertHistory: AlertEntry[] = [];
+const MAX_ALERT_HISTORY = 100;
+
+/** Read ntfy topic from disk. */
+function getNtfyTopic(): string {
+	try {
+		return readFileSync(join(homedir(), ".ensoul", "ntfy-topic.txt"), "utf-8").trim();
+	} catch { return ""; }
+}
+
+/** Send push notification via ntfy.sh. */
+async function sendNtfy(msg: string, priority = "default"): Promise<void> {
+	const topic = getNtfyTopic();
+	if (!topic) return;
+	try {
+		await fetch(`https://ntfy.sh/${topic}`, {
+			method: "POST",
+			headers: { "Title": "Ensoul Monitor", "Priority": priority },
+			body: msg,
+			signal: AbortSignal.timeout(5000),
+		});
+	} catch { /* non-fatal */ }
+}
+
 // ── Polling ──────────────────────────────────────────────────────────
 
 // Load validator list from config file (not hardcoded)
@@ -246,17 +276,34 @@ async function pollAll(): Promise<void> {
 		checkedAt: now,
 	};
 
-	// Alerts
+	// Alerts with history and push notifications
 	for (const s of services) {
 		const prev = previousStatuses.get(s.name);
 		if (prev && prev !== s.status) {
-			const msg = s.status === "down"
-				? `[DOWN] ${s.name} is unreachable`
-				: s.status === "healthy" && prev === "down"
-					? `[UP] ${s.name} is back online`
-					: `[${s.status.toUpperCase()}] ${s.name} status changed`;
+			const ts = new Date().toISOString();
+			let msg: string;
+			let level: AlertEntry["level"];
+			let priority = "default";
+
+			if (s.status === "down") {
+				msg = `[DOWN] ${s.name} is unreachable`;
+				level = "down";
+				priority = "high";
+			} else if (s.status === "healthy" && prev === "down") {
+				msg = `[UP] ${s.name} is back online`;
+				level = "up";
+				priority = "low";
+			} else {
+				msg = `[${s.status.toUpperCase()}] ${s.name} status changed`;
+				level = "degraded";
+			}
+
+			alertHistory.unshift({ timestamp: ts, message: msg, level });
+			if (alertHistory.length > MAX_ALERT_HISTORY) alertHistory.pop();
+
 			await logAlert(msg);
 			await sendWebhook(msg);
+			await sendNtfy(msg, priority);
 		}
 		previousStatuses.set(s.name, s.status);
 	}
@@ -717,6 +764,10 @@ async function main(): Promise<void> {
 
 	app.get("/api/health", async () => {
 		return health;
+	});
+
+	app.get("/api/alerts", async () => {
+		return { alerts: alertHistory, count: alertHistory.length };
 	});
 
 	// Proxy validator status to avoid CORS issues (browser can't fetch cross-origin)
