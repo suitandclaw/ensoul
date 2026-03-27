@@ -60,6 +60,7 @@ interface ValidatorConfig {
 	rpcPort: number;
 	role: string;
 	user: string;
+	sshPort?: number;
 }
 
 const VALIDATORS: ValidatorConfig[] = (() => {
@@ -101,7 +102,8 @@ async function sendMessage(chatId: number, text: string, parse_mode = "HTML"): P
 
 function sshPrefix(vc: ValidatorConfig): string {
 	if (vc.moniker === "ensoul-mbp") return "";
-	return `ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${vc.user}@${vc.tailscaleIp}`;
+	const portFlag = vc.sshPort ? `-p ${vc.sshPort}` : "";
+	return `ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${portFlag} ${vc.user}@${vc.tailscaleIp}`;
 }
 
 function runCmd(vc: ValidatorConfig, cmd: string, timeoutMs = 30_000): Promise<string> {
@@ -301,8 +303,10 @@ async function handleAgents(chatId: number): Promise<void> {
 // ── Restart / Update with confirmation ──────────────────────────────
 
 let pendingAction: { type: "restart" | "update"; target: string; vc: ValidatorConfig | null; all: boolean } | null = null;
+let botLocked = false;
 
 async function handleRestart(chatId: number, arg: string): Promise<void> {
+	if (botLocked) { await sendMessage(chatId, "\u{1F512} Bot is locked. Send /unlock to re-enable destructive commands."); return; }
 	if (!arg) { await sendMessage(chatId, "Usage: /restart mini1, /restart vps"); return; }
 	const vc = findValidator(arg);
 	if (!vc) { await sendMessage(chatId, `Unknown validator: ${arg}`); return; }
@@ -311,6 +315,7 @@ async function handleRestart(chatId: number, arg: string): Promise<void> {
 }
 
 async function handleUpdate(chatId: number, arg: string): Promise<void> {
+	if (botLocked) { await sendMessage(chatId, "\u{1F512} Bot is locked. Send /unlock to re-enable destructive commands."); return; }
 	const isAll = arg.toLowerCase() === "all";
 	if (!arg) { await sendMessage(chatId, "Usage: /update mini1, /update vps, /update all"); return; }
 	if (!isAll) {
@@ -525,6 +530,8 @@ const HELP_TEXT = `<b>Ensoul Bot Commands</b>
 /update all \u2014 Update all validators sequentially
 /agents \u2014 Agent and consciousness stats
 /alerts [on|off] \u2014 Toggle automatic alerts
+/lock \u2014 Disable restart/update commands (security)
+/unlock \u2014 Re-enable all commands
 /help \u2014 This message`;
 
 // ── HTML escape ─────────────────────────────────────────────────────
@@ -639,6 +646,14 @@ async function main(): Promise<void> {
 							} else {
 								await sendMessage(chatIdNum, `Alerts are ${alertsEnabled ? "ON" : "OFF"}.\nUsage: /alerts on, /alerts off`);
 							}
+							break;
+						case "/lock":
+							botLocked = true;
+							await sendMessage(chatIdNum, "\u{1F512} Bot locked. /restart and /update commands disabled. Send /unlock to re-enable.");
+							break;
+						case "/unlock":
+							botLocked = false;
+							await sendMessage(chatIdNum, "\u{1F513} Bot unlocked. All commands enabled.");
 							break;
 						default:
 							await sendMessage(chatIdNum, `Unknown command. Type /help for a list.`);

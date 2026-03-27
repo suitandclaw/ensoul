@@ -56,8 +56,9 @@
       "publicIp": "178.156.199.91",
       "rpcPort": 26657,
       "role": "cloud",
-      "ssh": "root@178.156.199.91",
-      "user": "root",
+      "ssh": "ensoul@178.156.199.91",
+      "sshPort": 2222,
+      "user": "ensoul",
       "cometbftAddress": "72BD5ECE8CF5CEE06D89B3F1BCDD7DE05DF84150",
       "did": "did:key:z6Mkf3a7MhLm2Ate22pTDAcnAYyvep176gRas6Qxrr4yKKSv"
     }
