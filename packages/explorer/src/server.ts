@@ -2,6 +2,9 @@ import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import { hashTrustAssessment, assessTrust } from "@ensoul/node";
 import type { ExplorerDataSource } from "./types.js";
+import { readFile } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	renderDashboard,
 	renderAgentProfile,
@@ -129,6 +132,29 @@ export async function createExplorer(
 	app.get("/api/v1/stats", async (_req, reply) => {
 		return reply.send(dataSource.getNetworkStats());
 	});
+
+	// ── Favicons ────────────────────────────────────────────────
+
+	const faviconDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "assets", "favicons");
+	const faviconFiles: Record<string, { file: string; mime: string }> = {
+		"/favicon.ico": { file: "favicon.ico", mime: "image/x-icon" },
+		"/favicon-32x32.png": { file: "favicon-32x32.png", mime: "image/png" },
+		"/favicon-16x16.png": { file: "favicon-16x16.png", mime: "image/png" },
+		"/apple-touch-icon.png": { file: "apple-touch-icon.png", mime: "image/png" },
+		"/android-chrome-192x192.png": { file: "android-chrome-192x192.png", mime: "image/png" },
+		"/android-chrome-512x512.png": { file: "android-chrome-512x512.png", mime: "image/png" },
+	};
+
+	for (const [route, info] of Object.entries(faviconFiles)) {
+		app.get(route, async (_req, reply) => {
+			try {
+				const data = await readFile(join(faviconDir, info.file));
+				return reply.type(info.mime).send(data);
+			} catch {
+				return reply.status(404).send("Not found");
+			}
+		});
+	}
 
 	// ── HTML pages ───────────────────────────────────────────────
 

@@ -90,7 +90,7 @@ function explorerNav(activeTab: string): string {
 
 function layout(title: string, tab: string, content: string, autoRefresh = false): string {
 	const refreshScript = autoRefresh ? `<script>setTimeout(function(){location.reload()},6000)</script>` : "";
-	return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - Ensoul Explorer</title><style>${CSS}</style></head><body>${siteNav("explorer")}${explorerNav(tab)}<div class="content">${content}</div><div class="footer">ensoul.dev - the immortality layer for AI agents</div>${refreshScript}</body></html>`;
+	return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - Ensoul Explorer</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png"><link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><style>${CSS}</style></head><body>${siteNav("explorer")}${explorerNav(tab)}<div class="content">${content}</div><div class="footer">ensoul.dev - the immortality layer for AI agents</div>${refreshScript}</body></html>`;
 }
 
 /**
