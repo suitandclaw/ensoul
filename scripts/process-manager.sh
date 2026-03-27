@@ -24,13 +24,11 @@ mkdir -p "$HOME/.ensoul"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"; }
 
-# ── Environment setup ─────────────────────────────────────────────────
+# ── Environment setup (run once at script start) ──────────────────────
 
-setup_env() {
-    export PATH="/opt/homebrew/bin:$HOME/go/bin:/usr/local/go/bin:/usr/local/bin:$PATH"
-    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-}
+export PATH="/opt/homebrew/bin:$HOME/go/bin:/usr/local/go/bin:/usr/local/bin:$PATH"
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
 # ── Process checks (port-based, more reliable than pgrep) ─────────────
 
@@ -46,7 +44,7 @@ is_proxy_alive()   { is_port_alive 9000;  }
 
 start_abci() {
     log "START: ABCI server on port 26658"
-    setup_env
+
     cd "$HOME/ensoul" 2>/dev/null || return 1
     nohup npx tsx packages/abci-server/src/index.ts --port 26658 >> "$HOME/.ensoul/abci-server.log" 2>&1 &
     log "START: ABCI PID $!"
@@ -54,7 +52,7 @@ start_abci() {
 
 start_cometbft() {
     log "START: CometBFT via Cosmovisor"
-    setup_env
+
 
     local NODE_DIR="$HOME/.cometbft-ensoul/node"
     export DAEMON_NAME=cometbft
@@ -84,7 +82,7 @@ start_cometbft() {
 
 start_proxy() {
     log "START: Compat proxy on port 9000"
-    setup_env
+
     cd "$HOME/ensoul" 2>/dev/null || return 1
     nohup npx tsx packages/abci-server/src/compat-proxy.ts --port 9000 >> "$HOME/.ensoul/compat-proxy.log" 2>&1 &
     log "START: Proxy PID $!"
