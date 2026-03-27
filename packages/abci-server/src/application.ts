@@ -814,6 +814,21 @@ function handleQuery(
 			};
 			break;
 		}
+		case "agents": {
+			// List all registered agents. Paginated via query params.
+			const agentPage = Math.max(1, Number(queryParams.get("page") ?? 1));
+			const agentLimit = Math.min(500, Math.max(1, Number(queryParams.get("limit") ?? 100)));
+			const allAgents = Array.from(state.agents.values());
+			const agentStart = (agentPage - 1) * agentLimit;
+			const agentSlice = allAgents.slice(agentStart, agentStart + agentLimit);
+			value = {
+				agents: agentSlice,
+				total: allAgents.length,
+				page: agentPage,
+				pages: Math.ceil(allAgents.length / agentLimit),
+			};
+			break;
+		}
 		case "agent": {
 			const agent = state.agents.get(param);
 			const acct = state.committed.getAccount(param);
