@@ -117,8 +117,6 @@ detect_os() {
 
 install_go() {
     if command_exists go; then
-        local cur
-        cur=$(go version 2>/dev/null | grep -oP 'go([0-9]+\.[0-9]+)' | head -1 | tr -d 'go' || echo "0")
         log "Go already installed: $(go version)"
         return
     fi
@@ -238,8 +236,8 @@ install_cosmovisor() {
 install_system_deps() {
     if [ "$OS" = "ubuntu" ]; then
         log "Installing system dependencies..."
-        sudo apt-get update -qq
-        sudo apt-get install -y -qq git curl build-essential jq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl build-essential jq
     elif [ "$OS" = "macos" ]; then
         if ! command_exists git; then
             log "Installing Xcode command line tools..."
@@ -318,9 +316,9 @@ configure_cometbft() {
     # Set seeds
     sed -i.bak "s|^seeds = .*|seeds = \"$SEED_NODE\"|" "$CONFIG"
 
-    # Set external_address (auto-detect public IP)
+    # Set external_address (auto-detect public IPv4)
     local public_ip
-    public_ip=$(curl -s -m 5 https://ifconfig.me 2>/dev/null || curl -s -m 5 https://api.ipify.org 2>/dev/null || echo "")
+    public_ip=$(curl -4 -s -m 5 https://ifconfig.me 2>/dev/null || curl -4 -s -m 5 https://api.ipify.org 2>/dev/null || echo "")
 
     if [ -n "$public_ip" ]; then
         sed -i.bak "s|^external_address = .*|external_address = \"${public_ip}:26656\"|" "$CONFIG"
@@ -363,7 +361,10 @@ setup_cosmovisor() {
     mkdir -p "$CMT_HOME/cosmovisor/upgrades"
     mkdir -p "$CMT_HOME/backups"
 
-    cp "$CMT_BIN" "$CMT_HOME/cosmovisor/genesis/bin/cometbft"
+    # Only copy if not already there or not currently in use
+    if [ ! -f "$CMT_HOME/cosmovisor/genesis/bin/cometbft" ]; then
+        cp "$CMT_BIN" "$CMT_HOME/cosmovisor/genesis/bin/cometbft"
+    fi
 
     log "Cosmovisor ready."
 }
