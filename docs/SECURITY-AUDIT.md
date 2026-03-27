@@ -40,7 +40,7 @@
 
 ### Home Machines (MBP, Mini 1, Mini 2, Mini 3)
 
-All behind NAT, accessible only via Tailscale. CometBFT RPC binds to 0.0.0.0 which is acceptable behind NAT but should be tightened to 127.0.0.1 at the next planned restart.
+All behind NAT, accessible only via Tailscale. CometBFT RPC now binds to 127.0.0.1:26657 on all machines (changed from 0.0.0.0 via rolling restart on 2026-03-27, zero downtime, 5/5 validators signed throughout).
 
 ### Key File Permissions
 
@@ -54,39 +54,47 @@ All behind NAT, accessible only via Tailscale. CometBFT RPC binds to 0.0.0.0 whi
 
 ---
 
-## Critical Findings (from both audits)
+## Critical Findings
 
 ### ENSOUL-001: Transaction Signature Verification Not Enforced
 
-**Severity: CRITICAL** (identified 2026-03-19, still open)
+**Severity: CRITICAL** (identified 2026-03-19)
 
-`verifyTxSignature()` exists in `packages/ledger/src/transactions.ts` but is never called in the ABCI application's CheckTx or FinalizeBlock handlers. Any attacker who knows a valid DID and its current nonce can forge transactions including transfers, stakes, and delegations.
+**Status: RESOLVED** (commit a9a0386, 2026-03-27)
 
-**Status:** Open. Fix requires adding signature verification calls in `application.ts` CheckTx handler with public key extraction from DID.
+Ed25519 signature verification is now enforced in BOTH CheckTx and FinalizeBlock for every transaction type. The `verifySignature()` function extracts the public key from the sender's DID, verifies the Ed25519 signature over the canonical transaction payload, and rejects with code 31 if invalid. Four test cases pass: valid signature accepted, tampered signature rejected, wrong key rejected, missing signature rejected.
 
 ### ENSOUL-001b: agent_register and consciousness_store Bypass All Validation
 
 **Severity: CRITICAL** (identified 2026-03-27)
 
-These two transaction types completely skip signature verification, nonce checking, and balance validation (application.ts lines 440-448). Additionally, the `tx.data` field has no size limit, creating a DoS vector via memory exhaustion.
+**Status: RESOLVED** (commit a9a0386, 2026-03-27)
 
-**Status:** Open.
+Both transaction types now have full validation: Ed25519 signature verification, nonce checking, DID format validation, payload size limits (1 MB max for tx.data, 10 KB for metadata), and data structure validation. agent_register rejects duplicates. consciousness_store requires the agent to be registered first.
 
 ### ENSOUL-003: Browser Wallet Uses XOR Encryption
 
-**Severity: CRITICAL** (identified 2026-03-19, still open)
+**Severity: CRITICAL** (identified 2026-03-19)
 
-The browser wallet encrypts seeds using XOR with SHA-256, which is cryptographically broken. Single-round SHA-256 is fast to brute-force and XOR leaks information.
+**Status: RESOLVED** (resolved in a prior update before 2026-03-27)
 
-**Status:** Open.
+The wallet now uses AES-256-GCM with PBKDF2 key derivation (100,000 iterations, random 16-byte salt, random 12-byte IV). The XOR implementation was replaced. Remaining issue: key derivation from seed uses SHA-256 instead of proper Ed25519 (ENSOUL-014, medium severity, separate fix).
 
 ### ENSOUL-004: Handshake Verify Never Checks Signature
 
-**Severity: CRITICAL** (identified 2026-03-19, still open)
+**Severity: CRITICAL** (identified 2026-03-19)
 
-The `/v1/handshake/verify` endpoint always returns `valid: true` for fresh timestamps without actually verifying the Ed25519 signature.
+**Status: RESOLVED** (2026-03-27)
 
-**Status:** Open.
+The `/v1/handshake/verify` endpoint now performs three verification steps: (1) Ed25519 signature verification against the agent's registered public key, (2) stateRoot comparison against the on-chain consciousness commitment, (3) timestamp freshness check (10-minute window). All three must pass. Fixed undefined variable bugs where `sigHex` and `stateRoot` were never extracted from the proof string.
+
+### ENSOUL-005: Genesis Key Seeds in Git History
+
+**Severity: HIGH** (identified 2026-03-27)
+
+**Status: REVISED to LOW** (2026-03-27)
+
+Investigation confirmed genesis key files were NEVER committed to git. The .gitignore has protected them since repository creation. Added pre-commit hook (`scripts/pre-commit-security-check.sh`) that blocks commits containing seed hex strings, private key markers, bot tokens, and .env files. Expanded .gitignore to cover *.env, key-vault/, *-key.json, *-seed.txt.
 
 ---
 
@@ -136,28 +144,30 @@ All vulnerabilities are in development-only dependencies (vitest coverage toolin
 
 ### Phase 1: Before accepting external validators
 
-1. **Implement signature verification** in CheckTx and FinalizeBlock for all transaction types
-2. **Add full validation** to agent_register and consciousness_store (signature, nonce)
-3. **Add payload size limits** (1 MB max for tx.data)
-4. **Fix browser wallet** to use proper Ed25519 + scrypt encryption
-5. **Fix handshake verification** to actually verify signatures
+1. ~~Implement signature verification~~ DONE (commit a9a0386)
+2. ~~Add full validation to agent_register and consciousness_store~~ DONE (commit a9a0386)
+3. ~~Add payload size limits (1 MB)~~ DONE (commit a9a0386)
+4. ~~Fix browser wallet encryption~~ DONE (AES-256-GCM + PBKDF2 already in place)
+5. ~~Fix handshake verification~~ DONE (2026-03-27)
+6. ~~Bind CometBFT RPC to 127.0.0.1~~ DONE (rolling restart 2026-03-27)
+7. ~~Add pre-commit hook for secret detection~~ DONE (2026-03-27)
 
 ### Phase 2: Before external economic activity
 
-6. Add chainId to transaction signature payload (prevent cross-chain replay)
-7. Replace clock-based lockup with block-height-based lockup
-8. Encrypt onboarding and genesis key files at rest
-9. Include delegation registry in state root computation
-10. Restrict CORS to ensoul.dev domains only
+8. Add chainId to transaction signature payload (prevent cross-chain replay)
+9. Replace clock-based lockup with block-height-based lockup
+10. Encrypt onboarding and genesis key files at rest
+11. Include delegation registry in state root computation
+12. Restrict CORS to ensoul.dev domains only
+13. Fix wallet Ed25519 key derivation (ENSOUL-014)
 
 ### Phase 3: Production hardening
 
-11. Bind CometBFT RPC to 127.0.0.1 on all machines
-12. Add Content-Security-Policy headers to all web properties
-13. Implement HSM support for validator key signing
-14. Set up sentry node architecture for DDoS protection
-15. External security audit by a blockchain-specialized firm
-16. Bug bounty program
+14. Add Content-Security-Policy headers to all web properties
+15. Implement HSM support for validator key signing
+16. Set up sentry node architecture for DDoS protection
+17. External security audit by a blockchain-specialized firm
+18. Bug bounty program
 
 ---
 

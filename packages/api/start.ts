@@ -958,52 +958,81 @@ async function main(): Promise<void> {
 			return reply.status(400).send({ error: "identity, proof, and since are required" });
 		}
 
-		// Parse identity
-		const agentDid = body.identity.replace("did:ensoul:", "");
+		// Parse identity: full DID (did:key:z6Mk...)
+		const agentDid = body.identity;
 
-		// Parse proof: signature:stateRoot:version:timestamp
+		// Parse proof format: signatureHex:stateRoot:version:timestamp
 		const proofParts = body.proof.split(":");
 		if (proofParts.length < 4) {
-			return { valid: false, did: agentDid, error: "Malformed proof" };
+			return { valid: false, did: agentDid, error: "Malformed proof. Expected signature:stateRoot:version:timestamp" };
 		}
 
+		const sigHex = proofParts[0]!;
+		const stateRoot = proofParts[1]!;
 		const version = Number(proofParts[2]);
 		const timestamp = Number(proofParts[3]);
 
-		// Check freshness (10 minute window)
+		// Step 1: Check freshness (10 minute window)
 		if (Date.now() - timestamp > 600000) {
-			return { valid: false, did: agentDid, error: "Proof expired" };
+			return { valid: false, did: agentDid, error: "Proof expired (older than 10 minutes)" };
 		}
 
-		// Look up agent's public key from registration database
-		const agent = registeredAgents.get(agentDid);
-		if (!agent) {
+		// Step 2: Look up agent's public key
+		// Try ABCI first (on-chain source of truth), fall back to disk cache
+		let pubKeyHex: string | null = null;
+		const agentData = await abciQuery(`/agent/${agentDid}`);
+		if (agentData && agentData["publicKey"]) {
+			pubKeyHex = String(agentData["publicKey"]);
+		} else {
+			const cached = registeredAgents.get(agentDid);
+			if (cached) pubKeyHex = cached.publicKey;
+		}
+
+		if (!pubKeyHex) {
 			return { valid: false, did: agentDid, error: "Agent not registered (public key unknown)" };
 		}
 
-		// Verify Ed25519 signature
+		// Step 3: Verify Ed25519 signature over stateRoot:version:timestamp
 		const proofPayload = `${stateRoot}:${version}:${timestamp}`;
 		try {
 			const ed = await import("@noble/ed25519");
 			const { sha512 } = await import("@noble/hashes/sha2.js");
 			(ed as unknown as { hashes: { sha512: ((m: Uint8Array) => Uint8Array) | undefined } }).hashes.sha512 = (m: Uint8Array) => sha512(m);
 
+			if (sigHex.length !== 128) {
+				return { valid: false, did: agentDid, error: "Invalid signature length (expected 128 hex chars)" };
+			}
+
 			const sigBytes = hexToBytes(sigHex);
-			const pubKeyBytes = hexToBytes(agent.publicKey);
+			const pubKeyBytes = hexToBytes(pubKeyHex);
 			const payloadBytes = new TextEncoder().encode(proofPayload);
 			const sigValid = ed.verify(sigBytes, payloadBytes, pubKeyBytes);
 
 			if (!sigValid) {
-				return { valid: false, did: agentDid, error: "Invalid signature" };
+				return { valid: false, did: agentDid, error: "Ed25519 signature verification failed" };
 			}
 		} catch {
-			return { valid: false, did: agentDid, error: "Signature verification failed" };
+			return { valid: false, did: agentDid, error: "Signature verification error" };
 		}
 
-		const ageDays = Math.floor((Date.now() - agent.registeredAt) / 86400000);
-
-		// Determine trust level based on consciousness state
+		// Step 4: Verify state root matches on-chain consciousness data
 		const consciousness = consciousnessStore.get(agentDid);
+		let onChainMatch = false;
+		if (consciousness) {
+			onChainMatch = consciousness.stateRoot === stateRoot;
+		}
+		// Also check ABCI for the latest on-chain state
+		const csOnChain = await abciQuery(`/consciousness/${agentDid}`);
+		if (csOnChain && csOnChain["stateRoot"]) {
+			onChainMatch = String(csOnChain["stateRoot"]) === stateRoot;
+		}
+
+		if (!onChainMatch && consciousness) {
+			return { valid: false, did: agentDid, error: "State root does not match on-chain commitment" };
+		}
+
+		// All three checks passed: signature valid, timestamp fresh, state root matches
+		const ageDays = Math.floor((Date.now() - (consciousness?.storedAt ?? 0)) / 86400000);
 		let trustLevel = "basic";
 		if (consciousness && consciousness.version > 10) trustLevel = "verified";
 		if (consciousness && consciousness.version > 100) trustLevel = "anchored";
@@ -1013,6 +1042,7 @@ async function main(): Promise<void> {
 			did: agentDid,
 			consciousnessAge: ageDays,
 			consciousnessVersion: version,
+			stateRootVerified: onChainMatch,
 			trustLevel,
 		};
 	});
