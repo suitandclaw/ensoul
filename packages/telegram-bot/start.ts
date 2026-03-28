@@ -296,11 +296,44 @@ async function handleStatus(chatId: number): Promise<void> {
 
 async function handlePeers(chatId: number): Promise<void> {
 	const lines: string[] = ["<b>Peer Count</b>\n"];
-	for (const vc of VALIDATORS) {
-		const net = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "net_info");
-		const peers = net ? String(net["n_peers"]) : "offline";
-		lines.push(`${vc.moniker}: <b>${peers}</b> peers`);
+
+	// Get local peer info
+	const netInfo = await cometRpc("localhost", 26657, "net_info");
+	if (netInfo) {
+		const peers = netInfo["peers"] as Array<Record<string, unknown>> ?? [];
+		lines.push(`Local node: <b>${peers.length}</b> peers\n`);
+
+		// Get active validator addresses
+		const valResp = await cometRpc("localhost", 26657, "validators");
+		const valAddrs = new Set<string>();
+		if (valResp) {
+			const vs = valResp["validators"] as Array<Record<string, unknown>>;
+			for (const v of vs) if (Number(v["voting_power"]) > 0) valAddrs.add(String(v["address"]));
+		}
+
+		// Separate validators from full nodes
+		const fullNodes: Array<{ moniker: string; ip: string }> = [];
+		for (const p of peers) {
+			const ni = p["node_info"] as Record<string, unknown>;
+			const moniker = String(ni?.["moniker"] ?? "unknown");
+			const ip = String(p["remote_ip"] ?? "");
+			// Check if this peer has a validator entry in our config
+			const isConfigured = VALIDATORS.some(vc => vc.moniker === moniker);
+			if (!isConfigured) {
+				fullNodes.push({ moniker, ip });
+			}
+		}
+
+		if (fullNodes.length > 0) {
+			lines.push("<b>Non-validator peers:</b>");
+			for (const fn of fullNodes) {
+				lines.push(`  ${fn.moniker} (${fn.ip})`);
+			}
+		}
+	} else {
+		lines.push("Could not reach local CometBFT RPC");
 	}
+
 	await sendMessage(chatId, lines.join("\n"));
 }
 
