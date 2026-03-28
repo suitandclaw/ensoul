@@ -65,6 +65,16 @@
       "user": "root",
       "cometbftAddress": "C527415F763CF20DDD6D101710758C4828D61100",
       "did": "did:key:z6MkmjpHc9ae5WGf6WYjyiy6q4vyyvUj78Ybn7ca2KytsuJS"
+    },
+    {
+      "name": "Validator v6 (Hetzner Helsinki)",
+      "moniker": "ensoul-Helsinki1",
+      "publicIp": "204.168.192.25",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "user": "root",
+      "cometbftAddress": "DB0F90D95A78ECC6D3A846DDDEB01FA4BDCCA876",
+      "did": "did:key:z6MkiHUm3mnutJ2zQn9dxTNTsVd9TdtF52KwhEJe8vTN5uY7"
     }
   ]
 }
