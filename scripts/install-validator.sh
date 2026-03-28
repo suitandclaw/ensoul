@@ -345,7 +345,9 @@ configure_cometbft() {
     CURRENT_HEIGHT=$(curl -s -m 10 "http://${SEED_IP}:26657/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])" 2>/dev/null || echo "0")
 
     if [ "$CURRENT_HEIGHT" -gt 2000 ] 2>/dev/null; then
-        local TRUST_HEIGHT=$(( CURRENT_HEIGHT - 200 ))
+        # Align trust height to snapshot interval (1000 blocks) and go back one interval
+        # so a snapshot definitely exists at this height
+        local TRUST_HEIGHT=$(( (CURRENT_HEIGHT / 1000 - 1) * 1000 ))
         local TRUST_HASH
         TRUST_HASH=$(curl -s -m 10 "http://${SEED_IP}:26657/block?height=${TRUST_HEIGHT}" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['block_id']['hash'])" 2>/dev/null || echo "")
 
