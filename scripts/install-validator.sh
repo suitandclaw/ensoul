@@ -29,7 +29,7 @@ set -euo pipefail
 REPO_URL="https://github.com/suitandclaw/ensoul.git"
 API_URL="https://api.ensoul.dev"
 CHAIN_ID="ensoul-1"
-SEED_NODE="402a9f5c503c36d0dca5f1a8b7a3a2263efd039a@178.156.199.91:26656"
+SEED_NODE="402a9f5c503c36d0dca5f1a8b7a3a2263efd039a@178.156.199.91:26656,88fea3527d9f18d9aeefb2a98cfc30d7100eb2e3@5.78.199.4:26656"
 GO_VERSION="1.23.8"
 COMETBFT_VERSION="v0.38.17"
 COSMOVISOR_VERSION="v1.5.0"
