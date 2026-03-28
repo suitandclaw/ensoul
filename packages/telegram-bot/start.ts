@@ -222,25 +222,15 @@ async function handleStatus(chatId: number): Promise<void> {
 		lines.push(`${icon} ${vc.moniker}: h=${h} peers=${peers} ${statusText}`);
 	}
 
-	// Auto-discover unconfigured validators from API
-	try {
-		const peerResp = await fetch("https://api.ensoul.dev/v1/network/peers", { signal: AbortSignal.timeout(5000) });
-		if (peerResp.ok) {
-			const peerData = (await peerResp.json()) as { peers: Array<{ publicIp: string; moniker: string }> };
-			for (const p of peerData.peers) {
-				if (checkedIps.has(p.publicIp)) continue;
-				checkedIps.add(p.publicIp);
-				const status = await cometRpc(p.publicIp, 26657, "status");
-				if (status) {
-					const si = status["sync_info"] as Record<string, unknown>;
-					const h = si["latest_block_height"];
-					const catching = si["catching_up"];
-					const icon = catching ? "\u{1F7E1}" : "\u{1F7E2}";
-					lines.push(`${icon} ${p.moniker}: h=${h} ${catching ? "syncing" : "signing"}`);
-				}
-			}
+	// Show total active validator count from CometBFT
+	const valSetResp = await cometRpc("localhost", 26657, "validators");
+	if (valSetResp) {
+		const valSet = valSetResp["validators"] as Array<Record<string, unknown>>;
+		const activeCount = valSet?.filter(v => Number(v["voting_power"]) > 0).length ?? 0;
+		if (activeCount > VALIDATORS.length) {
+			lines.push(`\n(${activeCount} active validators total, ${activeCount - VALIDATORS.length} not in config)`);
 		}
-	} catch { /* non-fatal */ }
+	}
 
 	lines.push("");
 
