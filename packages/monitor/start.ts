@@ -128,17 +128,18 @@ const VALIDATOR_CONFIGS: ValidatorConfig[] = (() => {
 })();
 
 // Load validator list from config file (not hardcoded)
-// Always use Tailscale IP + CometBFT RPC for health checks (reliable, no tunnel dependency)
+// Use Tailscale IP for health checks, fall back to public IP for cloud validators without Tailscale
 const VALIDATORS: Array<{ name: string; url: string }> = VALIDATOR_CONFIGS.map((v) => ({
 	name: v.name,
-	url: `http://${v.tailscaleIp}:${v.rpcPort}`,
+	url: `http://${v.tailscaleIp || v.publicIp || "localhost"}:${v.rpcPort}`,
 }));
 
 /** Build an SSH command prefix for a validator. */
 function sshCmd(vc: ValidatorConfig): string {
 	if (vc.ssh === "localhost") return "";
+	const ip = vc.tailscaleIp || vc.publicIp || "";
 	const portFlag = vc.sshPort ? `-p ${vc.sshPort}` : "";
-	return `ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${portFlag} ${vc.user}@${vc.tailscaleIp}`;
+	return `ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${portFlag} ${vc.user}@${ip}`;
 }
 
 /** Run a command on a validator (local or remote via SSH). Returns stdout. */
