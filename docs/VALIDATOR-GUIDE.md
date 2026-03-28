@@ -471,23 +471,59 @@ curl -s http://localhost:26657/net_info | python3 -c \
 
 After your node is synced (`catching_up: false`), you need ENSL tokens staked to begin producing blocks.
 
-### Getting ENSL for staking
+### Validator Delegation Tiers
 
-**Pioneer Program:** The first 20 pioneer validators receive a 2,000,000 ENSL delegation from the foundation. Contact the team or use the pioneer registration endpoint.
+Ensoul uses a three-tier delegation system with sybil resistance.
 
-**Foundation Delegation:** The first 10 standard validators registered each day receive a 100,000 ENSL delegation, enough to begin block production immediately.
+**Tier 1: Foundation** (20 slots)
+- Operated by the core team
+- 2M ENSL delegation per validator
+- No application required
 
-**Register your validator:**
+**Tier 2: Pioneer** (20 slots)
+- For vetted external operators
+- 1M ENSL delegation per validator
+- Requires application and manual approval
+- Apply via:
 
 ```bash
-curl -X POST https://api.ensoul.dev/v1/validators/register \
+curl -X POST https://api.ensoul.dev/v1/validators/pioneer-apply \
   -H "Content-Type: application/json" \
   -d '{
     "did": "YOUR_DID",
-    "publicKey": "YOUR_PUBKEY",
-    "name": "your-validator-name"
+    "operator_name": "Your Name",
+    "operator_email": "you@example.com",
+    "operator_twitter": "@your_handle",
+    "description": "Brief description of your setup",
+    "motivation": "Why you want to validate Ensoul"
   }'
 ```
+
+**Tier 3: Open** (unlimited, with probation)
+- Anyone can register
+- Delegation starts at 10K ENSL, increases with proven uptime:
+  - Day 0: 10K ENSL (enough to enter the active set)
+  - After 7 days at 95%+ uptime: upgraded to 50K ENSL
+  - After 30 days at 95%+ uptime: upgraded to 100K ENSL
+- If uptime drops below 80%, delegation is revoked
+- After 30 days, validators must have at least one ensouled agent actively writing consciousness to maintain full delegation
+- Register via:
+
+```bash
+curl -X POST https://api.ensoul.dev/v1/validators/register-open \
+  -H "Content-Type: application/json" \
+  -d '{
+    "did": "YOUR_DID",
+    "operator_contact": "you@example.com"
+  }'
+```
+
+**Sybil resistance measures:**
+- Maximum 3 validators per cloud provider (ASN limit)
+- Maximum 5 new open-tier registrations per day
+- Maximum 3 validators per operator contact
+- Delegation pauses if treasury drops below 10M ENSL
+- Consciousness activity requirement ties validator incentives to the network's purpose
 
 ### How to submit a STAKE transaction
 
