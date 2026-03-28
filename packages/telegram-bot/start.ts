@@ -56,7 +56,8 @@ const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
 interface ValidatorConfig {
 	name: string;
 	moniker: string;
-	tailscaleIp: string;
+	tailscaleIp?: string;
+	publicIp?: string;
 	rpcPort: number;
 	role: string;
 	user: string;
@@ -102,8 +103,9 @@ async function sendMessage(chatId: number, text: string, parse_mode = "HTML"): P
 
 function sshPrefix(vc: ValidatorConfig): string {
 	if (vc.moniker === "ensoul-mbp") return "";
+	const ip = vc.tailscaleIp || vc.publicIp || "";
 	const portFlag = vc.sshPort ? `-p ${vc.sshPort}` : "";
-	return `ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${portFlag} ${vc.user}@${vc.tailscaleIp}`;
+	return `ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${portFlag} ${vc.user}@${ip}`;
 }
 
 function runCmd(vc: ValidatorConfig, cmd: string, timeoutMs = 30_000): Promise<string> {
@@ -199,7 +201,7 @@ async function handleStatus(chatId: number): Promise<void> {
 
 	// Each validator
 	for (const vc of VALIDATORS) {
-		const status = await cometRpc(vc.tailscaleIp, vc.rpcPort, "status");
+		const status = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "status");
 		if (!status) {
 			lines.push(`${vc.moniker}: <b>OFFLINE</b>`);
 			continue;
@@ -211,7 +213,7 @@ async function handleStatus(chatId: number): Promise<void> {
 		const catching = si["catching_up"];
 
 		let peers = "?";
-		const net = await cometRpc(vc.tailscaleIp, vc.rpcPort, "net_info");
+		const net = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "net_info");
 		if (net) peers = String(net["n_peers"]);
 
 		const icon = catching ? "\u{1F7E1}" : "\u{1F7E2}";
@@ -242,7 +244,7 @@ async function handleStatus(chatId: number): Promise<void> {
 async function handlePeers(chatId: number): Promise<void> {
 	const lines: string[] = ["<b>Peer Count</b>\n"];
 	for (const vc of VALIDATORS) {
-		const net = await cometRpc(vc.tailscaleIp, vc.rpcPort, "net_info");
+		const net = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "net_info");
 		const peers = net ? String(net["n_peers"]) : "offline";
 		lines.push(`${vc.moniker}: <b>${peers}</b> peers`);
 	}
@@ -405,7 +407,7 @@ async function executeUpdateAll(chatId: number): Promise<void> {
 async function waitForBlock(vc: ValidatorConfig, timeoutSec: number): Promise<boolean> {
 	const deadline = Date.now() + timeoutSec * 1000;
 	while (Date.now() < deadline) {
-		const status = await cometRpc(vc.tailscaleIp, vc.rpcPort, "status");
+		const status = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "status");
 		if (status) {
 			const si = status["sync_info"] as Record<string, unknown>;
 			if (si["catching_up"] === false && Number(si["latest_block_height"]) > 0) return true;
@@ -461,7 +463,7 @@ async function monitoringLoop(): Promise<void> {
 	// Check each validator
 	for (const vc of VALIDATORS) {
 		const key = `offline-${vc.moniker}`;
-		const status = await cometRpc(vc.tailscaleIp, vc.rpcPort, "status");
+		const status = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "status");
 		if (!status) {
 			if (!alertState.get(key)) {
 				alertState.set(key, true);
@@ -473,7 +475,7 @@ async function monitoringLoop(): Promise<void> {
 				await sendAlert(`${vc.moniker} is back ONLINE.`);
 			}
 			// Peer count
-			const net = await cometRpc(vc.tailscaleIp, vc.rpcPort, "net_info");
+			const net = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "net_info");
 			const peers = net ? Number(net["n_peers"]) : 0;
 			const peerKey = `lowpeers-${vc.moniker}`;
 			if (peers < 4 && peers >= 0) {
