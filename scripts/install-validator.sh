@@ -335,9 +335,35 @@ configure_cometbft() {
     # Max inbound peers (support many validators)
     sed -i.bak 's/^max_num_inbound_peers = .*/max_num_inbound_peers = 50/' "$CONFIG"
 
-    # Block sync from genesis (state sync to be enabled in a future update
-    # once CometBFT snapshot reactor compatibility is verified)
-    log "Block sync mode: will replay from genesis (typically 1 to 3 hours)."
+    # State sync: fetch a recent snapshot instead of replaying from genesis
+    log "Configuring state sync..."
+    local SEED_IP
+    SEED_IP=$(echo "$SEED_NODE" | sed 's/.*@//' | sed 's/:.*//')
+
+    # Get a trust height and hash from the seed node's RPC
+    local CURRENT_HEIGHT
+    CURRENT_HEIGHT=$(curl -s -m 10 "http://${SEED_IP}:26657/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['sync_info']['latest_block_height'])" 2>/dev/null || echo "0")
+
+    if [ "$CURRENT_HEIGHT" -gt 2000 ] 2>/dev/null; then
+        local TRUST_HEIGHT=$(( CURRENT_HEIGHT - 200 ))
+        local TRUST_HASH
+        TRUST_HASH=$(curl -s -m 10 "http://${SEED_IP}:26657/block?height=${TRUST_HEIGHT}" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['block_id']['hash'])" 2>/dev/null || echo "")
+
+        if [ -n "$TRUST_HASH" ] && [ ${#TRUST_HASH} -eq 64 ]; then
+            sed -i.bak "s|^enable = false|enable = true|" "$CONFIG"
+            sed -i.bak "s|^rpc_servers = .*|rpc_servers = \"${SEED_IP}:26657,${SEED_IP}:26657\"|" "$CONFIG"
+            sed -i.bak "s|^trust_height = .*|trust_height = ${TRUST_HEIGHT}|" "$CONFIG"
+            sed -i.bak "s|^trust_hash = .*|trust_hash = \"${TRUST_HASH}\"|" "$CONFIG"
+            sed -i.bak 's|^trust_period = .*|trust_period = "168h0m0s"|' "$CONFIG"
+            sed -i.bak 's|^discovery_time = .*|discovery_time = "30s"|' "$CONFIG"
+            log "State sync enabled: trust_height=${TRUST_HEIGHT}, hash=${TRUST_HASH:0:16}..."
+            log "Expected sync time: under 2 minutes."
+        else
+            log "WARNING: Could not get trust hash. Will sync from genesis (slower)."
+        fi
+    else
+        log "WARNING: Seed RPC unreachable or chain too short. Will sync from genesis."
+    fi
 
     # P2P listen on all interfaces
     sed -i.bak 's|^laddr = "tcp://0.0.0.0:26656"|laddr = "tcp://0.0.0.0:26656"|' "$CONFIG"
