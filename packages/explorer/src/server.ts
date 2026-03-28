@@ -14,6 +14,7 @@ import {
 	renderValidators,
 	renderAccount,
 	renderTransaction,
+	renderTransactions,
 	renderWallets,
 } from "./html.js";
 
@@ -205,15 +206,97 @@ export async function createExplorer(
 		},
 	);
 
-	app.get("/blocks", async (_req, reply) => {
-		const height = dataSource.getChainHeight();
-		const blocks = dataSource.getBlocks(
-			Math.max(0, height - 19),
-			height,
-		);
-		return reply
-			.type("text/html")
-			.send(renderBlockList(blocks.reverse()));
+	app.get<{ Querystring: { page?: string; height?: string } }>("/blocks", async (req, reply) => {
+		const chainHeight = dataSource.getChainHeight();
+		const jumpHeight = req.query.height ? Number(req.query.height) : 0;
+
+		if (jumpHeight > 0 && jumpHeight <= chainHeight) {
+			// Jump to specific block
+			return reply.redirect(`/block/${jumpHeight}`);
+		}
+
+		const perPage = 50;
+		const page = Math.max(1, Number(req.query.page ?? 1));
+		const endHeight = chainHeight - (page - 1) * perPage;
+		const startHeight = Math.max(1, endHeight - perPage + 1);
+
+		// Fetch blocks from CometBFT directly for pagination
+		const blocks: import("./types.js").BlockData[] = [];
+		for (let h = endHeight; h >= startHeight; h--) {
+			const cached = dataSource.getBlock(h);
+			if (cached) {
+				blocks.push(cached);
+			} else {
+				// Fetch from CometBFT
+				try {
+					const resp = await fetch("http://localhost:26657", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ jsonrpc: "2.0", id: "b", method: "block", params: { height: String(h) } }),
+						signal: AbortSignal.timeout(3000),
+					});
+					const data = (await resp.json()) as { result: { block: { header: { height: string; time: string; proposer_address: string }; data: { txs: string[] | null } }; block_id: { hash: string } } };
+					const header = data.result.block.header;
+					blocks.push({
+						height: Number(header.height),
+						hash: data.result.block_id.hash.slice(0, 16),
+						parentHash: "",
+						proposer: header.proposer_address,
+						timestamp: new Date(header.time).getTime(),
+						txCount: (data.result.block.data.txs ?? []).length,
+						transactions: [],
+					});
+				} catch { /* skip */ }
+			}
+		}
+
+		return reply.type("text/html").send(renderBlockList(blocks, page, chainHeight));
+	});
+
+	app.get<{ Querystring: { page?: string; search?: string } }>("/transactions", async (req, reply) => {
+		const page = Math.max(1, Number(req.query.page ?? 1));
+		const search = (req.query.search ?? "").trim();
+		const perPage = 50;
+
+		// Scan recent blocks for transactions from CometBFT
+		const chainHeight = dataSource.getChainHeight();
+		const allTxs: Array<{ height: number; type: string; from: string; to: string; amount: string; timestamp: number }> = [];
+
+		// Scan up to 2000 blocks for transactions
+		const scanLimit = Math.min(2000, chainHeight);
+		for (let h = chainHeight; h > chainHeight - scanLimit && allTxs.length < perPage * page + perPage; h--) {
+			try {
+				const resp = await fetch("http://localhost:26657", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ jsonrpc: "2.0", id: "b", method: "block", params: { height: String(h) } }),
+					signal: AbortSignal.timeout(2000),
+				});
+				const data = (await resp.json()) as { result: { block: { header: { time: string }; data: { txs: string[] | null } } } };
+				const txs = data.result.block.data.txs ?? [];
+				for (const txB64 of txs) {
+					try {
+						const tx = JSON.parse(Buffer.from(txB64, "base64").toString("utf-8")) as Record<string, unknown>;
+						const entry = {
+							height: h,
+							type: String(tx["type"] ?? "unknown"),
+							from: String(tx["from"] ?? ""),
+							to: String(tx["to"] ?? ""),
+							amount: String(tx["amount"] ?? "0"),
+							timestamp: new Date(data.result.block.header.time).getTime(),
+						};
+						if (!search || entry.from.includes(search) || entry.type.includes(search) || entry.to.includes(search)) {
+							allTxs.push(entry);
+						}
+					} catch { /* skip malformed */ }
+				}
+			} catch { /* skip block */ }
+		}
+
+		const totalTxs = allTxs.length;
+		const pageTxs = allTxs.slice((page - 1) * perPage, page * perPage);
+
+		return reply.type("text/html").send(renderTransactions(pageTxs, page, totalTxs, search));
 	});
 
 	app.get("/validators", async (_req, reply) => {

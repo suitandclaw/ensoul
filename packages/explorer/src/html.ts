@@ -85,7 +85,7 @@ function explorerNav(activeTab: string): string {
 		const cls = id === activeTab ? ' class="active"' : "";
 		return `<a href="${href}"${cls}>${label}</a>`;
 	};
-	return `<div class="explorer-nav">${tab("/", "Dashboard", "dashboard")}${tab("/agents", "Agents", "agents")}${tab("/blocks", "Blocks", "blocks")}${tab("/validators", "Validators", "validators")}${tab("/wallets", "Wallets", "wallets")}</div>`;
+	return `<div class="explorer-nav">${tab("/", "Dashboard", "dashboard")}${tab("/agents", "Agents", "agents")}${tab("/blocks", "Blocks", "blocks")}${tab("/transactions", "Transactions", "transactions")}${tab("/validators", "Validators", "validators")}${tab("/wallets", "Wallets", "wallets")}</div>`;
 }
 
 function layout(title: string, tab: string, content: string, autoRefresh = false): string {
@@ -265,18 +265,84 @@ ${block.txCount > 0 ? `<h3>Transactions (${block.txCount})</h3><table><tr><th>Ty
 /**
  * Render the blocks list page.
  */
-export function renderBlockList(blocks: BlockData[]): string {
+export function renderBlockList(blocks: BlockData[], page: number, totalHeight: number): string {
+	const perPage = 50;
+	const totalPages = Math.ceil(totalHeight / perPage);
 	const rows = blocks
 		.map(
-			(b) =>
-				`<tr><td><a href="/block/${b.height}">${b.height}</a></td><td>${b.txCount}</td><td>${b.proposer.slice(0, 24)}...</td></tr>`,
+			(b) => {
+				const time = b.timestamp ? timeAgo(b.timestamp) : "";
+				const proposerShort = b.proposer.length > 24 ? `${b.proposer.slice(0, 20)}...` : b.proposer;
+				return `<tr><td><a href="/block/${b.height}">${b.height}</a></td><td>${b.txCount}</td><td>${proposerShort}</td><td>${time}</td></tr>`;
+			},
 		)
 		.join("");
+
+	const prevLink = page > 1 ? `<a href="/blocks?page=${page - 1}" class="btn btn-secondary" style="padding:4px 12px;font-size:0.85em">&laquo; Prev</a>` : "";
+	const nextLink = page < totalPages ? `<a href="/blocks?page=${page + 1}" class="btn btn-secondary" style="padding:4px 12px;font-size:0.85em">Next &raquo;</a>` : "";
 
 	return layout(
 		"Blocks",
 		"blocks",
-		`<h2>Blocks</h2><table><tr><th>Height</th><th>Txs</th><th>Proposer</th></tr>${rows}</table>`,
+		`<h2>Blocks</h2>
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+<form action="/blocks" method="get" style="display:flex;gap:8px">
+<input name="height" class="search" placeholder="Jump to height..." style="width:180px">
+<button type="submit" class="btn btn-secondary" style="padding:4px 12px;font-size:0.85em">Go</button>
+</form>
+<span style="color:var(--text-secondary);font-size:0.85em">Page ${page} of ${totalPages} (${totalHeight} blocks)</span>
+</div>
+<table><tr><th>Height</th><th>Txs</th><th>Proposer</th><th>Age</th></tr>${rows}</table>
+<div style="display:flex;justify-content:space-between;margin-top:12px">${prevLink}${nextLink}</div>`,
+	);
+}
+
+/**
+ * Render the transactions page.
+ */
+export function renderTransactions(
+	txs: Array<{ height: number; type: string; from: string; to: string; amount: string; timestamp: number }>,
+	page: number,
+	totalTxs: number,
+	search: string,
+): string {
+	const perPage = 50;
+	const totalPages = Math.max(1, Math.ceil(totalTxs / perPage));
+	const rows = txs
+		.map((tx) => {
+			const fromShort = tx.from.length > 24 ? `${tx.from.slice(0, 18)}...${tx.from.slice(-4)}` : tx.from;
+			const time = tx.timestamp ? timeAgo(tx.timestamp) : "";
+			const typeBadge = tx.type === "consciousness_store"
+				? '<span style="color:#7c3aed">consciousness</span>'
+				: tx.type === "agent_register"
+					? '<span style="color:#4ade80">register</span>'
+					: tx.type === "transfer"
+						? '<span style="color:#60a5fa">transfer</span>'
+						: tx.type === "stake"
+							? '<span style="color:#fbbf24">stake</span>'
+							: tx.type === "delegate"
+								? '<span style="color:#f472b6">delegate</span>'
+								: `<span>${tx.type}</span>`;
+			return `<tr><td><a href="/block/${tx.height}">${tx.height}</a></td><td>${typeBadge}</td><td><a href="/account/${encodeURIComponent(tx.from)}">${fromShort}</a></td><td>${time}</td></tr>`;
+		})
+		.join("");
+
+	const prevLink = page > 1 ? `<a href="/transactions?page=${page - 1}${search ? "&search=" + encodeURIComponent(search) : ""}" class="btn btn-secondary" style="padding:4px 12px;font-size:0.85em">&laquo; Prev</a>` : "";
+	const nextLink = page < totalPages ? `<a href="/transactions?page=${page + 1}${search ? "&search=" + encodeURIComponent(search) : ""}" class="btn btn-secondary" style="padding:4px 12px;font-size:0.85em">Next &raquo;</a>` : "";
+
+	return layout(
+		"Transactions",
+		"transactions",
+		`<h2>Transactions</h2>
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+<form action="/transactions" method="get" style="display:flex;gap:8px">
+<input name="search" class="search" placeholder="Search by DID or type..." value="${search}" style="width:240px">
+<button type="submit" class="btn btn-secondary" style="padding:4px 12px;font-size:0.85em">Search</button>
+</form>
+<span style="color:var(--text-secondary);font-size:0.85em">${totalTxs} total transactions</span>
+</div>
+<table><tr><th>Block</th><th>Type</th><th>Sender</th><th>Age</th></tr>${rows}</table>
+<div style="display:flex;justify-content:space-between;margin-top:12px">${prevLink}${nextLink}</div>`,
 	);
 }
 

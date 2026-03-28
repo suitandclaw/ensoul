@@ -97,6 +97,8 @@ is_api_alive()     { is_port_alive 5050;  }
 is_explorer_alive(){ is_port_alive 3000;  }
 is_monitor_alive() { is_port_alive 4000;  }
 is_tgbot_alive()   { pgrep -f "telegram-bot/start.ts" >/dev/null 2>&1; }
+is_heartbeat_alive(){ pgrep -f "consciousness-heartbeat/start.ts" >/dev/null 2>&1; }
+is_research_alive() { pgrep -f "research-agents/start.ts" >/dev/null 2>&1; }
 
 # ── Start functions ───────────────────────────────────────────────────
 
@@ -162,6 +164,18 @@ start_tgbot() {
     log "START: Telegram bot"
     bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/telegram-bot/start.ts > /dev/null 2>> $HOME/.ensoul/telegram-bot.log &"
     log "START: Telegram bot launched"
+}
+
+start_heartbeat() {
+    log "START: Consciousness heartbeat"
+    bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/consciousness-heartbeat/start.ts > /dev/null 2>> $HOME/.ensoul/consciousness-heartbeat.log &"
+    log "START: Heartbeat launched"
+}
+
+start_research() {
+    log "START: Research agents"
+    bash -l -c "cd $HOME/ensoul && nohup npx tsx packages/research-agents/start.ts > /dev/null 2>> $HOME/.ensoul/research-agents.log &"
+    log "START: Research agents launched"
 }
 
 # ── Kill functions (by port, safe) ────────────────────────────────────
@@ -235,6 +249,8 @@ main() {
     is_explorer_alive && explorer_ok=true || explorer_ok=false
     is_monitor_alive && monitor_ok=true  || monitor_ok=false
     is_tgbot_alive   && tgbot_ok=true   || tgbot_ok=false
+    is_heartbeat_alive && hb_ok=true    || hb_ok=false
+    is_research_alive && rs_ok=true     || rs_ok=false
 
     # Case 1: ABCI dead (everything must restart in order)
     if [ "$abci_ok" = "false" ]; then
@@ -283,9 +299,22 @@ main() {
     fi
 
     # Case 7: Telegram bot (runs on VPS via systemd, not MBP)
-    # Kept for reference; bot is managed by VPS systemd service ensoul-telegram-bot
 
-    # Case 8: Everything alive. Check block freshness and disk space.
+    # Case 8: Consciousness heartbeat dead
+    if [ "$hb_ok" = "false" ]; then
+        log "ALERT: Consciousness heartbeat is dead, restarting"
+        alert "[$HOSTNAME_SHORT] Heartbeat DEAD" "Restarting consciousness heartbeat" "default" "warning"
+        start_heartbeat
+    fi
+
+    # Case 9: Research agents dead
+    if [ "$rs_ok" = "false" ]; then
+        log "ALERT: Research agents dead, restarting"
+        alert "[$HOSTNAME_SHORT] Research DEAD" "Restarting research agents" "default" "warning"
+        start_research
+    fi
+
+    # Case 10: Everything alive. Check block freshness and disk space.
     local age=0 height="?"
     local result
     result=$(curl -s -m 5 "http://localhost:26657/status" 2>/dev/null)
