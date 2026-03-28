@@ -75,6 +75,16 @@
       "user": "root",
       "cometbftAddress": "DB0F90D95A78ECC6D3A846DDDEB01FA4BDCCA876",
       "did": "did:key:z6MkiHUm3mnutJ2zQn9dxTNTsVd9TdtF52KwhEJe8vTN5uY7"
+    },
+    {
+      "name": "Validator v7 (Hetzner Nuremberg)",
+      "moniker": "ensoul-Nuremburg1",
+      "publicIp": "178.104.95.163",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "user": "root",
+      "cometbftAddress": "F89AE952E52BF1E529E405F08677B7275603B9BA",
+      "did": "did:key:z6MktaVcKeyFLd3Y9i1kL6eVJesHUhQL8Z4aBhWAom8cLV2R"
     }
   ]
 }
