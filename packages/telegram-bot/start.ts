@@ -521,19 +521,122 @@ async function monitoringLoop(): Promise<void> {
 
 // ── Help ────────────────────────────────────────────────────────────
 
+// ── Delegation Management Commands ──────────────────────────────────
+
+async function handleApplications(chatId: number): Promise<void> {
+	try {
+		const resp = await fetch("http://localhost:5050/v1/validators/applications", { signal: AbortSignal.timeout(5000) });
+		const data = (await resp.json()) as { applications: Array<{ id: string; operatorName: string; operatorEmail: string; did: string; submittedAt: number }> };
+		const apps = data.applications ?? [];
+		if (apps.length === 0) {
+			await sendMessage(chatId, "No pending pioneer applications.");
+			return;
+		}
+		const lines = ["<b>Pending Pioneer Applications</b>\n"];
+		for (const a of apps) {
+			const age = Math.floor((Date.now() - a.submittedAt) / 3600000);
+			lines.push(`<b>${a.operatorName}</b> (${age}h ago)`);
+			lines.push(`  ID: <code>${a.id}</code>`);
+			lines.push(`  Email: ${a.operatorEmail}`);
+			lines.push(`  DID: ${a.did.slice(0, 30)}...`);
+			lines.push("");
+		}
+		lines.push(`/approve [id] or /reject [id] [reason]`);
+		await sendMessage(chatId, lines.join("\n"));
+	} catch {
+		await sendMessage(chatId, "Failed to fetch applications.");
+	}
+}
+
+async function handleApprove(chatId: number, arg: string): Promise<void> {
+	if (botLocked) { await sendMessage(chatId, "\u{1F512} Bot locked."); return; }
+	if (!arg) { await sendMessage(chatId, "Usage: /approve [application_id]"); return; }
+	try {
+		const { approveApplication, getApplication } = await import("@ensoul/delegation-engine");
+		const app = getApplication(arg);
+		if (!app) { await sendMessage(chatId, `Application not found: ${arg}`); return; }
+		const result = await approveApplication(arg);
+		if (result.error) { await sendMessage(chatId, `Error: ${result.error}`); return; }
+		await sendMessage(chatId, `\u{2705} Approved: ${app.operatorName}\n1M ENSL delegation pending for ${app.did.slice(0, 30)}...`);
+	} catch (err) {
+		await sendMessage(chatId, `Error: ${err instanceof Error ? err.message : String(err)}`);
+	}
+}
+
+async function handleReject(chatId: number, arg: string): Promise<void> {
+	if (!arg) { await sendMessage(chatId, "Usage: /reject [application_id] [reason]"); return; }
+	const parts = arg.split(" ");
+	const id = parts[0] ?? "";
+	const reason = parts.slice(1).join(" ") || "Application rejected";
+	try {
+		const { rejectApplication, getApplication } = await import("@ensoul/delegation-engine");
+		const app = getApplication(id);
+		if (!app) { await sendMessage(chatId, `Application not found: ${id}`); return; }
+		const result = await rejectApplication(id, reason);
+		if (result.error) { await sendMessage(chatId, `Error: ${result.error}`); return; }
+		await sendMessage(chatId, `\u{274C} Rejected: ${app.operatorName}\nReason: ${reason}`);
+	} catch (err) {
+		await sendMessage(chatId, `Error: ${err instanceof Error ? err.message : String(err)}`);
+	}
+}
+
+async function handleTreasury(chatId: number): Promise<void> {
+	try {
+		const resp = await fetch("http://localhost:5050/v1/validators/treasury-stats", { signal: AbortSignal.timeout(5000) });
+		const stats = (await resp.json()) as Record<string, unknown>;
+
+		// Also get actual treasury balance
+		const tResp = await fetch("https://api.ensoul.dev/v1/account/did:key:z6Mki9jwpYMBB93zxYfsmNUHThpSgKATqydN4xJA1xcxGecm", { signal: AbortSignal.timeout(5000) });
+		const tData = (await tResp.json()) as { available?: string };
+
+		const vs = stats["validators"] as Record<string, number> | undefined;
+		const prob = stats["probation"] as Record<string, number> | undefined;
+
+		const lines = [
+			"<b>Treasury Status</b>\n",
+			`Balance: <b>${tData.available ?? "?"}</b>`,
+			`Total delegated: <b>${stats["totalDelegated"] ?? "?"}</b>`,
+			"",
+			"<b>Validators by tier:</b>",
+			`  Foundation: ${vs?.["foundation"] ?? 0}`,
+			`  Pioneer: ${vs?.["pioneer"] ?? 0}`,
+			`  Open: ${vs?.["open"] ?? 0}`,
+		];
+
+		if (prob && (prob["initial"] || prob["sevenDay"] || prob["thirtyDay"] || prob["full"])) {
+			lines.push("");
+			lines.push("<b>Open tier probation:</b>");
+			lines.push(`  Initial (10K): ${prob["initial"] ?? 0}`);
+			lines.push(`  7-day (50K): ${prob["sevenDay"] ?? 0}`);
+			lines.push(`  30-day (100K): ${prob["thirtyDay"] ?? 0}`);
+			lines.push(`  Full: ${prob["full"] ?? 0}`);
+		}
+
+		await sendMessage(chatId, lines.join("\n"));
+	} catch {
+		await sendMessage(chatId, "Failed to fetch treasury stats.");
+	}
+}
+
 const HELP_TEXT = `<b>Ensoul Bot Commands</b>
 
-/status \u2014 Network overview (height, validators, services)
-/peers \u2014 Peer count for each machine
-/validators \u2014 Validator table with power and stake
-/logs [name] \u2014 Recent logs (mbp, mini1, mini2, mini3, vps)
-/restart [name] \u2014 Restart a validator (requires /confirm)
-/update [name] \u2014 Pull, build, restart (requires /confirm)
-/update all \u2014 Update all validators sequentially
+/status \u2014 Network overview
+/peers \u2014 Peer count per machine
+/validators \u2014 Validator table
+/logs [name] \u2014 Recent logs
+/restart [name] \u2014 Restart validator
+/update [name|all] \u2014 Pull, build, restart
+
+<b>Delegation</b>
+/applications \u2014 Pending pioneer applications
+/approve [id] \u2014 Approve pioneer application
+/reject [id] [reason] \u2014 Reject pioneer application
+/treasury \u2014 Treasury balance and delegation stats
+
+<b>Other</b>
 /agents \u2014 Agent and consciousness stats
-/alerts [on|off] \u2014 Toggle automatic alerts
-/lock \u2014 Disable restart/update commands (security)
-/unlock \u2014 Re-enable all commands
+/alerts [on|off] \u2014 Toggle alerts
+/lock /unlock \u2014 Security lock
 /help \u2014 This message`;
 
 // ── HTML escape ─────────────────────────────────────────────────────
@@ -648,6 +751,18 @@ async function main(): Promise<void> {
 							} else {
 								await sendMessage(chatIdNum, `Alerts are ${alertsEnabled ? "ON" : "OFF"}.\nUsage: /alerts on, /alerts off`);
 							}
+							break;
+						case "/applications":
+							await handleApplications(chatIdNum);
+							break;
+						case "/approve":
+							await handleApprove(chatIdNum, arg);
+							break;
+						case "/reject":
+							await handleReject(chatIdNum, arg);
+							break;
+						case "/treasury":
+							await handleTreasury(chatIdNum);
 							break;
 						case "/lock":
 							botLocked = true;
