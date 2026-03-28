@@ -817,14 +817,22 @@ wait_and_report() {
 # ── Step 16: Register validator (optional) ──────────────────────────
 
 register_validator() {
-    # Skip registration during initial install; the node needs to sync first.
-    # The user can register via the API after sync completes.
-    if [ "$PIONEER_MODE" = "true" ]; then
-        log "Pioneer mode enabled. Register after sync completes using:"
-        log "  curl -X POST $API_URL/v1/validators/register-pioneer \\"
-        log "    -H 'Content-Type: application/json' \\"
-        log "    -H 'X-Ensoul-Pioneer-Key: YOUR_KEY' \\"
-        log "    -d '{\"did\":\"YOUR_DID\",\"publicKey\":\"YOUR_PUBKEY\",\"name\":\"$MONIKER\"}'"
+    # Register this node with the API peer registry for auto-discovery
+    log "Registering with network peer registry..."
+    local node_id
+    node_id=$(curl -s -m 5 http://localhost:26657/status 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['node_info']['id'])" 2>/dev/null || echo "")
+
+    local public_ip
+    public_ip=$(curl -4 -s -m 5 https://ifconfig.me 2>/dev/null || echo "")
+
+    if [ -n "$node_id" ] && [ -n "$public_ip" ]; then
+        curl -s -X POST "$API_URL/v1/network/register-peer" \
+            -H "Content-Type: application/json" \
+            -d "{\"node_id\":\"$node_id\",\"public_ip\":\"$public_ip\",\"moniker\":\"$MONIKER\",\"rpc_port\":26657}" \
+            > /dev/null 2>&1 || true
+        log "Registered as peer: $node_id @ $public_ip"
+    else
+        log "Could not register with peer registry (node not ready or no public IP)"
     fi
 }
 

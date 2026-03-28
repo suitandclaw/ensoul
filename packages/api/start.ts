@@ -804,6 +804,124 @@ async function main(): Promise<void> {
 		}
 	});
 
+	// ── Network Peer Registry ───────────────────────────────────
+
+	const PEERS_FILE = join(LOG_DIR, "network-peers.json");
+	interface NetworkPeer {
+		nodeId: string;
+		publicIp: string;
+		moniker: string;
+		rpcPort: number;
+		registeredAt: number;
+		lastSeen: number;
+	}
+
+	let networkPeers: NetworkPeer[] = [];
+	try {
+		const raw = await readFile(PEERS_FILE, "utf-8");
+		networkPeers = JSON.parse(raw) as NetworkPeer[];
+	} catch { /* start fresh */ }
+
+	async function saveNetworkPeers(): Promise<void> {
+		await writeFile(PEERS_FILE, JSON.stringify(networkPeers, null, 2));
+	}
+
+	// Auto-discover peers from CometBFT net_info every 60 seconds
+	setInterval(async () => {
+		try {
+			const resp = await fetch(CMT_RPC, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "ni", method: "net_info", params: {} }),
+				signal: AbortSignal.timeout(5000),
+			});
+			if (!resp.ok) return;
+			const data = (await resp.json()) as { result: { peers: Array<{ node_info: { id: string; moniker: string; listen_addr: string }; remote_ip: string }> } };
+			for (const p of data.result.peers) {
+				const existing = networkPeers.find(np => np.nodeId === p.node_info.id);
+				if (existing) {
+					existing.lastSeen = Date.now();
+					existing.moniker = p.node_info.moniker;
+					if (!existing.publicIp || existing.publicIp.startsWith("100.")) {
+						existing.publicIp = p.remote_ip;
+					}
+				} else {
+					// Only add if it has a non-private IP
+					const ip = p.remote_ip;
+					if (!ip.startsWith("10.") && !ip.startsWith("172.") && !ip.startsWith("192.168.")) {
+						networkPeers.push({
+							nodeId: p.node_info.id,
+							publicIp: ip,
+							moniker: p.node_info.moniker,
+							rpcPort: 26657,
+							registeredAt: Date.now(),
+							lastSeen: Date.now(),
+						});
+					}
+				}
+			}
+			await saveNetworkPeers();
+		} catch { /* non-fatal */ }
+	}, 60_000);
+
+	/** POST /v1/network/register-peer */
+	app.post<{ Body: Record<string, unknown> }>("/v1/network/register-peer", { bodyLimit: 4096 }, async (_req, reply) => {
+		const body = _req.body;
+		const nodeId = String(body["node_id"] ?? "");
+		const publicIp = String(body["public_ip"] ?? _req.ip);
+		const moniker = String(body["moniker"] ?? "");
+		const rpcPort = Number(body["rpc_port"] ?? 26657);
+
+		if (!nodeId || nodeId.length < 10) {
+			return reply.status(400).send({ error: "node_id required (CometBFT node ID)" });
+		}
+
+		const existing = networkPeers.find(p => p.nodeId === nodeId);
+		if (existing) {
+			existing.publicIp = publicIp;
+			existing.moniker = moniker || existing.moniker;
+			existing.lastSeen = Date.now();
+		} else {
+			networkPeers.push({ nodeId, publicIp, moniker, rpcPort, registeredAt: Date.now(), lastSeen: Date.now() });
+		}
+		await saveNetworkPeers();
+		await log(`Peer registered: ${moniker || nodeId.slice(0, 12)} @ ${publicIp}`);
+
+		return { registered: true, nodeId, publicIp, totalPeers: networkPeers.length };
+	});
+
+	/** GET /v1/network/peers */
+	app.get("/v1/network/peers", async () => {
+		// Also include active validators from CometBFT
+		const validators: Array<Record<string, unknown>> = [];
+		try {
+			const resp = await fetch(CMT_RPC, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "v", method: "validators", params: {} }),
+				signal: AbortSignal.timeout(5000),
+			});
+			if (resp.ok) {
+				const data = (await resp.json()) as { result: { validators: Array<{ address: string; voting_power: string }> } };
+				for (const v of data.result.validators) {
+					validators.push({ address: v.address, votingPower: v.voting_power });
+				}
+			}
+		} catch { /* non-fatal */ }
+
+		return {
+			peers: networkPeers.map(p => ({
+				nodeId: p.nodeId,
+				publicIp: p.publicIp,
+				moniker: p.moniker,
+				p2pAddress: `${p.nodeId}@${p.publicIp}:26656`,
+				lastSeen: new Date(p.lastSeen).toISOString(),
+			})),
+			activeValidators: validators.length,
+			totalPeers: networkPeers.length,
+		};
+	});
+
 	// ── Transaction broadcast (forward to CometBFT) ─────────────
 
 	app.post<{ Body: Record<string, unknown> }>("/v1/tx/broadcast", async (req, reply) => {
