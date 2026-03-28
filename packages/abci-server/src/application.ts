@@ -353,13 +353,21 @@ export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 				return handleQuery(request, state);
 			case "commit":
 				return await handleCommit(state);
-			case "listSnapshots":
-				return handleListSnapshots(state);
+			case "listSnapshots": {
+				log("ListSnapshots called");
+				const lsResult = handleListSnapshots(state);
+				const lsSnaps = (lsResult["listSnapshots"] as Record<string, unknown>)?.["snapshots"] as unknown[];
+				log(`ListSnapshots returning ${lsSnaps?.length ?? 0} snapshots`);
+				return lsResult;
+			}
 			case "offerSnapshot":
+				log("OfferSnapshot called");
 				return handleOfferSnapshot(request, state);
 			case "loadSnapshotChunk":
+				log("LoadSnapshotChunk called");
 				return handleLoadSnapshotChunk(request, state);
 			case "applySnapshotChunk":
+				log("ApplySnapshotChunk called");
 				return await handleApplySnapshotChunk(request, state);
 			case "prepareProposal":
 				return handlePrepareProposal(request);
