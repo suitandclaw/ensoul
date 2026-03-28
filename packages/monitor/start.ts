@@ -292,13 +292,31 @@ async function checkAgent(): Promise<ServiceStatus> {
 async function pollAll(): Promise<void> {
 	const services: ServiceStatus[] = [];
 
-	// Validators
+	// Configured validators
 	const validatorResults = await Promise.allSettled(
 		VALIDATORS.map((v) => checkValidator(v.name, v.url)),
 	);
 	for (const r of validatorResults) {
 		services.push(r.status === "fulfilled" ? r.value : { name: "Validator", url: "", status: "down", lastSeen: 0, details: {} });
 	}
+
+	// Auto-discover unconfigured validators from the API peer registry
+	try {
+		const peerResp = await fetch("http://localhost:5050/v1/network/peers", { signal: AbortSignal.timeout(5000) });
+		if (peerResp.ok) {
+			const peerData = (await peerResp.json()) as { peers: Array<{ nodeId: string; publicIp: string; moniker: string; p2pAddress: string }> };
+			const configuredIps = new Set(VALIDATOR_CONFIGS.map(vc => vc.tailscaleIp || vc.publicIp || ""));
+			for (const peer of peerData.peers) {
+				if (configuredIps.has(peer.publicIp)) continue; // Already in static config
+				// Try to check this peer's RPC
+				const url = `http://${peer.publicIp}:26657`;
+				try {
+					const status = await checkValidator(`${peer.moniker} (discovered)`, url);
+					services.push(status);
+				} catch { /* unreachable, skip */ }
+			}
+		}
+	} catch { /* API unreachable */ }
 
 	// Explorer
 	services.push(await checkExplorer());
