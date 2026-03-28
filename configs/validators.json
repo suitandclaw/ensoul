@@ -105,6 +105,16 @@
       "user": "root",
       "cometbftAddress": "668B4F7844050AFB9DB9AB005B3C369D9E6FC20F",
       "did": "did:key:z6MkrHHv7iHKC9tNaCchMtaxL8L3tSPZoVPGJNvNY6H2FMDd"
+    },
+    {
+      "name": "Validator v10 (DO London-1)",
+      "moniker": "ensoul-London1",
+      "publicIp": "188.166.169.3",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "user": "root",
+      "cometbftAddress": "3A03E018C7F7AF28311CCEC679DF3DBCF251ACCE",
+      "did": "did:key:z6MksWvh8dYLMyZnjxxeA8UnZVwQx5nipptDomYkjh6q7Dbm"
     }
   ]
 }
