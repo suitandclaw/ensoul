@@ -199,27 +199,48 @@ async function handleStatus(chatId: number): Promise<void> {
 
 	lines.push("");
 
-	// Each validator
+	// Validators: configured + auto-discovered from API peer registry
+	const checkedIps = new Set<string>();
 	for (const vc of VALIDATORS) {
-		const status = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "status");
+		const ip = vc.tailscaleIp || vc.publicIp || "localhost";
+		checkedIps.add(ip);
+		const status = await cometRpc(ip, vc.rpcPort, "status");
 		if (!status) {
 			lines.push(`${vc.moniker}: <b>OFFLINE</b>`);
 			continue;
 		}
 		const si = status["sync_info"] as Record<string, unknown>;
-		const ni = status["node_info"] as Record<string, unknown>;
-		const vi = status["validator_info"] as Record<string, unknown>;
 		const h = si["latest_block_height"];
 		const catching = si["catching_up"];
 
 		let peers = "?";
-		const net = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "net_info");
+		const net = await cometRpc(ip, vc.rpcPort, "net_info");
 		if (net) peers = String(net["n_peers"]);
 
 		const icon = catching ? "\u{1F7E1}" : "\u{1F7E2}";
 		const statusText = catching ? "syncing" : "signing";
 		lines.push(`${icon} ${vc.moniker}: h=${h} peers=${peers} ${statusText}`);
 	}
+
+	// Auto-discover unconfigured validators from API
+	try {
+		const peerResp = await fetch("https://api.ensoul.dev/v1/network/peers", { signal: AbortSignal.timeout(5000) });
+		if (peerResp.ok) {
+			const peerData = (await peerResp.json()) as { peers: Array<{ publicIp: string; moniker: string }> };
+			for (const p of peerData.peers) {
+				if (checkedIps.has(p.publicIp)) continue;
+				checkedIps.add(p.publicIp);
+				const status = await cometRpc(p.publicIp, 26657, "status");
+				if (status) {
+					const si = status["sync_info"] as Record<string, unknown>;
+					const h = si["latest_block_height"];
+					const catching = si["catching_up"];
+					const icon = catching ? "\u{1F7E1}" : "\u{1F7E2}";
+					lines.push(`${icon} ${p.moniker}: h=${h} ${catching ? "syncing" : "signing"}`);
+				}
+			}
+		}
+	} catch { /* non-fatal */ }
 
 	lines.push("");
 

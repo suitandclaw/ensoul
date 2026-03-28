@@ -667,6 +667,7 @@ s+='</div>';
 }
 s+='<div style="text-align:center;color:#666;font-size:0.75em;margin-top:12px">Last check: '+shortTime(h.checkedAt)+'</div>';
 document.getElementById("content").innerHTML=s;
+renderAdmin(h);
 }
 function renderSocial(entries){
 var el=document.getElementById("social");
@@ -726,15 +727,12 @@ fetch("https://api.ensoul.dev/v1/agents/list",{mode:"cors"}).then(function(r){re
 poll();
 setInterval(poll,30000);
 
-// ── Validator Management Panel ──────────────────────────
-var adminData={};
+// ── Unified Validator Management Panel ──────────────────
+// Merges health data from /api/health with admin actions from static config.
+// Validators in configs get Update/Restart/Logs buttons. Auto-discovered ones show health only.
+var CONFIGURED_INDICES=${JSON.stringify(Object.fromEntries(VALIDATOR_CONFIGS.map((v, i) => [v.moniker, i])))};
 var currentOpId=null;
 var logsModal={open:false,index:-1,timer:null};
-
-function authHeaders(){
-var c=document.cookie.match(/(?:^|;\\s*)auth=([^;]*)/);
-return {};
-}
 
 function adminFetch(url,opts){
 opts=opts||{};
@@ -742,41 +740,48 @@ opts.credentials="same-origin";
 return fetch(url,opts);
 }
 
-function renderAdmin(){
+function renderAdmin(healthData){
 var el=document.getElementById("admin");
 if(!el)return;
-var s='<h2>Validator Management</h2>';
-s+='<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap">';
-s+='<button onclick="adminHealthAll()" style="padding:6px 14px;background:#1e2a3f;color:#60a5fa;border:1px solid #2d2d3f;border-radius:4px;cursor:pointer;font-size:0.85em">Health Check All</button>';
-s+='<button onclick="adminUpdateAll()" style="padding:6px 14px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:4px;cursor:pointer;font-size:0.85em">Update All</button>';
-s+='<button onclick="adminRefresh()" style="padding:6px 14px;background:#12121a;color:#888;border:1px solid #2d2d3f;border-radius:4px;cursor:pointer;font-size:0.85em">Refresh</button>';
-s+='</div>';
+if(!healthData)return;
 
-var onlineCount=0;
-${JSON.stringify(VALIDATOR_CONFIGS.map((v, i) => ({ name: v.name.replace(/^Validator /, ""), index: i, moniker: v.moniker })))}.forEach(function(vc){
-var d=adminData[vc.index]||{};
-if(d.height)onlineCount++;
-});
-s+='<div style="font-size:0.8em;color:#888;margin:6px 0">Online: '+onlineCount+'/${VALIDATOR_CONFIGS.length}</div>';
+// Extract validator services from health data
+var validators=(healthData.services||[]).filter(function(s){return s.name.indexOf("Validator")===0||s.name.indexOf("(discovered)")>-1;});
+var onlineCount=validators.filter(function(v){return v.status==="healthy";}).length;
+
+var s='<h2>Validators ('+onlineCount+'/'+validators.length+' online)</h2>';
+s+='<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap">';
+s+='<button onclick="adminUpdateAll()" style="padding:6px 14px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:4px;cursor:pointer;font-size:0.85em">Update All</button>';
+s+='</div>';
 
 s+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;margin:8px 0;font-size:0.85em">';
 s+='<tr style="border-bottom:1px solid #2d2d3f"><th style="padding:6px 8px;text-align:left;color:#888">Validator</th><th style="padding:6px;color:#888">Height</th><th style="padding:6px;color:#888">Peers</th><th style="padding:6px;color:#888">Health</th><th style="padding:6px;color:#888">Actions</th></tr>';
 
-${JSON.stringify(VALIDATOR_CONFIGS.map((v, i) => ({ name: v.name.replace(/^Validator /, ""), index: i, moniker: v.moniker })))}.forEach(function(vc){
-var d=adminData[vc.index]||{};
-var isOnline=!!d.height;
+validators.forEach(function(v){
+var det=v.details||{};
+var isOnline=v.status==="healthy";
 var dot=isOnline?'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80"></span>':'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f87171"></span>';
-var statusText=d.catchingUp?'<span style="color:#fbbf24">SYNCING</span>':(isOnline?'<span style="color:#4ade80">OK</span>':'<span style="color:#f87171">DOWN</span>');
+var statusText=det.catchingUp?'<span style="color:#fbbf24">SYNCING</span>':(isOnline?'<span style="color:#4ade80">OK</span>':'<span style="color:#f87171">DOWN</span>');
+var name=v.name.replace("Validator ","").replace(" (discovered)","*");
+
+// Check if this validator has SSH config (action buttons available)
+var moniker=det.moniker||"";
+var cfgIdx=CONFIGURED_INDICES[moniker];
+var hasConfig=cfgIdx!==undefined;
 
 s+='<tr style="border-bottom:1px solid #1e1e2a">';
-s+='<td style="padding:6px 8px">'+dot+' '+vc.name+'</td>';
-s+='<td style="padding:6px">'+(d.height||'-')+'</td>';
-s+='<td style="padding:6px">'+(d.peers!=null?d.peers:'-')+'</td>';
+s+='<td style="padding:6px 8px">'+dot+' '+name+'</td>';
+s+='<td style="padding:6px">'+(det.height||'-')+'</td>';
+s+='<td style="padding:6px">'+(det.peers!=null?det.peers:'-')+'</td>';
 s+='<td style="padding:6px">'+statusText+'</td>';
 s+='<td style="padding:6px;white-space:nowrap">';
-s+='<button onclick="adminUpdate('+vc.index+')" style="padding:2px 8px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px" title="Pull, build, restart">Update</button> ';
-s+='<button onclick="adminRestart('+vc.index+')" style="padding:2px 8px;background:#1e3f2d;color:#4ade80;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px" title="Restart ABCI and CometBFT">Restart</button> ';
-s+='<button onclick="adminLogs('+vc.index+')" style="padding:2px 8px;background:#1e2a3f;color:#60a5fa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px" title="View recent logs">Logs</button>';
+if(hasConfig){
+s+='<button onclick="adminUpdate('+cfgIdx+')" style="padding:2px 8px;background:#2d1e3f;color:#a78bfa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Update</button> ';
+s+='<button onclick="adminRestart('+cfgIdx+')" style="padding:2px 8px;background:#1e3f2d;color:#4ade80;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Restart</button> ';
+s+='<button onclick="adminLogs('+cfgIdx+')" style="padding:2px 8px;background:#1e2a3f;color:#60a5fa;border:1px solid #2d2d3f;border-radius:3px;cursor:pointer;font-size:0.8em;margin:1px">Logs</button>';
+}else{
+s+='<span style="color:#555;font-size:0.8em" title="Add SSH config to enable management">no SSH config</span>';
+}
 s+='</td></tr>';
 });
 
@@ -807,27 +812,14 @@ if(d.done){
 clearInterval(interval);
 currentOpId=null;
 adminStatus(d.success?"Completed successfully.":"Completed with errors.");
-setTimeout(adminRefresh,3000);
 }
 }).catch(function(){clearInterval(interval);currentOpId=null;});
 },2000);
 }
 
-function adminRefresh(){
-adminFetch("/api/validators-admin").then(function(r){return r.json()}).then(function(data){
-var validators=data.validators||[];
-validators.forEach(function(v,i){
-if(v.error){adminData[i]={};return;}
-adminData[i]={height:v.height,peers:v.peerCount,catchingUp:v.catchingUp,moniker:v.moniker};
-});
-renderAdmin();
-}).catch(function(){renderAdmin();});
-}
-
 function adminHealthAll(){
-adminStatus("Checking health...");
-adminRefresh();
-setTimeout(function(){adminStatus("Health check complete.");},2000);
+adminStatus("Refreshing...");
+poll();
 }
 
 function adminUpdate(idx){
@@ -892,8 +884,8 @@ var modal=document.getElementById("logs-modal");
 if(modal)modal.style.display="none";
 }
 
-adminRefresh();
-setInterval(adminRefresh,10000);
+// Admin panel renders from the same health data as the main dashboard.
+// No separate refresh needed.
 </script>
 </body>
 </html>`;
