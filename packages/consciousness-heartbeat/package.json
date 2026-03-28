@@ -1,0 +1,15 @@
+{
+	"name": "@ensoul/consciousness-heartbeat",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "npx tsx start.ts",
+		"build": "echo 'no build needed'",
+		"lint": "echo 'no lint'"
+	},
+	"dependencies": {
+		"@noble/ed25519": "^3.0.0",
+		"@noble/hashes": "^2.0.1"
+	}
+}
