@@ -385,6 +385,52 @@ async function pollAll(): Promise<void> {
 		}
 	}
 
+	// Non-validator peers (full nodes)
+	const fullNodes: Array<{ moniker: string; ip: string; nodeId: string; version: string }> = [];
+	try {
+		const netResp = await fetch("http://localhost:26657", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "n", method: "net_info", params: {} }),
+			signal: AbortSignal.timeout(5000),
+		});
+		if (netResp.ok) {
+			const netData = (await netResp.json()) as { result: { peers: Array<{ node_info: { id: string; moniker: string; version: string; network: string }; remote_ip: string }> } };
+			// Get active validator addresses to filter them out
+			const valAddrs = new Set(activeValidators.map(v => v.address));
+			for (const p of netData.result.peers) {
+				// Check if this peer is a validator by querying its RPC
+				let isValidator = false;
+				const ip = p.remote_ip;
+				if (!ip.startsWith("100.") && !ip.startsWith("10.") && !ip.startsWith("192.168.")) {
+					try {
+						const sr = await fetch(`http://${ip}:26657/status`, { signal: AbortSignal.timeout(2000) });
+						if (sr.ok) {
+							const sd = (await sr.json()) as { result: { validator_info: { voting_power: string } } };
+							isValidator = Number(sd.result.validator_info.voting_power) > 0;
+						}
+					} catch { /* RPC unreachable, check by address match */ }
+				}
+				// Also check by exclusion: if peer is in the services list, it's a validator
+				if (!isValidator) {
+					const inServices = services.some(s => {
+						const det = s.details as Record<string, unknown>;
+						return det?.["moniker"] === p.node_info.moniker;
+					});
+					isValidator = inServices;
+				}
+				if (!isValidator && p.node_info.network === "ensoul-1") {
+					fullNodes.push({
+						moniker: p.node_info.moniker,
+						ip: p.remote_ip,
+						nodeId: p.node_info.id,
+						version: p.node_info.version,
+					});
+				}
+			}
+		}
+	} catch { /* non-fatal */ }
+
 	// Explorer
 	services.push(await checkExplorer());
 
@@ -445,12 +491,14 @@ async function pollAll(): Promise<void> {
 	health = {
 		overall,
 		services,
+		fullNodes,
 		aggregate: {
 			blockHeight: maxHeight,
 			validatorCount: validatorCount || 5,
 			blocksPerMinute: bpm,
 			ensouledAgents,
 			consciousnessStored,
+			fullNodeCount: fullNodes.length,
 			uptime: Math.round((now - startedAt) / 1000),
 		},
 		checkedAt: now,
@@ -694,6 +742,7 @@ h2{font-size:0.85em;color:#888;text-transform:uppercase;letter-spacing:1px;margi
 <div id="agents"></div>
 <div id="social"></div>
 <div id="admin"></div>
+<div id="fullnodes"></div>
 <div class="footer"><a href="https://ensoul.dev">ensoul.dev</a> | <a href="https://explorer.ensoul.dev">Explorer</a> | <a href="https://github.com/suitandclaw/ensoul">GitHub</a></div>
 </div>
 <script>
@@ -735,6 +784,18 @@ s+='</div>';
 s+='<div style="text-align:center;color:#666;font-size:0.75em;margin-top:12px">Last check: '+shortTime(h.checkedAt)+'</div>';
 document.getElementById("content").innerHTML=s;
 renderAdmin(h);
+// Render full nodes section
+var fnEl=document.getElementById("fullnodes");
+if(fnEl&&h.fullNodes&&h.fullNodes.length>0){
+var fs='<h2>Network Peers ('+h.fullNodes.length+' full nodes)</h2>';
+fs+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.85em">';
+fs+='<tr style="border-bottom:1px solid #2d2d3f"><th style="padding:6px;text-align:left;color:#888">Node</th><th style="padding:6px;color:#888">IP</th><th style="padding:6px;color:#888">Version</th><th style="padding:6px;color:#888">Type</th></tr>';
+h.fullNodes.forEach(function(fn){
+fs+='<tr style="border-bottom:1px solid #1e1e2a"><td style="padding:6px">'+fn.moniker+'</td><td style="padding:6px;font-family:monospace;font-size:0.8em">'+fn.ip+'</td><td style="padding:6px">'+fn.version+'</td><td style="padding:6px;color:#60a5fa">Full Node</td></tr>';
+});
+fs+='</table></div>';
+fnEl.innerHTML=fs;
+}else if(fnEl){fnEl.innerHTML='';}
 }
 function renderSocial(entries){
 var el=document.getElementById("social");

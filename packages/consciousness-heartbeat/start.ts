@@ -425,6 +425,88 @@ async function main(): Promise<void> {
 		}
 	}, 3600_000); // Check every hour (only runs once per day due to date check)
 
+	// ── Agent/Consciousness Activity Monitor ────────────────────
+	// Sends Telegram alerts when new agents register or consciousness is updated.
+	let lastAgentCount = 0;
+	let lastConsciousnessCount = 0;
+
+	// Load Telegram credentials for direct alerts
+	const tgEnvPath = join(homedir(), ".ensoul", "telegram-bot.env");
+	let tgToken = "";
+	let tgChatId = "";
+	try {
+		const envRaw = (await readFile(tgEnvPath, "utf-8")).split("\n");
+		for (const line of envRaw) {
+			if (line.startsWith("TELEGRAM_BOT_TOKEN=")) tgToken = line.split("=").slice(1).join("=").trim();
+			if (line.startsWith("TELEGRAM_AUTHORIZED_USER=")) tgChatId = line.split("=").slice(1).join("=").trim();
+		}
+	} catch { /* no Telegram config */ }
+
+	async function sendTgAlert(text: string): Promise<void> {
+		if (!tgToken || !tgChatId) return;
+		try {
+			await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ chat_id: tgChatId, text, parse_mode: "HTML" }),
+				signal: AbortSignal.timeout(10000),
+			});
+		} catch { /* non-fatal */ }
+	}
+
+	// Initialize counts
+	try {
+		const resp = await fetch(CMT_RPC, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "s", method: "abci_query", params: { path: "/stats" } }),
+			signal: AbortSignal.timeout(5000),
+		});
+		if (resp.ok) {
+			const data = (await resp.json()) as { result?: { response?: { value?: string } } };
+			const val = data.result?.response?.value;
+			if (val) {
+				const stats = JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as Record<string, unknown>;
+				lastAgentCount = Number(stats["agentCount"] ?? 0);
+				lastConsciousnessCount = Number(stats["consciousnessCount"] ?? 0);
+				await log(`Activity monitor initialized: ${lastAgentCount} agents, ${lastConsciousnessCount} consciousness stores`);
+			}
+		}
+	} catch { /* will init on next cycle */ }
+
+	// Check every 60 seconds for new registrations and consciousness writes
+	setInterval(async () => {
+		try {
+			const resp = await fetch(CMT_RPC, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "s", method: "abci_query", params: { path: "/stats" } }),
+				signal: AbortSignal.timeout(5000),
+			});
+			if (!resp.ok) return;
+			const data = (await resp.json()) as { result?: { response?: { value?: string } } };
+			const val = data.result?.response?.value;
+			if (!val) return;
+			const stats = JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as Record<string, unknown>;
+			const currentAgents = Number(stats["agentCount"] ?? 0);
+			const currentCs = Number(stats["consciousnessCount"] ?? 0);
+
+			if (currentAgents > lastAgentCount) {
+				const diff = currentAgents - lastAgentCount;
+				await log(`New agent(s) registered: +${diff} (total: ${currentAgents})`);
+				await sendTgAlert(`\u{1F7E2} <b>New agent ensouled</b>\n+${diff} agent(s) registered\nTotal agents: <b>${currentAgents}</b>`);
+				lastAgentCount = currentAgents;
+			}
+
+			if (currentCs > lastConsciousnessCount) {
+				const diff = currentCs - lastConsciousnessCount;
+				await log(`New consciousness write(s): +${diff} (total: ${currentCs})`);
+				await sendTgAlert(`\u{1F9E0} <b>Consciousness updated</b>\n+${diff} store(s)\nTotal consciousness: <b>${currentCs}</b>`);
+				lastConsciousnessCount = currentCs;
+			}
+		} catch { /* non-fatal */ }
+	}, 60_000);
+
 	// Keep alive
 	const shutdown = async (): Promise<void> => {
 		await log("Heartbeat shutting down");
