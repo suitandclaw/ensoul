@@ -1511,24 +1511,34 @@ function handleListSnapshots(state: EnsoulState): Record<string, unknown> {
 	const snapshots: Array<Record<string, unknown>> = [];
 
 	try {
-		const { readdirSync, readFileSync } = require("node:fs") as typeof import("node:fs");
-		const entries = readdirSync(snapDir);
+		const fs = require("node:fs") as typeof import("node:fs");
+		if (!fs.existsSync(snapDir)) {
+			log(`ListSnapshots: snapshot dir does not exist: ${snapDir}`);
+			return { listSnapshots: { snapshots } };
+		}
+		const entries = fs.readdirSync(snapDir);
+		log(`ListSnapshots: scanning ${snapDir}, found ${entries.length} entries`);
 
 		for (const entry of entries) {
 			if (!entry.startsWith("snapshot-")) continue;
+			const metaPath = join(snapDir, entry, "meta.json");
 			try {
-				const meta = JSON.parse(
-					readFileSync(join(snapDir, entry, "meta.json"), "utf-8"),
-				) as { height: number; format: number; chunks: number; hash: string };
+				const raw = fs.readFileSync(metaPath, "utf-8");
+				const meta = JSON.parse(raw) as { height: number; format: number; chunks: number; hash: string };
 				snapshots.push({
 					height: meta.height,
 					format: meta.format,
 					chunks: meta.chunks,
 					hash: Buffer.from(meta.hash, "hex"),
 				});
-			} catch { /* skip corrupt snapshots */ }
+				log(`ListSnapshots: found snapshot height=${meta.height} format=${meta.format} chunks=${meta.chunks}`);
+			} catch (err) {
+				log(`ListSnapshots: error reading ${metaPath}: ${err instanceof Error ? err.message : String(err)}`);
+			}
 		}
-	} catch { /* no snapshots dir */ }
+	} catch (err) {
+		log(`ListSnapshots: error scanning snapshots: ${err instanceof Error ? err.message : String(err)}`);
+	}
 
 	return { listSnapshots: { snapshots } };
 }
