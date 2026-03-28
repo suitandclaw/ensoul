@@ -9,6 +9,7 @@
 
 import type protobuf from "protobufjs";
 import { writeFile, readFile, mkdir, unlink } from "node:fs/promises";
+import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { blake3 } from "@noble/hashes/blake3";
 import { bytesToHex } from "@noble/hashes/utils";
@@ -1511,19 +1512,18 @@ function handleListSnapshots(state: EnsoulState): Record<string, unknown> {
 	const snapshots: Array<Record<string, unknown>> = [];
 
 	try {
-		const fs = require("node:fs") as typeof import("node:fs");
-		if (!fs.existsSync(snapDir)) {
+		if (!existsSync(snapDir)) {
 			log(`ListSnapshots: snapshot dir does not exist: ${snapDir}`);
 			return { listSnapshots: { snapshots } };
 		}
-		const entries = fs.readdirSync(snapDir);
+		const entries = readdirSync(snapDir);
 		log(`ListSnapshots: scanning ${snapDir}, found ${entries.length} entries`);
 
 		for (const entry of entries) {
 			if (!entry.startsWith("snapshot-")) continue;
 			const metaPath = join(snapDir, entry, "meta.json");
 			try {
-				const raw = fs.readFileSync(metaPath, "utf-8");
+				const raw = readFileSync(metaPath, "utf-8");
 				const meta = JSON.parse(raw) as { height: number; format: number; chunks: number; hash: string };
 				snapshots.push({
 					height: meta.height,
@@ -1586,14 +1586,15 @@ function handleLoadSnapshotChunk(
 	const snapPath = join(state.dataDir, "snapshots", `snapshot-${height}`, "data.bin");
 
 	try {
-		const { readFileSync } = require("node:fs") as typeof import("node:fs");
 		const data = readFileSync(snapPath);
 		const start = chunkIdx * SNAPSHOT_CHUNK_SIZE;
 		const end = Math.min(start + SNAPSHOT_CHUNK_SIZE, data.length);
 		const chunk = data.subarray(start, end);
+		log(`LoadSnapshotChunk: height=${height} chunk=${chunkIdx} size=${chunk.length}`);
 
 		return { loadSnapshotChunk: { chunk: Buffer.from(chunk) } };
-	} catch {
+	} catch (err) {
+		log(`LoadSnapshotChunk: error reading ${snapPath}: ${err instanceof Error ? err.message : String(err)}`);
 		return { loadSnapshotChunk: { chunk: Buffer.alloc(0) } };
 	}
 }
