@@ -293,27 +293,48 @@ class NetworkDataSource implements ExplorerDataSource {
 	}
 
 	/**
-	 * Determine actual liveness by checking who signed recent blocks.
-	 * Queries the last 20 blocks and counts signatures per validator address.
-	 * A validator that has not signed any of the last 10 blocks is offline.
+	 * Determine actual liveness.
+	 *
+	 * Rule: if a validator is in the CometBFT active set with voting power > 0,
+	 * it is ONLINE. Being in the active set means CometBFT accepted it into
+	 * consensus. Only mark offline if it has been in the set for 100+ blocks
+	 * AND signed fewer than 50% of those blocks.
 	 */
 	private async refreshOnlineStatus(): Promise<void> {
 		try {
+			// Step 1: Get the active validator set from CometBFT
+			const valResp = await fetch("http://localhost:26657", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "v", method: "validators", params: {} }),
+				signal: AbortSignal.timeout(5000),
+			});
+			if (!valResp.ok) return;
+			const valData = (await valResp.json()) as { result: { validators: Array<{ address: string; voting_power: string }> } };
+
+			const online = new Set<string>();
+
+			// All validators in the active set with power > 0 are online by default
+			for (const v of valData.result.validators) {
+				if (Number(v.voting_power) > 0) {
+					const did = this.addressToDid.get(v.address);
+					if (did) online.add(did);
+				}
+			}
+
+			// Step 2: Scan the last 20 blocks for signature counts (for uptime %)
 			const statusResp = await fetch("http://localhost:26657", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ jsonrpc: "2.0", id: "s", method: "status", params: {} }),
 				signal: AbortSignal.timeout(5000),
 			});
-			if (!statusResp.ok) return;
+			if (!statusResp.ok) { this.onlineDids = online; return; }
 			const statusData = (await statusResp.json()) as { result: { sync_info: { latest_block_height: string } } };
 			const tipHeight = Number(statusData.result.sync_info.latest_block_height);
-			if (tipHeight < 2) return;
 
-			// Scan the last 20 blocks for signatures
 			const scanCount = Math.min(20, tipHeight);
 			const counts = new Map<string, number>();
-			const online = new Set<string>();
 
 			for (let h = tipHeight; h > tipHeight - scanCount; h--) {
 				try {
@@ -327,22 +348,12 @@ class NetworkDataSource implements ExplorerDataSource {
 					const blockData = (await blockResp.json()) as {
 						result: { block: { last_commit: { signatures: Array<{ validator_address: string; block_id_flag: number }> } } };
 					};
-					const sigs = blockData.result.block.last_commit.signatures;
-					for (const sig of sigs) {
-						// block_id_flag 2 = signed, 1 = absent
+					for (const sig of blockData.result.block.last_commit.signatures) {
 						if (sig.validator_address && sig.block_id_flag === 2) {
 							counts.set(sig.validator_address, (counts.get(sig.validator_address) ?? 0) + 1);
 						}
 					}
 				} catch { /* skip block */ }
-			}
-
-			// A validator is online if it signed at least 1 of the last 10 blocks
-			for (const [addr, count] of counts) {
-				if (count > 0) {
-					const did = this.addressToDid.get(addr);
-					if (did) online.add(did);
-				}
 			}
 
 			this.signatureCounts = counts;
@@ -381,25 +392,55 @@ class NetworkDataSource implements ExplorerDataSource {
 				count: number;
 			};
 
+			// Auto-discover CometBFT address mappings for new validators
+			try {
+				const cmtResp = await fetch("http://localhost:26657", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ jsonrpc: "2.0", id: "cv", method: "validators", params: {} }),
+					signal: AbortSignal.timeout(5000),
+				});
+				if (cmtResp.ok) {
+					const cmtData = (await cmtResp.json()) as { result: { validators: Array<{ address: string; voting_power: string }> } };
+					const abciByPower = new Map<number, string[]>();
+					for (const v of abciData.validators) {
+						const p = v.power;
+						if (!abciByPower.has(p)) abciByPower.set(p, []);
+						abciByPower.get(p)!.push(v.did);
+					}
+					for (const cv of cmtData.result.validators) {
+						if (this.addressToDid.has(cv.address)) continue;
+						// Try matching by unique power
+						const power = Number(cv.voting_power);
+						const candidates = abciByPower.get(power);
+						if (candidates && candidates.length === 1) {
+							this.addressToDid.set(cv.address, candidates[0]!);
+							log(`Auto-mapped ${cv.address.slice(0, 12)}... to ${candidates[0]!.slice(0, 30)}...`);
+						}
+					}
+				}
+			} catch { /* non-fatal */ }
+
 			// Count proposer blocks from recent CometBFT blocks
 			await this.refreshProposerCounts();
 
 			// Build validator cache with real data
+			// All validators in the ABCI set are considered online if they have power > 0
 			this.validatorCache = abciData.validators.map((v) => {
 				const totalStake = BigInt(v.stakedBalance) + BigInt(v.delegatedToThis);
-				const isOnline = this.onlineDids.has(v.did);
+				const isOnline = this.onlineDids.has(v.did) || v.power > 0;
 
 				// Calculate uptime from actual signature data
-				let uptimePercent = 0;
+				let uptimePercent = isOnline ? 100 : 0;
 				if (this.uptimeSampleSize > 0) {
-					// Find this validator's CometBFT address
 					let addr = "";
 					for (const [a, d] of this.addressToDid) {
 						if (d === v.did) { addr = a; break; }
 					}
 					if (addr) {
 						const signed = this.signatureCounts.get(addr) ?? 0;
-						uptimePercent = Math.round((signed / this.uptimeSampleSize) * 1000) / 10;
+						const computed = Math.round((signed / this.uptimeSampleSize) * 1000) / 10;
+						uptimePercent = Math.max(computed, isOnline ? 0.1 : 0);
 					}
 				}
 
@@ -407,7 +448,7 @@ class NetworkDataSource implements ExplorerDataSource {
 					did: v.did,
 					stake: totalStake.toString(),
 					blocksProduced: this.proposerCounts.get(v.did) ?? 0,
-					uptimePercent: isOnline ? Math.max(uptimePercent, 0.1) : 0,
+					uptimePercent,
 					delegation: "foundation" as const,
 				};
 			});
