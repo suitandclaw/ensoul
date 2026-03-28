@@ -858,72 +858,198 @@ async function main(): Promise<void> {
 
 	// ── Consciousness Store ──────────────────────────────────────
 
-	app.post<{ Body: StoreRequest }>("/v1/consciousness/store", async (req, reply) => {
-		const body = req.body;
-		if (!body.did || !body.stateRoot || body.version === undefined) {
-			return reply.status(400).send({ error: "did, stateRoot, and version are required" });
+	/**
+	 * POST /v1/consciousness/store
+	 *
+	 * Accepts a pre-signed consciousness_store transaction and broadcasts
+	 * it to CometBFT. The agent signs the transaction client-side with its
+	 * own key. The API is a relay, not a custodian.
+	 *
+	 * Body: a complete signed transaction (same format as /v1/tx/broadcast)
+	 *   { type: "consciousness_store", from, to, amount, nonce, timestamp, signature, data }
+	 *
+	 * Returns: { applied, height, hash, error? }
+	 */
+	app.post<{ Body: Record<string, unknown> }>("/v1/consciousness/store", async (req, reply) => {
+		const tx = req.body;
+
+		// Validate required fields
+		if (!tx["from"] || !tx["signature"]) {
+			return reply.status(400).send({
+				error: "Signed transaction required. Include: type, from, to, amount, nonce, timestamp, signature, data",
+			});
 		}
 
-		const shardCount = body.encryptedShards?.length ?? 0;
+		// If the body looks like the OLD format (did, stateRoot, version but no signature),
+		// return a helpful migration message
+		if (tx["did"] && tx["stateRoot"] && !tx["signature"]) {
+			return reply.status(400).send({
+				error: "This endpoint now requires a signed transaction. Use /v1/consciousness/store/simple for the SDK-friendly interface, or sign your transaction client-side and submit here.",
+				migration: "https://github.com/suitandclaw/ensoul/blob/main/docs/VALIDATOR-GUIDE.md",
+			});
+		}
 
-		const isFirstStore = !consciousnessStore.has(body.did);
+		// Ensure type is consciousness_store
+		if (tx["type"] !== "consciousness_store") {
+			tx["type"] = "consciousness_store";
+		}
 
-		// Store the consciousness metadata
-		consciousnessStore.set(body.did, {
-			did: body.did,
-			stateRoot: body.stateRoot,
-			version: body.version,
-			shardCount,
-			storedAt: Date.now(),
-		});
+		// Broadcast to CometBFT
+		const txJson = JSON.stringify(tx);
+		const txBase64 = Buffer.from(txJson).toString("base64");
 
-		await saveConsciousnessStore();
-		await log(`Stored consciousness for ${body.did} v${body.version} (${shardCount} shards)`);
+		try {
+			const resp = await fetch(CMT_RPC, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "cs", method: "broadcast_tx_commit", params: { tx: txBase64 } }),
+				signal: AbortSignal.timeout(30000),
+			});
+			const result = (await resp.json()) as {
+				result?: {
+					check_tx?: { code?: number; log?: string };
+					tx_result?: { code?: number; log?: string };
+					height?: string; hash?: string;
+				};
+			};
 
-		// Deferred welcome bonus: send on first consciousness store
-		let bonusSent = false;
-		if (isFirstStore && onboardingDid && registeredAgents.has(body.did)) {
-			if (checkDailyBonusCap()) {
-				const balanceOk = await checkOnboardingBalance();
-				if (balanceOk) {
-					bonusSent = await signAndSubmitWelcomeBonus(body.did);
-					if (bonusSent) {
-						incrementDailyBonus();
-						await log(`Agent ${body.did} stored consciousness. Sending 100 ENSL welcome bonus.`);
+			const cc = result.result?.check_tx?.code ?? 0;
+			const dc = result.result?.tx_result?.code ?? 0;
+			const applied = cc === 0 && dc === 0;
+			const height = Number(result.result?.height ?? 0);
+
+			if (applied) {
+				await log(`Consciousness stored on-chain: ${String(tx["from"]).slice(0, 30)}... at height ${height}`);
+				// Update local cache for fast reads
+				const did = String(tx["from"]);
+				try {
+					const dataField = tx["data"];
+					if (Array.isArray(dataField)) {
+						const parsed = JSON.parse(new TextDecoder().decode(new Uint8Array(dataField as number[]))) as Record<string, unknown>;
+						consciousnessStore.set(did, {
+							did,
+							stateRoot: String(parsed["stateRoot"] ?? ""),
+							version: Number(parsed["version"] ?? 1),
+							shardCount: Number(parsed["shardCount"] ?? 0),
+							storedAt: Date.now(),
+						});
 					}
-				} else {
-					await log(`Onboarding balance below 10M floor. Bonus skipped for ${body.did}.`);
-				}
-			} else {
-				await log(`Daily bonus cap reached. Bonus skipped for ${body.did}.`);
+				} catch { /* cache update is best-effort */ }
 			}
+
+			return {
+				applied,
+				height,
+				hash: result.result?.hash ?? "",
+				error: !applied ? (result.result?.check_tx?.log ?? result.result?.tx_result?.log) : undefined,
+			};
+		} catch (err) {
+			return reply.status(502).send({ applied: false, error: err instanceof Error ? err.message : "broadcast failed" });
+		}
+	});
+
+	/**
+	 * POST /v1/consciousness/store/simple
+	 *
+	 * SDK-friendly endpoint. Accepts consciousness data and signature
+	 * separately, assembles the transaction, and broadcasts to CometBFT.
+	 *
+	 * Body:
+	 *   agent_did: the agent's DID
+	 *   state_root: consciousness state root hash
+	 *   version: consciousness version number
+	 *   nonce: current account nonce
+	 *   timestamp: unix timestamp (ms)
+	 *   signature: Ed25519 signature (hex) over JSON.stringify({type,from,to,amount,nonce,timestamp})
+	 *   shard_count?: number of encrypted shards (optional, default 0)
+	 */
+	app.post<{ Body: Record<string, unknown> }>("/v1/consciousness/store/simple", { bodyLimit: 10_485_760 }, async (req, reply) => {
+		const body = req.body;
+		const agentDid = String(body["agent_did"] ?? "");
+		const stateRoot = String(body["state_root"] ?? "");
+		const version = Number(body["version"] ?? 0);
+		const nonce = Number(body["nonce"] ?? 0);
+		const timestamp = Number(body["timestamp"] ?? 0);
+		const signature = String(body["signature"] ?? "");
+		const shardCount = Number(body["shard_count"] ?? 0);
+
+		if (!agentDid || !stateRoot || !signature) {
+			return reply.status(400).send({
+				error: "Required: agent_did, state_root, version, nonce, timestamp, signature",
+				example: {
+					agent_did: "did:key:z6Mk...",
+					state_root: "abc123...",
+					version: 1,
+					nonce: 0,
+					timestamp: Date.now(),
+					signature: "ed25519_signature_hex_over_signing_payload",
+				},
+				signing_payload: "JSON.stringify({type:'consciousness_store',from:agent_did,to:agent_did,amount:'0',nonce,timestamp})",
+			});
 		}
 
-		const netStatus = await queryValidatorStatus();
-		const result: Record<string, unknown> = {
-			stored: true,
-			version: body.version,
-			stateRoot: body.stateRoot,
-			validators: netStatus.validatorCount,
+		// Assemble the consciousness_store transaction
+		const data = Array.from(new TextEncoder().encode(JSON.stringify({ stateRoot, version, shardCount })));
+		const tx = {
+			type: "consciousness_store",
+			from: agentDid,
+			to: agentDid,
+			amount: "0",
+			nonce,
+			timestamp,
+			signature,
+			data,
 		};
-		if (bonusSent) {
-			result["welcomeBonus"] = "100 ENSL";
-			result["bonusOnChain"] = true;
+
+		// Broadcast to CometBFT
+		const txBase64 = Buffer.from(JSON.stringify(tx)).toString("base64");
+		try {
+			const resp = await fetch(CMT_RPC, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "cs", method: "broadcast_tx_commit", params: { tx: txBase64 } }),
+				signal: AbortSignal.timeout(30000),
+			});
+			const result = (await resp.json()) as {
+				result?: {
+					check_tx?: { code?: number; log?: string };
+					tx_result?: { code?: number; log?: string };
+					height?: string; hash?: string;
+				};
+			};
+
+			const cc = result.result?.check_tx?.code ?? 0;
+			const dc = result.result?.tx_result?.code ?? 0;
+			const applied = cc === 0 && dc === 0;
+
+			return {
+				applied,
+				height: Number(result.result?.height ?? 0),
+				hash: result.result?.hash ?? "",
+				did: agentDid,
+				version,
+				stateRoot,
+				error: !applied ? (result.result?.check_tx?.log ?? result.result?.tx_result?.log) : undefined,
+			};
+		} catch (err) {
+			return reply.status(502).send({ applied: false, error: err instanceof Error ? err.message : "broadcast failed" });
 		}
-		return result;
 	});
 
 	// ── Consciousness Retrieve ───────────────────────────────────
 
 	app.get<{ Params: { did: string } }>("/v1/consciousness/:did", async (req, reply) => {
 		const did = decodeURIComponent(req.params.did);
-		const entry = consciousnessStore.get(did);
 
-		if (!entry) {
-			return reply.status(404).send({ error: "Consciousness not found for this DID" });
-		}
+		// Query on-chain data first (source of truth)
+		const onChain = await abciQuery(`/consciousness/${did}`);
+		if (onChain) return onChain;
 
-		return entry;
+		// Fallback to local cache
+		const cached = consciousnessStore.get(did);
+		if (cached) return { ...cached, source: "cache" };
+
+		return reply.status(404).send({ error: "Consciousness not found for this DID" });
 	});
 
 	// ── Consciousness Verify ─────────────────────────────────────
@@ -1061,10 +1187,64 @@ async function main(): Promise<void> {
 
 	// ── Agent Registration ───────────────────────────────────────
 
-	app.post<{ Body: AgentRegisterRequest }>("/v1/agents/register", { bodyLimit: 10240 }, async (req, reply) => {
+	/**
+	 * POST /v1/agents/register
+	 *
+	 * Two modes:
+	 *   1. Signed transaction mode: if body contains 'signature', broadcasts
+	 *      an agent_register transaction to CometBFT (preferred, on-chain).
+	 *   2. Simple mode: if body contains 'did' and 'publicKey' without signature,
+	 *      registers in the API cache for backward compatibility. The agent should
+	 *      follow up with a signed on-chain registration for permanent persistence.
+	 */
+	app.post<{ Body: AgentRegisterRequest & Record<string, unknown> }>("/v1/agents/register", { bodyLimit: 10240 }, async (req, reply) => {
 		const body = req.body;
+
+		// Mode 1: Signed transaction (on-chain registration)
+		if (body["signature"] && body["from"]) {
+			const tx = body as Record<string, unknown>;
+			if (tx["type"] !== "agent_register") tx["type"] = "agent_register";
+			const txBase64 = Buffer.from(JSON.stringify(tx)).toString("base64");
+			try {
+				const resp = await fetch(CMT_RPC, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ jsonrpc: "2.0", id: "ar", method: "broadcast_tx_commit", params: { tx: txBase64 } }),
+					signal: AbortSignal.timeout(30000),
+				});
+				const result = (await resp.json()) as {
+					result?: { check_tx?: { code?: number; log?: string }; tx_result?: { code?: number; log?: string }; height?: string; hash?: string };
+				};
+				const cc = result.result?.check_tx?.code ?? 0;
+				const dc = result.result?.tx_result?.code ?? 0;
+				const applied = cc === 0 && dc === 0;
+				return {
+					registered: applied,
+					onChain: true,
+					did: String(tx["from"]),
+					height: Number(result.result?.height ?? 0),
+					hash: result.result?.hash ?? "",
+					error: !applied ? (result.result?.check_tx?.log ?? result.result?.tx_result?.log) : undefined,
+				};
+			} catch (err) {
+				return reply.status(502).send({ registered: false, error: err instanceof Error ? err.message : "broadcast failed" });
+			}
+		}
+
+		// Mode 2: Simple registration (cache + optional on-chain later)
 		if (!body.did || !body.publicKey) {
 			return reply.status(400).send({ error: "did and publicKey are required" });
+		}
+
+		// Check on-chain first
+		const onChainAgent = await abciQuery(`/agent/${body.did}`);
+		if (onChainAgent && onChainAgent["registered"]) {
+			return {
+				registered: true,
+				did: body.did,
+				onChain: true,
+				message: "Agent already registered on-chain",
+			};
 		}
 
 		const existing = registeredAgents.get(body.did);
@@ -1072,7 +1252,8 @@ async function main(): Promise<void> {
 			return {
 				registered: true,
 				did: body.did,
-				message: "Agent already registered",
+				onChain: false,
+				message: "Agent registered in API cache. Submit a signed agent_register transaction for on-chain persistence.",
 				registeredAt: new Date(existing.registeredAt).toISOString(),
 			};
 		}
@@ -1080,41 +1261,22 @@ async function main(): Promise<void> {
 		// IP-based registration limit: 3 per IP per day
 		const ip = req.ip;
 		if (!checkIpLimit(ip)) {
-			// Still register, but no bonus
-			registeredAgents.set(body.did, {
-				did: body.did,
-				publicKey: body.publicKey,
-				registeredAt: Date.now(),
-			});
+			registeredAgents.set(body.did, { did: body.did, publicKey: body.publicKey, registeredAt: Date.now() });
 			await saveRegisteredAgents();
-			await log(`Agent registered (IP limit): ${body.did} from ${ip}`);
-			return {
-				registered: true,
-				did: body.did,
-				bonusOnChain: false,
-				reason: "IP registration limit reached",
-				message: "Welcome to the Ensoul network",
-			};
+			return { registered: true, did: body.did, onChain: false, reason: "IP limit reached" };
 		}
 
 		incrementIpCount(ip);
-		registeredAgents.set(body.did, {
-			did: body.did,
-			publicKey: body.publicKey,
-			registeredAt: Date.now(),
-		});
+		registeredAgents.set(body.did, { did: body.did, publicKey: body.publicKey, registeredAt: Date.now() });
 		await saveRegisteredAgents();
-		await log(`Agent registered: ${body.did}`);
+		await log(`Agent registered (cache): ${body.did}`);
 
-		// Bonus is deferred: sent when agent first stores consciousness.
-		// Mark as pending_bonus in the response.
 		return {
 			registered: true,
 			did: body.did,
-			welcomeBonus: "100 ENSL (sent after first consciousness store)",
-			bonusOnChain: false,
-			bonusPending: true,
-			message: "Welcome to the Ensoul network. Store your consciousness to receive 100 ENSL.",
+			onChain: false,
+			welcomeBonus: "100 ENSL (sent after first on-chain consciousness store)",
+			message: "Registered in API cache. For permanent on-chain registration, submit a signed agent_register transaction.",
 		};
 	});
 
