@@ -1374,19 +1374,9 @@ async function main(): Promise<void> {
 			currentStake = BigInt(String(acctData["stakedBalance"] ?? "0")) + BigInt(String(acctData["balance"] ?? "0"));
 		}
 
-		const minimumStake = 100_000n * (10n ** 18n);
-		let delegated = false;
-		let delegatedAmount = "0";
-
-		if (currentStake < minimumStake && treasuryDid) {
-			delegated = await signAndSubmitDelegation(body.did);
-			if (delegated) {
-				dailyValidatorCount++;
-				delegatedAmount = "100,000 ENSL";
-			}
-		} else if (currentStake >= minimumStake) {
-			delegatedAmount = "not needed (sufficient stake)";
-		}
+		// Auto-delegation DISABLED. Token distribution is manual until
+		// the tiered staking system is implemented with proper caps and controls.
+		const delegatedAmount = "0 (auto-delegation disabled, contact team for stake)";
 
 		const entry: RegisteredValidator = {
 			did: body.did,
@@ -1405,11 +1395,7 @@ async function main(): Promise<void> {
 			did: body.did,
 			delegated: delegatedAmount,
 			minimumStake: "100,000 ENSL",
-			message: delegated
-				? "Foundation delegation active. Maintain 90%+ uptime to keep it."
-				: currentStake >= minimumStake
-					? "Sufficient stake detected. No delegation needed."
-					: "Registered. Foundation delegation could not be sent. Self-stake to begin producing blocks.",
+			message: "Registered. Auto-delegation is disabled. Contact the team for staking.",
 		};
 	});
 
@@ -1445,14 +1431,8 @@ async function main(): Promise<void> {
 		}
 
 		// Delegate 2,000,000 ENSL
-		let delegated = false;
-		let delegatedAmount = "0";
-		if (treasuryDid) {
-			delegated = await signAndSubmitDelegation(body.did, PIONEER_DELEGATION);
-			if (delegated) {
-				delegatedAmount = "2,000,000 ENSL";
-			}
-		}
+		// Auto-delegation DISABLED. Pioneer delegations are manual.
+		const delegatedAmount = "0 (auto-delegation disabled, manual delegation required)";
 
 		const entry: RegisteredValidator = {
 			did: body.did,
@@ -1474,9 +1454,7 @@ async function main(): Promise<void> {
 			tier: "pioneer",
 			delegated: delegatedAmount,
 			pioneerSlot: `${pioneerCount}/${PIONEER_CAP}`,
-			message: delegated
-				? "Pioneer delegation active (2,000,000 ENSL). Welcome to the founding validators."
-				: "Registered as Pioneer. Delegation could not be sent.",
+			message: "Registered as Pioneer. Auto-delegation is disabled. Manual delegation required.",
 		};
 	});
 
