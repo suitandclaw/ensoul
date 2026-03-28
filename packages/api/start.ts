@@ -1399,7 +1399,106 @@ async function main(): Promise<void> {
 		};
 	});
 
-	// ── Pioneer Validator Registration ───────────────────────────
+	// ── Tiered Delegation System ────────────────────────────────
+
+	// Initialize delegation engine
+	const { loadState: loadDelegationState, submitPioneerApplication, getPendingApplications,
+		approveApplication, rejectApplication, registerOpenValidator, getTreasuryStats,
+		getDelegation, getAllDelegations, getState: getDelegationState, saveState: saveDelegationState,
+	} = await import("@ensoul/delegation-engine");
+	await loadDelegationState();
+
+	/** POST /v1/validators/pioneer-apply */
+	app.post<{ Body: Record<string, unknown> }>("/v1/validators/pioneer-apply", { bodyLimit: 10240 }, async (req, reply) => {
+		const b = req.body;
+		const validatorAddress = String(b["validator_address"] ?? "");
+		const did = String(b["did"] ?? "");
+		const operatorName = String(b["operator_name"] ?? "");
+		const operatorEmail = String(b["operator_email"] ?? "");
+		const operatorTwitter = String(b["operator_twitter"] ?? "");
+		const description = String(b["description"] ?? "");
+		const motivation = String(b["motivation"] ?? "");
+
+		if (!did || !operatorName || !operatorEmail || !description) {
+			return reply.status(400).send({
+				error: "Required: did, operator_name, operator_email, description",
+			});
+		}
+
+		const result = await submitPioneerApplication({
+			validatorAddress,
+			did,
+			operatorName,
+			operatorEmail,
+			operatorTwitter,
+			description,
+			motivation,
+			ip: req.ip,
+		});
+
+		if (result.error) return reply.status(400).send({ error: result.error });
+		return { applied: true, applicationId: result.id, message: "Application submitted. You will be notified of the decision." };
+	});
+
+	/** GET /v1/validators/applications (admin, returns pending applications) */
+	app.get("/v1/validators/applications", async () => {
+		return { applications: getPendingApplications() };
+	});
+
+	/** POST /v1/validators/register-open */
+	app.post<{ Body: Record<string, unknown> }>("/v1/validators/register-open", { bodyLimit: 10240 }, async (req, reply) => {
+		const b = req.body;
+		const did = String(b["did"] ?? "");
+		const operatorContact = String(b["operator_contact"] ?? "");
+		const ip = req.ip;
+
+		if (!did || !operatorContact) {
+			return reply.status(400).send({ error: "Required: did, operator_contact (email or social handle)" });
+		}
+
+		// Get treasury balance for floor check
+		let treasuryBalance = 0n;
+		const tData = await abciQuery("/balance/did:key:z6Mki9jwpYMBB93zxYfsmNUHThpSgKATqydN4xJA1xcxGecm");
+		if (tData) treasuryBalance = BigInt(String(tData["balance"] ?? "0"));
+
+		const result = await registerOpenValidator(did, operatorContact, ip, treasuryBalance);
+		if (result.error) return reply.status(400).send(result);
+		return result;
+	});
+
+	/** GET /v1/validators/delegation/:did */
+	app.get<{ Params: { did: string } }>("/v1/validators/delegation/:did", async (req) => {
+		const did = decodeURIComponent(req.params.did);
+		const d = getDelegation(did);
+		if (!d) return { found: false, did };
+		return {
+			found: true,
+			did: d.did,
+			tier: d.tier,
+			stage: d.stage,
+			delegatedAmount: d.delegatedAmount,
+			uptimePercent: d.uptimePercent,
+			registeredAt: new Date(d.registeredAt).toISOString(),
+		};
+	});
+
+	/** GET /v1/validators/treasury-stats */
+	app.get("/v1/validators/treasury-stats", async () => {
+		const stats = getTreasuryStats();
+		return {
+			totalDelegated: (stats.totalDelegated / (10n ** 18n)).toString() + " ENSL",
+			validators: stats.byTier,
+			probation: stats.probation,
+			recentActions: stats.recentLog.slice(-10).map(l => ({
+				time: new Date(l.timestamp).toISOString(),
+				action: l.action,
+				tier: l.tier,
+				reason: l.reason,
+			})),
+		};
+	});
+
+	// ── Pioneer Validator Registration (legacy, kept for backward compat) ──
 
 	app.post<{ Body: ValidatorRegisterRequest }>("/v1/validators/register-pioneer", { bodyLimit: 10240 }, async (req, reply) => {
 		const body = req.body;

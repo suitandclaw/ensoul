@@ -73,6 +73,9 @@ importers:
 
   packages/api:
     dependencies:
+      '@ensoul/delegation-engine':
+        specifier: workspace:*
+        version: link:../delegation-engine
       '@fastify/cors':
         specifier: ^11.0.0
         version: 11.2.0
@@ -109,6 +112,27 @@ importers:
       '@ensoul/node':
         specifier: workspace:*
         version: link:../node
+
+  packages/consciousness-heartbeat:
+    dependencies:
+      '@ensoul/delegation-engine':
+        specifier: workspace:*
+        version: link:../delegation-engine
+      '@noble/ed25519':
+        specifier: ^3.0.0
+        version: 3.0.0
+      '@noble/hashes':
+        specifier: ^2.0.1
+        version: 2.0.1
+
+  packages/delegation-engine:
+    dependencies:
+      '@noble/ed25519':
+        specifier: ^3.0.0
+        version: 3.0.0
+      '@noble/hashes':
+        specifier: ^2.0.1
+        version: 2.0.1
 
   packages/explorer:
     dependencies:
@@ -302,6 +326,15 @@ importers:
         specifier: workspace:*
         version: link:../state-tree
 
+  packages/research-agents:
+    dependencies:
+      '@noble/ed25519':
+        specifier: ^3.0.0
+        version: 3.0.0
+      '@noble/hashes':
+        specifier: ^2.0.1
+        version: 2.0.1
+
   packages/resurrection:
     dependencies:
       '@ensoul/identity':
@@ -356,7 +389,11 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0
 
-  packages/telegram-bot: {}
+  packages/telegram-bot:
+    dependencies:
+      '@ensoul/delegation-engine':
+        specifier: workspace:*
+        version: link:../delegation-engine
 
   packages/website: {}
 
