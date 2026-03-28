@@ -62,6 +62,7 @@ interface ValidatorConfig {
 	role: string;
 	user: string;
 	sshPort?: number;
+	cometbftAddress?: string;
 }
 
 const VALIDATORS: ValidatorConfig[] = (() => {
@@ -199,38 +200,79 @@ async function handleStatus(chatId: number): Promise<void> {
 
 	lines.push("");
 
-	// Validators: configured + auto-discovered from API peer registry
-	const checkedIps = new Set<string>();
+	// Validators: query CometBFT active set (source of truth)
+	// Then check each via its configured or discovered IP
+	const valSetResp = await cometRpc("localhost", 26657, "validators");
+	const activeAddrs = new Set<string>();
+	if (valSetResp) {
+		const valSet = valSetResp["validators"] as Array<Record<string, unknown>>;
+		for (const v of valSet) {
+			if (Number(v["voting_power"]) > 0) activeAddrs.add(String(v["address"]));
+		}
+	}
+
+	// Build address-to-config lookup
+	const addrToConfig = new Map<string, ValidatorConfig>();
+	for (const vc of VALIDATORS) {
+		if (vc.cometbftAddress) addrToConfig.set(String(vc.cometbftAddress), vc);
+	}
+
+	// Get peer IPs for unconfigured validators
+	const peerMoniker = new Map<string, string>();
+	const netInfo = await cometRpc("localhost", 26657, "net_info");
+	if (netInfo) {
+		const peers = netInfo["peers"] as Array<Record<string, unknown>>;
+		for (const p of peers ?? []) {
+			const ni = p["node_info"] as Record<string, unknown>;
+			peerMoniker.set(String(ni["moniker"]), String(p["remote_ip"]));
+		}
+	}
+
+	const checkedAddrs = new Set<string>();
+
+	// Check configured validators first (have names)
 	for (const vc of VALIDATORS) {
 		const ip = vc.tailscaleIp || vc.publicIp || "localhost";
-		checkedIps.add(ip);
 		const status = await cometRpc(ip, vc.rpcPort, "status");
 		if (!status) {
 			lines.push(`${vc.moniker}: <b>OFFLINE</b>`);
-			continue;
+		} else {
+			const si = status["sync_info"] as Record<string, unknown>;
+			const vi = status["validator_info"] as Record<string, unknown>;
+			const h = si["latest_block_height"];
+			const catching = si["catching_up"];
+			const icon = catching ? "\u{1F7E1}" : "\u{1F7E2}";
+			lines.push(`${icon} ${vc.moniker}: h=${h} ${catching ? "syncing" : "signing"}`);
+			if (vi) checkedAddrs.add(String(vi["address"]));
 		}
-		const si = status["sync_info"] as Record<string, unknown>;
-		const h = si["latest_block_height"];
-		const catching = si["catching_up"];
-
-		let peers = "?";
-		const net = await cometRpc(ip, vc.rpcPort, "net_info");
-		if (net) peers = String(net["n_peers"]);
-
-		const icon = catching ? "\u{1F7E1}" : "\u{1F7E2}";
-		const statusText = catching ? "syncing" : "signing";
-		lines.push(`${icon} ${vc.moniker}: h=${h} peers=${peers} ${statusText}`);
+		if (vc.cometbftAddress) checkedAddrs.add(String(vc.cometbftAddress));
 	}
 
-	// Show total active validator count from CometBFT
-	const valSetResp = await cometRpc("localhost", 26657, "validators");
-	if (valSetResp) {
-		const valSet = valSetResp["validators"] as Array<Record<string, unknown>>;
-		const activeCount = valSet?.filter(v => Number(v["voting_power"]) > 0).length ?? 0;
-		if (activeCount > VALIDATORS.length) {
-			lines.push(`\n(${activeCount} active validators total, ${activeCount - VALIDATORS.length} not in config)`);
+	// Check unconfigured active validators via peer IPs
+	for (const addr of activeAddrs) {
+		if (checkedAddrs.has(addr)) continue;
+		let found = false;
+		for (const [moniker, ip] of peerMoniker) {
+			if (ip.startsWith("100.") || ip.startsWith("10.")) continue;
+			try {
+				const s = await cometRpc(ip, 26657, "status");
+				if (s) {
+					const vi = s["validator_info"] as Record<string, unknown>;
+					if (String(vi?.["address"]) === addr) {
+						const si = s["sync_info"] as Record<string, unknown>;
+						const icon = si["catching_up"] ? "\u{1F7E1}" : "\u{1F7E2}";
+						lines.push(`${icon} ${moniker}: h=${si["latest_block_height"]} ${si["catching_up"] ? "syncing" : "signing"}`);
+						found = true;
+						break;
+					}
+				}
+			} catch { /* skip */ }
 		}
+		if (!found) lines.push(`\u{1F7E0} ${addr.slice(0, 8)}...: active (RPC unreachable)`);
+		checkedAddrs.add(addr);
 	}
+
+	lines.push(`\n<b>${activeAddrs.size}</b> active validators`);
 
 	lines.push("");
 
