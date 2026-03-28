@@ -292,17 +292,98 @@ async function checkAgent(): Promise<ServiceStatus> {
 async function pollAll(): Promise<void> {
 	const services: ServiceStatus[] = [];
 
-	// Configured validators
-	const validatorResults = await Promise.allSettled(
-		VALIDATORS.map((v) => checkValidator(v.name, v.url)),
-	);
-	for (const r of validatorResults) {
-		services.push(r.status === "fulfilled" ? r.value : { name: "Validator", url: "", status: "down", lastSeen: 0, details: {} });
+	// Build the validator list from CometBFT active set (source of truth),
+	// supplemented with connection info from static config and net_info peers.
+	// This ensures ALL active validators appear regardless of config file state.
+	const checkedAddresses = new Set<string>();
+
+	// Step 1: Get active validator set from CometBFT
+	let activeValidators: Array<{ address: string; votingPower: string }> = [];
+	try {
+		const valResp = await fetch("http://localhost:26657", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "v", method: "validators", params: {} }),
+			signal: AbortSignal.timeout(5000),
+		});
+		if (valResp.ok) {
+			const valData = (await valResp.json()) as { result: { validators: Array<{ address: string; voting_power: string }> } };
+			activeValidators = valData.result.validators
+				.filter(v => Number(v.voting_power) > 0)
+				.map(v => ({ address: v.address, votingPower: v.voting_power }));
+		}
+	} catch { /* fall back to static config */ }
+
+	// Step 2: Get peer IPs from net_info for address resolution
+	const peerIps = new Map<string, string>(); // moniker -> IP
+	try {
+		const netResp = await fetch("http://localhost:26657", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "n", method: "net_info", params: {} }),
+			signal: AbortSignal.timeout(5000),
+		});
+		if (netResp.ok) {
+			const netData = (await netResp.json()) as { result: { peers: Array<{ node_info: { moniker: string }; remote_ip: string }> } };
+			for (const p of netData.result.peers) {
+				peerIps.set(p.node_info.moniker, p.remote_ip);
+			}
+		}
+	} catch { /* non-fatal */ }
+
+	// Step 3: Build validator check list. For each active validator:
+	//   1. Try to match by CometBFT address to static config
+	//   2. If not in config, try to find its IP from net_info peers
+	//   3. Check health via CometBFT RPC
+
+	// First, check all configured validators (these have names and SSH config)
+	for (const vc of VALIDATOR_CONFIGS) {
+		const ip = vc.tailscaleIp || vc.publicIp || "";
+		if (!ip) continue;
+		const url = `http://${ip}:${vc.rpcPort}`;
+		const result = await checkValidator(vc.name, url);
+		services.push(result);
+		if (vc.cometbftAddress) checkedAddresses.add(vc.cometbftAddress);
+		// Also mark as checked by moniker
+		const moniker = (result.details as Record<string, unknown>)?.["moniker"];
+		if (moniker) checkedAddresses.add(String(moniker));
 	}
 
-	// Verify the configured validator count matches the on-chain active set.
-	// Only validators in CometBFT /validators with voting power > 0 are shown.
-	// Full nodes and peers with zero power are excluded.
+	// Then, check any active validators NOT in the static config
+	for (const av of activeValidators) {
+		if (checkedAddresses.has(av.address)) continue;
+
+		// Find this validator's IP by checking all known peer IPs
+		let found = false;
+		for (const [moniker, ip] of peerIps) {
+			if (found) break;
+			// Skip private IPs (home machines already checked via config)
+			if (ip.startsWith("100.") || ip.startsWith("10.") || ip.startsWith("192.168.")) continue;
+			// Check if this peer is the validator we're looking for
+			try {
+				const statusResp = await fetch(`http://${ip}:26657/status`, { signal: AbortSignal.timeout(3000) });
+				if (!statusResp.ok) continue;
+				const statusData = (await statusResp.json()) as { result: { validator_info: { address: string }; node_info: { moniker: string } } };
+				if (statusData.result.validator_info.address === av.address) {
+					const result = await checkValidator(`${statusData.result.node_info.moniker} (auto)`, `http://${ip}:26657`);
+					services.push(result);
+					checkedAddresses.add(av.address);
+					found = true;
+				}
+			} catch { /* skip */ }
+		}
+
+		// If still not found, mark as active but unreachable
+		if (!found) {
+			services.push({
+				name: `Validator ${av.address.slice(0, 8)}... (unconfigured)`,
+				url: "",
+				status: "degraded",
+				lastSeen: 0,
+				details: { address: av.address, votingPower: av.votingPower, note: "Active but RPC unreachable" },
+			});
+		}
+	}
 
 	// Explorer
 	services.push(await checkExplorer());
