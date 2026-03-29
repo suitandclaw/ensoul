@@ -331,58 +331,79 @@ async function pollAll(): Promise<void> {
 		}
 	} catch { /* non-fatal */ }
 
-	// Step 3: Build validator check list. For each active validator:
-	//   1. Try to match by CometBFT address to static config
-	//   2. If not in config, try to find its IP from net_info peers
-	//   3. Check health via CometBFT RPC
+	// Step 3: Determine validator health from LOCAL block signatures.
+	// This is the same approach as the explorer: check who signed the latest block.
+	// Never depends on reaching a validator's remote RPC for health status.
+	const signingAddresses = new Set<string>();
+	let localHeight = 0;
+	try {
+		const blockResp = await fetch("http://localhost:26657", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "b", method: "block", params: {} }),
+			signal: AbortSignal.timeout(5000),
+		});
+		if (blockResp.ok) {
+			const blockData = (await blockResp.json()) as { result: { block: { header: { height: string }; last_commit: { signatures: Array<{ validator_address: string; block_id_flag: number }> } } } };
+			localHeight = Number(blockData.result.block.header.height);
+			for (const sig of blockData.result.block.last_commit.signatures) {
+				if (sig.validator_address && sig.block_id_flag === 2) {
+					signingAddresses.add(sig.validator_address);
+				}
+			}
+		}
+	} catch { /* non-fatal */ }
 
-	// First, check all configured validators (these have names and SSH config)
+	// Build a name lookup from static config
+	const addrToConfig = new Map<string, ValidatorConfig>();
 	for (const vc of VALIDATOR_CONFIGS) {
-		const ip = vc.tailscaleIp || vc.publicIp || "";
-		if (!ip) continue;
-		const url = `http://${ip}:${vc.rpcPort}`;
-		const result = await checkValidator(vc.name, url);
-		services.push(result);
-		if (vc.cometbftAddress) checkedAddresses.add(vc.cometbftAddress);
-		// Also mark as checked by moniker
-		const moniker = (result.details as Record<string, unknown>)?.["moniker"];
-		if (moniker) checkedAddresses.add(String(moniker));
+		if (vc.cometbftAddress) addrToConfig.set(vc.cometbftAddress, vc);
 	}
 
-	// Then, check any active validators NOT in the static config
+	// For each active validator, determine health from block signatures
 	for (const av of activeValidators) {
-		if (checkedAddresses.has(av.address)) continue;
+		const isSigning = signingAddresses.has(av.address);
+		const config = addrToConfig.get(av.address);
+		const name = config?.name ?? `Validator ${av.address.slice(0, 8)}...`;
 
-		// Find this validator's IP by checking all known peer IPs
-		let found = false;
-		for (const [moniker, ip] of peerIps) {
-			if (found) break;
-			// Skip private IPs (home machines already checked via config)
-			if (ip.startsWith("100.") || ip.startsWith("10.") || ip.startsWith("192.168.")) continue;
-			// Check if this peer is the validator we're looking for
-			try {
-				const statusResp = await fetch(`http://${ip}:26657/status`, { signal: AbortSignal.timeout(3000) });
-				if (!statusResp.ok) continue;
-				const statusData = (await statusResp.json()) as { result: { validator_info: { address: string }; node_info: { moniker: string } } };
-				if (statusData.result.validator_info.address === av.address) {
-					const result = await checkValidator(`${statusData.result.node_info.moniker} (auto)`, `http://${ip}:26657`);
-					services.push(result);
-					checkedAddresses.add(av.address);
-					found = true;
-				}
-			} catch { /* skip */ }
+		// Try to get extra info (height, peers) from remote RPC if configured
+		let extraHeight = localHeight;
+		let extraPeers: number | string = "N/A";
+		let moniker = "";
+		if (config) {
+			const ip = config.tailscaleIp || config.publicIp || "";
+			if (ip) {
+				try {
+					const resp = await fetch(`http://${ip}:${config.rpcPort}/status`, { signal: AbortSignal.timeout(3000) });
+					if (resp.ok) {
+						const d = (await resp.json()) as { result: { sync_info: { latest_block_height: string; catching_up: boolean }; node_info: { moniker: string } } };
+						extraHeight = Number(d.result.sync_info.latest_block_height);
+						moniker = d.result.node_info.moniker;
+					}
+				} catch { /* RPC unreachable, use local data */ }
+				try {
+					const netResp = await fetch(`http://${ip}:${config.rpcPort}/net_info`, { signal: AbortSignal.timeout(2000) });
+					if (netResp.ok) {
+						const nd = (await netResp.json()) as { result: { n_peers: string } };
+						extraPeers = Number(nd.result.n_peers);
+					}
+				} catch { /* best effort */ }
+			}
 		}
 
-		// If still not found, mark as active but unreachable
-		if (!found) {
-			services.push({
-				name: `Validator ${av.address.slice(0, 8)}... (unconfigured)`,
-				url: "",
-				status: "degraded",
-				lastSeen: 0,
-				details: { address: av.address, votingPower: av.votingPower, note: "Active but RPC unreachable" },
-			});
-		}
+		services.push({
+			name,
+			url: config ? `http://${config.tailscaleIp || config.publicIp}:${config.rpcPort}` : "",
+			status: isSigning ? "healthy" : (Number(av.votingPower) > 0 ? "degraded" : "down"),
+			lastSeen: isSigning ? Date.now() : 0,
+			details: {
+				height: extraHeight,
+				peers: extraPeers,
+				moniker: moniker || (config?.moniker ?? av.address.slice(0, 12)),
+				signing: isSigning,
+				votingPower: av.votingPower,
+			},
+		});
 	}
 
 	// Non-validator peers (full nodes)
