@@ -2,133 +2,117 @@
 #
 # harden-ssh.sh
 #
-# Two-phase SSH hardening for Ensoul cloud validators.
-# Phase 1: Create ensoul user, add SSH key, install fail2ban, enable UFW.
-# Phase 2: Disable root login and password auth (run AFTER verifying ensoul works).
+# SSH Hardening GUIDE for Ensoul cloud validators.
+# This script PRINTS instructions for JD to run manually.
+# It NEVER SSHes into anything. It NEVER runs remote commands.
+# It NEVER touches sshd_config, UFW, or the SSH daemon.
 #
 # Usage:
-#   Phase 1: ssh root@IP "bash -s" < scripts/harden-ssh.sh phase1 "ssh-ed25519 AAAA... user@host"
-#   Phase 2: ssh ensoul@IP "sudo bash -s" < scripts/harden-ssh.sh phase2
-#
-# NEVER changes the SSH port. Port 22 only.
-# NEVER runs systemctl restart ssh. Uses kill -HUP for config reload.
+#   bash scripts/harden-ssh.sh <IP>
+#   bash scripts/harden-ssh.sh all
 #
 
 set -euo pipefail
 
-PHASE="${1:-help}"
-SSH_PUBKEY="${2:-}"
+CLOUD_IPS=(
+    "178.156.199.91"
+    "5.78.199.4"
+    "204.168.192.25"
+    "178.104.95.163"
+    "157.230.54.91"
+    "152.42.175.202"
+    "188.166.169.3"
+)
 
-log() { echo "[$(date '+%H:%M:%S')] $1"; }
+print_guide() {
+    local IP="$1"
+    cat << GUIDE
 
-phase1() {
-    if [ -z "$SSH_PUBKEY" ]; then
-        echo "Error: SSH public key required for phase1"
-        echo "Usage: bash harden-ssh.sh phase1 \"ssh-ed25519 AAAA... user@host\""
-        exit 1
-    fi
+================================================================
+  SSH Hardening Guide for $IP
+================================================================
 
-    log "Phase 1: Creating ensoul user and security baseline"
+PHASE 1: Create user and security tools (safe, keeps root)
+Open a terminal and run these commands:
 
-    # Create ensoul user with sudo
-    if ! id ensoul >/dev/null 2>&1; then
-        useradd -m -s /bin/bash -G sudo ensoul
-        echo "ensoul ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ensoul
-        log "Created ensoul user with passwordless sudo"
-    else
-        log "ensoul user already exists"
-    fi
+  ssh root@$IP
 
-    # Install SSH key
-    mkdir -p /home/ensoul/.ssh
-    echo "$SSH_PUBKEY" >> /home/ensoul/.ssh/authorized_keys
-    # Deduplicate
-    sort -u /home/ensoul/.ssh/authorized_keys -o /home/ensoul/.ssh/authorized_keys
-    chown -R ensoul:ensoul /home/ensoul/.ssh
-    chmod 700 /home/ensoul/.ssh
-    chmod 600 /home/ensoul/.ssh/authorized_keys
-    log "SSH key installed for ensoul user"
+Then on the server:
 
-    # Symlink chain data for ensoul user
-    ln -sf /root/.cometbft-ensoul /home/ensoul/.cometbft-ensoul 2>/dev/null || true
-    ln -sf /root/.ensoul /home/ensoul/.ensoul 2>/dev/null || true
-    ln -sf /root/ensoul /home/ensoul/ensoul 2>/dev/null || true
-    chmod 755 /root
-    log "Chain data symlinked"
+  # Create ensoul user with sudo
+  adduser --disabled-password --gecos "" ensoul
+  usermod -aG sudo ensoul
+  echo "ensoul ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ensoul
 
-    # Install fail2ban
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fail2ban 2>/dev/null
-    cat > /etc/fail2ban/jail.local << 'JAILEOF'
+  # Copy SSH key
+  mkdir -p /home/ensoul/.ssh
+  cp ~/.ssh/authorized_keys /home/ensoul/.ssh/
+  chown -R ensoul:ensoul /home/ensoul/.ssh
+  chmod 700 /home/ensoul/.ssh
+  chmod 600 /home/ensoul/.ssh/authorized_keys
+
+  # Install fail2ban
+  apt-get install -y fail2ban
+  cat > /etc/fail2ban/jail.local << 'EOF'
 [sshd]
 enabled = true
 port = 22
 maxretry = 3
 bantime = 3600
-findtime = 600
-JAILEOF
-    systemctl enable fail2ban
-    systemctl restart fail2ban
-    log "fail2ban installed and configured (3 attempts = 1 hour ban)"
+EOF
+  systemctl enable fail2ban
+  systemctl restart fail2ban
 
-    # UFW
-    ufw allow 22/tcp >/dev/null 2>&1
-    ufw allow 26656/tcp >/dev/null 2>&1
-    ufw allow 26657/tcp >/dev/null 2>&1
-    ufw --force enable >/dev/null 2>&1
-    log "UFW enabled (ports 22, 26656, 26657)"
+  # Symlink chain data
+  ln -sf /root/.cometbft-ensoul /home/ensoul/.cometbft-ensoul
+  ln -sf /root/.ensoul /home/ensoul/.ensoul
+  ln -sf /root/ensoul /home/ensoul/ensoul
+  chmod 755 /root
 
-    echo ""
-    log "Phase 1 COMPLETE."
-    echo ""
-    echo "  NEXT STEPS:"
-    echo "  1. In a NEW terminal, verify ensoul login:"
-    echo "     ssh ensoul@THIS_IP 'echo ok && sudo whoami'"
-    echo ""
-    echo "  2. If that works, run phase2:"
-    echo "     ssh ensoul@THIS_IP 'sudo bash -s' < scripts/harden-ssh.sh phase2"
-    echo ""
-    echo "  DO NOT close this root session until step 1 succeeds."
-    echo ""
+NOW STOP. Do NOT close this root session.
+
+PHASE 2: Verify ensoul login (in a NEW terminal)
+
+  ssh ensoul@$IP
+  sudo whoami    # Should print: root
+
+If this works, proceed to Phase 3.
+If this fails, DO NOT proceed. Fix the key first.
+
+PHASE 3: Lock down root (back in the root session)
+
+  sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+
+  # Reload SSH (NOT restart)
+  systemctl reload ssh    # Ubuntu 22.04
+  # or: systemctl reload sshd   # if 'ssh' doesn't work
+
+PHASE 4: Verify lockout (in another terminal)
+
+  ssh root@$IP    # Should say: Permission denied
+  ssh ensoul@$IP  # Should work
+
+================================================================
+
+GUIDE
 }
 
-phase2() {
-    log "Phase 2: Disabling root login and password authentication"
-
-    # Verify we are NOT root (should be ensoul with sudo)
-    if [ "$(id -u)" = "0" ] && [ "$(logname 2>/dev/null || echo root)" = "root" ]; then
-        log "WARNING: Running as root. Ensure ensoul user works before proceeding."
-    fi
-
-    # Disable root login
-    sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-    # Disable password auth
-    sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-
-    # Reload SSH config without restarting the service (prevents lockout)
-    kill -HUP "$(pgrep -o sshd)" 2>/dev/null || true
-    log "SSH config reloaded (SIGHUP, no restart)"
-
+if [ "${1:-}" = "all" ]; then
+    for ip in "${CLOUD_IPS[@]}"; do
+        print_guide "$ip"
+    done
+elif [ -n "${1:-}" ]; then
+    print_guide "$1"
+else
+    echo "Usage: bash scripts/harden-ssh.sh <IP>"
+    echo "       bash scripts/harden-ssh.sh all"
     echo ""
-    log "Phase 2 COMPLETE."
-    echo "  Root login: disabled"
-    echo "  Password auth: disabled"
-    echo "  Key-only auth: enabled"
-    echo "  fail2ban: active"
-    echo "  UFW: 22 + 26656 + 26657"
+    echo "Prints SSH hardening instructions for JD to run manually."
+    echo "This script NEVER SSHes into anything or runs remote commands."
     echo ""
-}
-
-case "$PHASE" in
-    phase1) phase1 ;;
-    phase2) phase2 ;;
-    *)
-        echo "Ensoul SSH Hardening Script"
-        echo ""
-        echo "Usage:"
-        echo "  Phase 1: ssh root@IP 'bash -s' < harden-ssh.sh phase1 \"ssh-ed25519 AAAA...\""
-        echo "  Phase 2: ssh ensoul@IP 'sudo bash -s' < harden-ssh.sh phase2"
-        echo ""
-        echo "Phase 1: create user, add key, fail2ban, UFW (safe, keeps root)"
-        echo "Phase 2: disable root and password auth (run after verifying ensoul works)"
-        ;;
-esac
+    echo "Known cloud validators:"
+    for ip in "${CLOUD_IPS[@]}"; do
+        echo "  $ip"
+    done
+fi
