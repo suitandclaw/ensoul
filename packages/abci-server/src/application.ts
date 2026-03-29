@@ -882,7 +882,9 @@ async function handleFinalizeBlock(
 		);
 
 		// Handle redelegate: update the DelegationRegistry
-		if (tx.type === "redelegate" as TransactionType && tx.data) {
+		// Height-gated to avoid AppHash mismatch during rollout (redelegate tx at 127397
+		// was processed by old code that did not update the registry).
+		if (height >= 127500 && tx.type === "redelegate" as TransactionType && tx.data) {
 			try {
 				const dataBytes = tx.data instanceof Uint8Array ? tx.data : new Uint8Array(tx.data);
 				const parsed = JSON.parse(new TextDecoder().decode(dataBytes)) as { fromValidator: string };
@@ -981,7 +983,7 @@ async function handleFinalizeBlock(
 			});
 			updatedValidators.add(tx.from);
 			log(`Validator update: REMOVE ${tx.from.slice(0, 30)}...`);
-		} else if (tx.type === "redelegate" as TransactionType && tx.data) {
+		} else if (height >= 127500 && tx.type === "redelegate" as TransactionType && tx.data) {
 			// Update power for both source and target validators
 			try {
 				const dataBytes = tx.data instanceof Uint8Array ? tx.data : new Uint8Array(tx.data);
