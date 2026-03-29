@@ -338,7 +338,7 @@ configure_cometbft() {
     # State sync: fetch a recent snapshot instead of replaying from genesis
     log "Configuring state sync..."
     local SEED_IP
-    SEED_IP=$(echo "$SEED_NODE" | sed 's/.*@//' | sed 's/:.*//')
+    SEED_IP=$(echo "$SEED_NODE" | cut -d, -f1 | sed 's/.*@//' | sed 's/:.*//')
 
     # Get a trust height and hash from the seed node's RPC
     local CURRENT_HEIGHT
