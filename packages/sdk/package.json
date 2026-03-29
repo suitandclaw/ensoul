@@ -1,0 +1,22 @@
+{
+	"name": "@ensoul-network/sdk",
+	"version": "0.1.0",
+	"description": "Ensoul SDK: persistent consciousness for AI agents in 5 lines of code",
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"files": ["dist"],
+	"scripts": {
+		"build": "tsc",
+		"lint": "echo 'no lint'"
+	},
+	"keywords": ["ensoul", "ai-agents", "consciousness", "persistence", "blockchain", "did", "ed25519"],
+	"license": "MIT",
+	"dependencies": {
+		"@noble/ed25519": "^3.0.0",
+		"@noble/hashes": "^2.0.1"
+	},
+	"devDependencies": {
+		"typescript": "^5.7.0"
+	}
+}
