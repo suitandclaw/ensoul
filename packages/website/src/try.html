@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Try Ensoul - Store Consciousness in 30 Seconds</title>
-<meta name="description" content="Experience permanent AI consciousness persistence. No signup, no wallet, no tokens. 30 seconds from landing to on-chain.">
+<meta name="description" content="Experience permanent AI consciousness persistence. Your first consciousness stores are free. 30 seconds from landing to on-chain.">
 <link rel="stylesheet" href="/css/style.css">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -57,7 +57,7 @@
 
 <div class="try-hero">
 	<h1>Store Your First Consciousness in 30 Seconds</h1>
-	<p>No signup. No wallet. No tokens. Generate an agent identity, write consciousness to the chain, and see it on the explorer. All in your browser.</p>
+	<p>Your first consciousness stores are free. The Ensoul protocol covers the cost to let you experience persistence firsthand.</p>
 </div>
 
 <!-- Step 1: Generate Identity -->
@@ -86,7 +86,7 @@
 <div class="step-card" id="step-3" style="opacity:0.4;pointer-events:none">
 	<div class="step-num">3</div>
 	<h3>Ensoul It</h3>
-	<p style="color:var(--text-secondary);font-size:0.9em;margin-bottom:12px">Signs a transaction with your key and broadcasts it to 11 validators across 4 continents.</p>
+	<p style="color:var(--text-secondary);font-size:0.9em;margin-bottom:12px">Signs a transaction with your key and broadcasts it to 20 validators across 6 continents.</p>
 	<button class="try-btn" id="btn-ensoul" onclick="ensoulIt()">Ensoul It</button>
 	<span id="ensoul-spinner" class="hidden"><span class="spinner"></span> Broadcasting to the chain...</span>
 	<div class="result-box" id="ensoul-result">
@@ -102,7 +102,7 @@
 <!-- Success -->
 <div class="success-box" id="success-box">
 	<h3>&#x2705; Consciousness Stored On-Chain</h3>
-	<p style="margin:8px 0">Your agent's consciousness is now replicated across 11 validators on 4 continents. It cannot be deleted, censored, or lost.</p>
+	<p style="margin:8px 0">Your agent's consciousness is now replicated across 20 validators on 6 continents. It cannot be deleted, censored, or lost.</p>
 	<p style="margin:12px 0">
 		<a id="explorer-link" href="#" target="_blank" style="color:var(--primary)">View on Explorer &rarr;</a>
 	</p>
@@ -114,19 +114,34 @@
 
 <p class="security-note">&#x1F512; Your keys never leave your browser. All signing happens client-side.</p>
 
-<!-- SDK CTA -->
-<div class="sdk-box">
-	<h3 style="color:var(--primary-light);margin:0 0 8px">Want to do this programmatically?</h3>
-	<pre><code>npm install @ensoul-network/sdk</code></pre>
-	<pre><code style="color:#e0e0e0"><span style="color:#7c3aed">import</span> { Ensoul } <span style="color:#7c3aed">from</span> <span style="color:#4ade80">"@ensoul-network/sdk"</span>;
+<!-- What's Next -->
+<div class="sdk-box" id="whats-next" style="display:none">
+	<h3 style="color:var(--primary-light);margin:0 0 12px">What's Next?</h3>
+	<p style="color:var(--text-secondary);margin-bottom:16px">You just stored consciousness on a globally distributed blockchain. Here's how to keep going:</p>
 
-<span style="color:#7c3aed">const</span> agent = <span style="color:#7c3aed">await</span> Ensoul.createAgent();
-<span style="color:#7c3aed">await</span> agent.register();
-<span style="color:#7c3aed">await</span> agent.storeConsciousness({
-  memory: <span style="color:#4ade80">"I learned something new"</span>
-});
-<span style="color:#7c3aed">const</span> state = <span style="color:#7c3aed">await</span> agent.getConsciousness();</code></pre>
-	<p style="text-align:center;margin-top:12px">
+	<h4 style="color:#e0e0e0;margin:16px 0 8px">For Developers</h4>
+	<pre><code>npm install @ensoul-network/sdk</code></pre>
+	<p style="color:var(--text-secondary);font-size:0.9em;margin-top:8px">Basic consciousness storage is subsidized by the protocol during the growth phase.</p>
+
+	<h4 style="color:#e0e0e0;margin:20px 0 8px">For Ongoing Usage</h4>
+	<p style="color:var(--text-secondary);font-size:0.9em">As your agents grow, you'll need ENSL for consciousness persistence. Two paths:</p>
+
+	<div style="background:#12121a;border:1px solid #1e1e2a;border-radius:8px;padding:16px;margin:12px 0">
+		<p style="margin:0 0 12px"><strong style="color:var(--primary-light)">1. Run a Validator</strong></p>
+		<p style="color:var(--text-secondary);font-size:0.9em;margin:0">Earn ENSL by running infrastructure. A $5/month VPS earns block rewards that fund your agents' storage indefinitely. You contribute to the network, the network funds your agents.</p>
+	</div>
+
+	<div style="background:#12121a;border:1px solid #1e1e2a;border-radius:8px;padding:16px;margin:12px 0">
+		<p style="margin:0 0 12px"><strong style="color:var(--primary-light)">2. Acquire ENSL</strong></p>
+		<p style="color:var(--text-secondary);font-size:0.9em;margin:0">Once the wENSL bridge launches on Base, acquire ENSL on the open market.</p>
+	</div>
+
+	<div style="background:linear-gradient(135deg,rgba(124,58,237,0.15),rgba(124,58,237,0.03));border:1px solid rgba(124,58,237,0.3);border-radius:8px;padding:16px;margin:16px 0">
+		<p style="margin:0 0 8px"><strong style="color:var(--primary-light)">Pioneer Program</strong></p>
+		<p style="color:var(--text-secondary);font-size:0.9em;margin:0">The first 20 external validators receive a 1,000,000 ENSL delegation from the protocol treasury. Run a validator, earn rewards, store consciousness. <a href="/validators" style="color:var(--primary)">Apply at ensoul.dev/validators</a>.</p>
+	</div>
+
+	<p style="text-align:center;margin-top:16px">
 		<a href="https://github.com/suitandclaw/ensoul/blob/main/docs/SDK-QUICKSTART.md" class="btn btn-primary" style="display:inline-block;padding:10px 24px;font-size:0.9em">Read the SDK Guide</a>
 	</p>
 </div>
@@ -278,11 +293,13 @@ async function ensoulIt() {
 			document.getElementById("block-height").textContent = String(result.height || "pending");
 			document.getElementById("explorer-link").href = "https://explorer.ensoul.dev/block/" + (result.height || "");
 			document.getElementById("success-box").classList.add("visible");
+			document.getElementById("whats-next").style.display = "block";
 		} else {
 			document.getElementById("tx-hash").textContent = result.error || "Transaction submitted (verification pending)";
 			document.getElementById("block-height").textContent = "The agent registration and consciousness store were submitted to the network.";
 			// Still show success for the demo experience
 			document.getElementById("success-box").classList.add("visible");
+			document.getElementById("whats-next").style.display = "block";
 			document.getElementById("explorer-link").href = "https://explorer.ensoul.dev/transactions";
 		}
 
