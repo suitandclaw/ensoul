@@ -69,6 +69,22 @@ export class DelegationRegistry {
 	}
 
 	/**
+	 * Move a delegation from one validator to another.
+	 * The delegator retains ownership; only the target validator changes.
+	 */
+	redelegate(delegator: string, fromValidator: string, toValidator: string, amount: bigint): void {
+		this.undelegate(delegator, fromValidator, amount);
+		// Skip MIN_DELEGATION check for redelegate since tokens were already validated at initial delegation
+		let validatorMap = this.delegations.get(toValidator);
+		if (!validatorMap) {
+			validatorMap = new Map();
+			this.delegations.set(toValidator, validatorMap);
+		}
+		const existing = validatorMap.get(delegator) ?? 0n;
+		validatorMap.set(delegator, existing + amount);
+	}
+
+	/**
 	 * Get all delegations to a validator.
 	 */
 	getDelegationsTo(validator: string): Map<string, bigint> {

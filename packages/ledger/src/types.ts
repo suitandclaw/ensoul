@@ -13,6 +13,7 @@ export type TransactionType =
 	| "undelegate"
 	| "slash"
 	| "burn"
+	| "redelegate"
 	| "consensus_join"
 	| "consensus_leave";
 
