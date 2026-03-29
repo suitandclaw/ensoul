@@ -51,6 +51,7 @@
       "publicIp": "178.156.199.91",
       "rpcPort": 26657,
       "role": "cloud",
+      "ssh": "178.156.199.91",
       "user": "ensoul",
       "sshPort": 2222,
       "cometbftAddress": "72BD5ECE8CF5CEE06D89B3F1BCDD7DE05DF84150",
@@ -62,6 +63,7 @@
       "publicIp": "5.78.199.4",
       "rpcPort": 26657,
       "role": "cloud",
+      "ssh": "5.78.199.4",
       "user": "root",
       "cometbftAddress": "C527415F763CF20DDD6D101710758C4828D61100",
       "did": "did:key:z6MkmjpHc9ae5WGf6WYjyiy6q4vyyvUj78Ybn7ca2KytsuJS"
@@ -72,6 +74,7 @@
       "publicIp": "204.168.192.25",
       "rpcPort": 26657,
       "role": "cloud",
+      "ssh": "204.168.192.25",
       "user": "root",
       "cometbftAddress": "DB0F90D95A78ECC6D3A846DDDEB01FA4BDCCA876",
       "did": "did:key:z6MkiHUm3mnutJ2zQn9dxTNTsVd9TdtF52KwhEJe8vTN5uY7"
@@ -82,6 +85,7 @@
       "publicIp": "178.104.95.163",
       "rpcPort": 26657,
       "role": "cloud",
+      "ssh": "178.104.95.163",
       "user": "root",
       "cometbftAddress": "F89AE952E52BF1E529E405F08677B7275603B9BA",
       "did": "did:key:z6MktaVcKeyFLd3Y9i1kL6eVJesHUhQL8Z4aBhWAom8cLV2R"
@@ -92,6 +96,7 @@
       "publicIp": "167.71.94.106",
       "rpcPort": 26657,
       "role": "cloud",
+      "ssh": "167.71.94.106",
       "user": "root",
       "cometbftAddress": "8E3AA9785CBB298719128F05CE0DFDBF1D7CADAF",
       "did": "did:key:z6Mkk4SoTsrTC1SFLMVyNHDus1KVjY4M2Fa4iHjPtg7g2JUu"
@@ -102,6 +107,7 @@
       "publicIp": "165.232.160.76",
       "rpcPort": 26657,
       "role": "cloud",
+      "ssh": "165.232.160.76",
       "user": "root",
       "cometbftAddress": "668B4F7844050AFB9DB9AB005B3C369D9E6FC20F",
       "did": "did:key:z6MkrHHv7iHKC9tNaCchMtaxL8L3tSPZoVPGJNvNY6H2FMDd"
@@ -112,9 +118,109 @@
       "publicIp": "165.227.235.75",
       "rpcPort": 26657,
       "role": "cloud",
+      "ssh": "165.227.235.75",
       "user": "root",
       "cometbftAddress": "3A03E018C7F7AF28311CCEC679DF3DBCF251ACCE",
       "did": "did:key:z6MksWvh8dYLMyZnjxxeA8UnZVwQx5nipptDomYkjh6q7Dbm"
+    },
+    {
+      "name": "Validator v11 (Hetzner Singapore-2)",
+      "moniker": "ensoul-singapore2",
+      "publicIp": "5.223.51.228",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "ssh": "5.223.51.228",
+      "user": "root",
+      "cometbftAddress": "21E7DA7CF51F4A5CCD303680C6DEE994D5AC1ADE",
+      "did": "did:key:z6MkizqcK1oovKYgosSw2UWyUbTUCh43qhkQD8trvvHJq2v9"
+    },
+    {
+      "name": "Validator v12 (Hostinger Boston)",
+      "moniker": "ensoul-boston1",
+      "publicIp": "72.60.117.56",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "ssh": "72.60.117.56",
+      "user": "root",
+      "cometbftAddress": "4A05E17D0108AA9147E850B5504719E15FBE9448",
+      "did": "did:key:z6MktBn22qC9iYT69uAvLSDRLoKkADqnimGQK5g9UmqUTy7o"
+    },
+    {
+      "name": "Validator v13 (Hostinger Lithuania)",
+      "moniker": "ensoul-lithuania1",
+      "publicIp": "45.93.137.173",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "ssh": "45.93.137.173",
+      "user": "root",
+      "cometbftAddress": "34E3E922D050922252E514D25F65D7F1961E93F7",
+      "did": "did:key:z6MknspWy1YHKCrDSDKzMBDaAjKV22VG2v1didFaAjcYLUXp"
+    },
+    {
+      "name": "Validator v14 (Hostinger France)",
+      "moniker": "ensoul-france1",
+      "publicIp": "187.124.48.67",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "ssh": "187.124.48.67",
+      "user": "root",
+      "cometbftAddress": "075AB486204873E6FF2284AFB79C293F145157B6",
+      "did": "did:key:z6MkhzppwzKBMbdgjYhs9vh38f7imWNa2wEtQ74MsoAJBnPn"
+    },
+    {
+      "name": "Validator v15 (Hostinger Frankfurt)",
+      "moniker": "ensoul-frankfurt1",
+      "publicIp": "187.124.6.203",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "ssh": "187.124.6.203",
+      "user": "root",
+      "cometbftAddress": "9795C9AF3D1589A3BFE8989761051DC53F8F8305",
+      "did": "did:key:z6MktGKyB8y3pjVSAjHmSt9DorEFdg9kZueBrfv3gXjp4n9A"
+    },
+    {
+      "name": "Validator v16 (Hostinger UK)",
+      "moniker": "ensoul-uk2",
+      "publicIp": "72.61.201.200",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "ssh": "72.61.201.200",
+      "user": "root",
+      "cometbftAddress": "DD4852B7C770BC3A1C38B50B7E03088CA88AFA7F",
+      "did": "did:key:z6MkkkktTaa25E1P9Vh5Y7Abb4uJ5u9ChWn4G4Hwr1nJixmV"
+    },
+    {
+      "name": "Validator v17 (DO Bangalore)",
+      "moniker": "ensoul-bangalore1",
+      "publicIp": "167.71.234.198",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "ssh": "167.71.234.198",
+      "user": "root",
+      "cometbftAddress": "55DC4A7A83FA0D57FF788B97B735B7C670B3488E",
+      "did": "did:key:z6MkkF7Vsf74yfUVmauMBGnTfpE6dGTwSdxPfs1qmDws6tPG"
+    },
+    {
+      "name": "Validator v18 (DO Sydney)",
+      "moniker": "ensoul-sydney1",
+      "publicIp": "209.38.27.136",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "ssh": "209.38.27.136",
+      "user": "root",
+      "cometbftAddress": "07BB405CBABF59D1870FC6497C8AFD3DCB6E0BE5",
+      "did": "did:key:z6Mki2nw2XUJe1KqW5L6TEvqgBSVyvJPUqNUhT6xpUWFVha6"
+    },
+    {
+      "name": "Validator v19 (DO Toronto)",
+      "moniker": "ensoul-toronto1",
+      "publicIp": "138.197.135.114",
+      "rpcPort": 26657,
+      "role": "cloud",
+      "ssh": "138.197.135.114",
+      "user": "root",
+      "cometbftAddress": "2B2E30FEC17E71D448CFCFEDB130B167450159EF",
+      "did": "did:key:z6MkpsgG1gJio5529CiCKPmTKcs14Y9GBwEKdTa5imQNFcz7"
     }
   ]
 }
