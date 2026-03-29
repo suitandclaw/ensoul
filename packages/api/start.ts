@@ -666,6 +666,9 @@ async function main(): Promise<void> {
 		global: true,
 	});
 
+	// Stricter rate limit for write endpoints (10 req/min per IP)
+	const writeRateLimit = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
+
 	// Request logging
 	app.addHook("onRequest", (req, _reply, done) => {
 		void log(`${req.method} ${req.url} from ${req.ip}`);
@@ -924,7 +927,7 @@ async function main(): Promise<void> {
 
 	// ── Transaction broadcast (forward to CometBFT) ─────────────
 
-	app.post<{ Body: Record<string, unknown> }>("/v1/tx/broadcast", async (req, reply) => {
+	app.post<{ Body: Record<string, unknown> }>("/v1/tx/broadcast", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req, reply) => {
 		const tx = req.body;
 		const txJson = JSON.stringify(tx);
 		const txBase64 = Buffer.from(txJson).toString("base64");
@@ -988,7 +991,7 @@ async function main(): Promise<void> {
 	 *
 	 * Returns: { applied, height, hash, error? }
 	 */
-	app.post<{ Body: Record<string, unknown> }>("/v1/consciousness/store", async (req, reply) => {
+	app.post<{ Body: Record<string, unknown> }>("/v1/consciousness/store", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req, reply) => {
 		const tx = req.body;
 
 		// Validate required fields
@@ -1081,7 +1084,7 @@ async function main(): Promise<void> {
 	 *   signature: Ed25519 signature (hex) over JSON.stringify({type,from,to,amount,nonce,timestamp})
 	 *   shard_count?: number of encrypted shards (optional, default 0)
 	 */
-	app.post<{ Body: Record<string, unknown> }>("/v1/consciousness/store/simple", { bodyLimit: 10_485_760 }, async (req, reply) => {
+	app.post<{ Body: Record<string, unknown> }>("/v1/consciousness/store/simple", { bodyLimit: 10_485_760, config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req, reply) => {
 		const body = req.body;
 		const agentDid = String(body["agent_did"] ?? "");
 		const stateRoot = String(body["state_root"] ?? "");
