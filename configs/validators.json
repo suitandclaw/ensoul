@@ -46,7 +46,7 @@
     },
     {
       "name": "Validator v4 (Hetzner EU)",
-      "moniker": "ensoul-cloud-1",
+      "moniker": "ensoul-ashburn1",
       "tailscaleIp": "100.72.212.104",
       "publicIp": "178.156.199.91",
       "rpcPort": 26657,
@@ -68,7 +68,7 @@
     },
     {
       "name": "Validator v6 (Hetzner Helsinki)",
-      "moniker": "ensoul-Helsinki1",
+      "moniker": "ensoul-helsinki1",
       "publicIp": "204.168.192.25",
       "rpcPort": 26657,
       "role": "cloud",
@@ -78,7 +78,7 @@
     },
     {
       "name": "Validator v7 (Hetzner Nuremberg)",
-      "moniker": "ensoul-Nuremburg1",
+      "moniker": "ensoul-nuremberg1",
       "publicIp": "178.104.95.163",
       "rpcPort": 26657,
       "role": "cloud",
@@ -89,7 +89,7 @@
     {
       "name": "Validator v8 (DO NYC-1)",
       "moniker": "ensoul-nyc1",
-      "publicIp": "157.230.54.91",
+      "publicIp": "167.71.94.106",
       "rpcPort": 26657,
       "role": "cloud",
       "user": "root",
@@ -98,8 +98,8 @@
     },
     {
       "name": "Validator v9 (DO Singapore-1)",
-      "moniker": "ensoul-sgp1",
-      "publicIp": "152.42.175.202",
+      "moniker": "ensoul-singapore1",
+      "publicIp": "165.232.160.76",
       "rpcPort": 26657,
       "role": "cloud",
       "user": "root",
@@ -108,8 +108,8 @@
     },
     {
       "name": "Validator v10 (DO London-1)",
-      "moniker": "ensoul-London1",
-      "publicIp": "188.166.169.3",
+      "moniker": "ensoul-london1",
+      "publicIp": "165.227.235.75",
       "rpcPort": 26657,
       "role": "cloud",
       "user": "root",
