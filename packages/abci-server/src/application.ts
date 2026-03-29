@@ -643,6 +643,22 @@ async function handleCheckTx(
 		return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 1 } };
 	}
 
+	// Redelegate: validate data contains fromValidator
+	if (tx.type === "redelegate" as TransactionType) {
+		if (!tx.data) {
+			return { checkTx: { code: 36, log: "redelegate requires data with fromValidator" } };
+		}
+		try {
+			const dataBytes = tx.data instanceof Uint8Array ? tx.data : new Uint8Array(tx.data);
+			const parsed = JSON.parse(new TextDecoder().decode(dataBytes)) as { fromValidator?: string };
+			if (!parsed.fromValidator) {
+				return { checkTx: { code: 36, log: "redelegate data must contain fromValidator DID" } };
+			}
+		} catch {
+			return { checkTx: { code: 34, log: "Invalid JSON in redelegate data" } };
+		}
+	}
+
 	// Standard ledger transactions: validate against CheckTx state
 	const result = validateTransaction(tx, state.checkTx);
 	if (!result.valid) {
@@ -864,6 +880,21 @@ async function handleFinalizeBlock(
 			state.working,
 			state.genesis?.protocolFees.storageFeeProtocolShare ?? 10,
 		);
+
+		// Handle redelegate: update the DelegationRegistry
+		if (tx.type === "redelegate" as TransactionType && tx.data) {
+			try {
+				const dataBytes = tx.data instanceof Uint8Array ? tx.data : new Uint8Array(tx.data);
+				const parsed = JSON.parse(new TextDecoder().decode(dataBytes)) as { fromValidator: string };
+				if (parsed.fromValidator) {
+					state.delegations.redelegate(tx.from, parsed.fromValidator, tx.to, tx.amount);
+					log(`Redelegate: ${tx.from.slice(0, 20)}... moved ${tx.amount / DECIMALS} ENSL from ${parsed.fromValidator.slice(0, 20)}... to ${tx.to.slice(0, 20)}...`);
+				}
+			} catch (err) {
+				log(`Redelegate registry update failed: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		}
+
 		// Before the nonce fix upgrade, a second increment was applied here.
 		// This preserves backward compatibility for blocks before the fix.
 		if (height < NONCE_FIX_HEIGHT) {
@@ -923,29 +954,67 @@ async function handleFinalizeBlock(
 	// CometBFT applies these at height H+2.
 	const validatorUpdates: Array<{ pubKey: { ed25519: Buffer }; power: string }> = [];
 
+	const updatedValidators = new Set<string>();
+
 	for (const txBytes of rawTxs) {
 		const tx = decodeTx(txBytes as Buffer);
 		if (!tx) continue;
-		if (tx.type !== "consensus_join" && tx.type !== "consensus_leave") continue;
 
-		const pubkey = pubkeyFromDid(tx.from);
-		if (!pubkey) continue;
-
-		if (tx.type === "consensus_join") {
+		if (tx.type === "consensus_join" as TransactionType) {
+			const pubkey = pubkeyFromDid(tx.from);
+			if (!pubkey) continue;
 			const acct = state.working.getAccount(tx.from);
-			const power = acct.stakedBalance / DECIMALS;
+			const delegated = state.delegations.getTotalDelegatedTo(tx.from);
+			const power = (acct.stakedBalance + delegated) / DECIMALS;
 			validatorUpdates.push({
 				pubKey: { ed25519: Buffer.from(pubkey) },
 				power: power.toString(),
 			});
+			updatedValidators.add(tx.from);
 			log(`Validator update: ADD ${tx.from.slice(0, 30)}... power=${power}`);
-		} else {
-			// Power 0 removes the validator
+		} else if (tx.type === "consensus_leave" as TransactionType) {
+			const pubkey = pubkeyFromDid(tx.from);
+			if (!pubkey) continue;
 			validatorUpdates.push({
 				pubKey: { ed25519: Buffer.from(pubkey) },
 				power: "0",
 			});
+			updatedValidators.add(tx.from);
 			log(`Validator update: REMOVE ${tx.from.slice(0, 30)}...`);
+		} else if (tx.type === "redelegate" as TransactionType && tx.data) {
+			// Update power for both source and target validators
+			try {
+				const dataBytes = tx.data instanceof Uint8Array ? tx.data : new Uint8Array(tx.data);
+				const parsed = JSON.parse(new TextDecoder().decode(dataBytes)) as { fromValidator: string };
+				const fromVal = parsed.fromValidator;
+				const toVal = tx.to;
+
+				// Update source validator power (if not already updated this block)
+				if (fromVal && !updatedValidators.has(fromVal)) {
+					const pk = pubkeyFromDid(fromVal);
+					if (pk) {
+						const acct = state.working.getAccount(fromVal);
+						const delegated = state.delegations.getTotalDelegatedTo(fromVal);
+						const power = (acct.stakedBalance + delegated) / DECIMALS;
+						validatorUpdates.push({ pubKey: { ed25519: Buffer.from(pk) }, power: power.toString() });
+						updatedValidators.add(fromVal);
+						log(`Redelegate power update: ${fromVal.slice(0, 25)}... power=${power}`);
+					}
+				}
+
+				// Update target validator power (if not already updated this block)
+				if (toVal && !updatedValidators.has(toVal)) {
+					const pk = pubkeyFromDid(toVal);
+					if (pk) {
+						const acct = state.working.getAccount(toVal);
+						const delegated = state.delegations.getTotalDelegatedTo(toVal);
+						const power = (acct.stakedBalance + delegated) / DECIMALS;
+						validatorUpdates.push({ pubKey: { ed25519: Buffer.from(pk) }, power: power.toString() });
+						updatedValidators.add(toVal);
+						log(`Redelegate power update: ${toVal.slice(0, 25)}... power=${power}`);
+					}
+				}
+			} catch { /* data parse error handled earlier */ }
 		}
 	}
 
