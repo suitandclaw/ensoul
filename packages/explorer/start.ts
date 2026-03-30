@@ -13,6 +13,7 @@
  */
 
 import { createIdentity } from "@ensoul/identity";
+import { checkValidatorHealth } from "../shared/validator-health.js";
 import type { AgentIdentity } from "@ensoul/identity";
 import {
 	createDefaultGenesis,
@@ -302,62 +303,22 @@ class NetworkDataSource implements ExplorerDataSource {
 	 */
 	private async refreshOnlineStatus(): Promise<void> {
 		try {
-			// Step 1: Get the active validator set from CometBFT
-			const valResp = await fetch("http://localhost:26657", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ jsonrpc: "2.0", id: "v", method: "validators", params: {} }),
-				signal: AbortSignal.timeout(5000),
-			});
-			if (!valResp.ok) return;
-			const valData = (await valResp.json()) as { result: { validators: Array<{ address: string; voting_power: string }> } };
+			// Shared block-signature health check (scans last 20 blocks)
+			const health = await checkValidatorHealth();
 
 			const online = new Set<string>();
+			const counts = new Map<string, number>();
 
-			// All validators in the active set with power > 0 are online by default
-			for (const v of valData.result.validators) {
-				if (Number(v.voting_power) > 0) {
-					const did = this.addressToDid.get(v.address);
+			for (const [addr, vh] of health.validators) {
+				counts.set(addr, vh.signed);
+				if (vh.status === "signing") {
+					const did = this.addressToDid.get(addr);
 					if (did) online.add(did);
 				}
 			}
 
-			// Step 2: Scan the last 20 blocks for signature counts (for uptime %)
-			const statusResp = await fetch("http://localhost:26657", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ jsonrpc: "2.0", id: "s", method: "status", params: {} }),
-				signal: AbortSignal.timeout(5000),
-			});
-			if (!statusResp.ok) { this.onlineDids = online; return; }
-			const statusData = (await statusResp.json()) as { result: { sync_info: { latest_block_height: string } } };
-			const tipHeight = Number(statusData.result.sync_info.latest_block_height);
-
-			const scanCount = Math.min(20, tipHeight);
-			const counts = new Map<string, number>();
-
-			for (let h = tipHeight; h > tipHeight - scanCount; h--) {
-				try {
-					const blockResp = await fetch("http://localhost:26657", {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ jsonrpc: "2.0", id: "b", method: "block", params: { height: String(h) } }),
-						signal: AbortSignal.timeout(3000),
-					});
-					if (!blockResp.ok) continue;
-					const blockData = (await blockResp.json()) as {
-						result: { block: { last_commit: { signatures: Array<{ validator_address: string; block_id_flag: number }> } } };
-					};
-					for (const sig of blockData.result.block.last_commit.signatures) {
-						if (sig.validator_address && sig.block_id_flag === 2) {
-							counts.set(sig.validator_address, (counts.get(sig.validator_address) ?? 0) + 1);
-						}
-					}
-				} catch { /* skip block */ }
-			}
-
 			this.signatureCounts = counts;
-			this.uptimeSampleSize = scanCount;
+			this.uptimeSampleSize = health.height > 0 ? Math.min(20, health.height) : 0;
 			this.onlineDids = online;
 		} catch { /* non-fatal */ }
 	}

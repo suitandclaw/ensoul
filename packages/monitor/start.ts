@@ -18,6 +18,7 @@ import { readFile, appendFile, mkdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkValidatorHealth } from "../shared/validator-health.js";
 import { homedir } from "node:os";
 import { exec } from "node:child_process";
 
@@ -76,6 +77,10 @@ interface AlertEntry {
 }
 const alertHistory: AlertEntry[] = [];
 const MAX_ALERT_HISTORY = 100;
+
+// Alert deduplication: same validator alert at most once per hour
+const lastAlertedAt = new Map<string, number>();
+const ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 /** Read ntfy topic from disk. */
 function getNtfyTopic(): string {
@@ -331,28 +336,14 @@ async function pollAll(): Promise<void> {
 		}
 	} catch { /* non-fatal */ }
 
-	// Step 3: Determine validator health from LOCAL block signatures.
-	// This is the same approach as the explorer: check who signed the latest block.
-	// Never depends on reaching a validator's remote RPC for health status.
+	// Step 3: Determine validator health using shared block-signature check.
+	// Scans last 20 blocks from local CometBFT. Never reaches remote RPCs.
+	const healthResult = await checkValidatorHealth();
 	const signingAddresses = new Set<string>();
-	let localHeight = 0;
-	try {
-		const blockResp = await fetch("http://localhost:26657", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ jsonrpc: "2.0", id: "b", method: "block", params: {} }),
-			signal: AbortSignal.timeout(5000),
-		});
-		if (blockResp.ok) {
-			const blockData = (await blockResp.json()) as { result: { block: { header: { height: string }; last_commit: { signatures: Array<{ validator_address: string; block_id_flag: number }> } } } };
-			localHeight = Number(blockData.result.block.header.height);
-			for (const sig of blockData.result.block.last_commit.signatures) {
-				if (sig.validator_address && sig.block_id_flag === 2) {
-					signingAddresses.add(sig.validator_address);
-				}
-			}
-		}
-	} catch { /* non-fatal */ }
+	for (const [addr, vh] of healthResult.validators) {
+		if (vh.status === "signing") signingAddresses.add(addr);
+	}
+	const localHeight = healthResult.height;
 
 	// Build a name lookup from static config
 	const addrToConfig = new Map<string, ValidatorConfig>();
@@ -525,7 +516,8 @@ async function pollAll(): Promise<void> {
 		checkedAt: now,
 	};
 
-	// Alerts with history and push notifications
+	// Alerts with history, push notifications, and deduplication.
+	// Same alert for the same service fires at most once per hour.
 	for (const s of services) {
 		const prev = previousStatuses.get(s.name);
 		if (prev && prev !== s.status) {
@@ -535,7 +527,7 @@ async function pollAll(): Promise<void> {
 			let priority = "default";
 
 			if (s.status === "down") {
-				msg = `[DOWN] ${s.name} is unreachable`;
+				msg = `[DOWN] ${s.name} is not signing`;
 				level = "down";
 				priority = "high";
 			} else if (s.status === "healthy" && prev === "down") {
@@ -546,6 +538,16 @@ async function pollAll(): Promise<void> {
 				msg = `[${s.status.toUpperCase()}] ${s.name} status changed`;
 				level = "degraded";
 			}
+
+			// Deduplicate: skip if same alert was sent within the last hour
+			const alertKey = `${s.name}:${level}`;
+			const lastSent = lastAlertedAt.get(alertKey) ?? 0;
+			const now = Date.now();
+			if (now - lastSent < ALERT_COOLDOWN_MS) {
+				previousStatuses.set(s.name, s.status);
+				continue;
+			}
+			lastAlertedAt.set(alertKey, now);
 
 			alertHistory.unshift({ timestamp: ts, message: msg, level });
 			if (alertHistory.length > MAX_ALERT_HISTORY) alertHistory.pop();

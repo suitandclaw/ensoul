@@ -18,6 +18,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { exec } from "node:child_process";
+import { checkValidatorHealth } from "../shared/validator-health.js";
 
 // ── Config ──────────────────────────────────────────────────────────
 
@@ -200,67 +201,17 @@ async function handleStatus(chatId: number): Promise<void> {
 
 	lines.push("");
 
-	// Validators: query CometBFT active set (source of truth)
-	// Then check each via its configured or discovered IP
-	const valSetResp = await cometRpc("localhost", 26657, "validators");
-	const activeAddrs = new Set<string>();
-	if (valSetResp) {
-		const valSet = valSetResp["validators"] as Array<Record<string, unknown>>;
-		for (const v of valSet) {
-			if (Number(v["voting_power"]) > 0) activeAddrs.add(String(v["address"]));
-		}
-	}
-
-	// Build address-to-config lookup
-	const addrToConfig = new Map<string, ValidatorConfig>();
-	for (const vc of VALIDATORS) {
-		if (vc.cometbftAddress) addrToConfig.set(String(vc.cometbftAddress), vc);
-	}
-
-	// Get peer IPs for unconfigured validators
-	const peerMoniker = new Map<string, string>();
-	const netInfo = await cometRpc("localhost", 26657, "net_info");
-	if (netInfo) {
-		const peers = netInfo["peers"] as Array<Record<string, unknown>>;
-		for (const p of peers ?? []) {
-			const ni = p["node_info"] as Record<string, unknown>;
-			peerMoniker.set(String(ni["moniker"]), String(p["remote_ip"]));
-		}
-	}
-
-	// Health check: scan last 20 blocks from LOCAL CometBFT for validator signatures.
-	// This never requires reaching the validator's remote RPC.
-	const sigCounts = new Map<string, number>();
-	if (localStatus) {
-		const si = localStatus["sync_info"] as Record<string, unknown>;
-		const latestH = Number(si["latest_block_height"]);
-		for (let h = latestH; h > Math.max(latestH - 20, 0); h--) {
-			try {
-				const blockResp = await cometRpc("localhost", 26657, "block", { height: String(h) });
-				if (!blockResp) continue;
-				const block = blockResp["block"] as Record<string, unknown>;
-				const lastCommit = block["last_commit"] as Record<string, unknown>;
-				const sigs = lastCommit["signatures"] as Array<Record<string, unknown>>;
-				for (const sig of sigs ?? []) {
-					const addr = String(sig["validator_address"] ?? "");
-					if (addr && sig["block_id_flag"] === 2) {
-						sigCounts.set(addr, (sigCounts.get(addr) ?? 0) + 1);
-					}
-				}
-			} catch { /* skip block */ }
-		}
-	}
-
+	// Validator health: shared block-signature check (scans last 20 blocks)
+	const health = await checkValidatorHealth();
 	const checkedAddrs = new Set<string>();
 
-	// Display configured validators with signature-based health
+	// Display configured validators
 	for (const vc of VALIDATORS) {
 		const addr = vc.cometbftAddress ?? "";
-		const signed = sigCounts.get(addr) ?? 0;
-		const isActive = activeAddrs.has(addr);
-		if (isActive && signed > 0) {
-			lines.push(`\u{1F7E2} ${vc.moniker}: signing (${signed}/20 blocks)`);
-		} else if (isActive && signed === 0) {
+		const vh = health.validators.get(addr);
+		if (vh && vh.status === "signing") {
+			lines.push(`\u{1F7E2} ${vc.moniker}: signing (${vh.signed}/${vh.sample})`);
+		} else if (vh && vh.status === "not_signing") {
 			lines.push(`\u{1F534} ${vc.moniker}: <b>NOT SIGNING</b>`);
 		} else {
 			lines.push(`\u{26AA} ${vc.moniker}: inactive`);
@@ -269,19 +220,18 @@ async function handleStatus(chatId: number): Promise<void> {
 	}
 
 	// Show unconfigured active validators
-	for (const addr of activeAddrs) {
+	for (const [addr, vh] of health.validators) {
 		if (checkedAddrs.has(addr)) continue;
-		const signed = sigCounts.get(addr) ?? 0;
-		const moniker = [...peerMoniker.entries()].find(([, ip]) => ip)?.at(0) ?? addr.slice(0, 8);
-		if (signed > 0) {
-			lines.push(`\u{1F7E2} ${moniker}: signing (${signed}/20)`);
+		const label = addr.slice(0, 8) + "...";
+		if (vh.status === "signing") {
+			lines.push(`\u{1F7E2} ${label}: signing (${vh.signed}/${vh.sample})`);
 		} else {
-			lines.push(`\u{1F534} ${moniker}: <b>NOT SIGNING</b>`);
+			lines.push(`\u{1F534} ${label}: <b>NOT SIGNING</b>`);
 		}
 		checkedAddrs.add(addr);
 	}
 
-	lines.push(`\n<b>${activeAddrs.size}</b> active validators`);
+	lines.push(`\n<b>${health.validators.size}</b> active validators`);
 
 	lines.push("");
 
