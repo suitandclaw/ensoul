@@ -516,47 +516,49 @@ async function pollAll(): Promise<void> {
 		checkedAt: now,
 	};
 
-	// Alerts with history, push notifications, and deduplication.
-	// Same alert for the same service fires at most once per hour.
+	// Alerts: only fire on genuine failures, not normal fluctuations.
+	// Alertable conditions:
+	//   1. Validator transitions from signing to not_signing (once per hour max)
+	//   2. Validator recovery: not_signing back to signing (once per hour max)
+	// NOT alertable: "degraded", peer count changes, syncing status.
 	for (const s of services) {
 		const prev = previousStatuses.get(s.name);
-		if (prev && prev !== s.status) {
-			const ts = new Date().toISOString();
-			let msg: string;
-			let level: AlertEntry["level"];
-			let priority = "default";
-
-			if (s.status === "down") {
-				msg = `[DOWN] ${s.name} is not signing`;
-				level = "down";
-				priority = "high";
-			} else if (s.status === "healthy" && prev === "down") {
-				msg = `[UP] ${s.name} is back online`;
-				level = "up";
-				priority = "low";
-			} else {
-				msg = `[${s.status.toUpperCase()}] ${s.name} status changed`;
-				level = "degraded";
-			}
-
-			// Deduplicate: skip if same alert was sent within the last hour
-			const alertKey = `${s.name}:${level}`;
-			const lastSent = lastAlertedAt.get(alertKey) ?? 0;
-			const now = Date.now();
-			if (now - lastSent < ALERT_COOLDOWN_MS) {
-				previousStatuses.set(s.name, s.status);
-				continue;
-			}
-			lastAlertedAt.set(alertKey, now);
-
-			alertHistory.unshift({ timestamp: ts, message: msg, level });
-			if (alertHistory.length > MAX_ALERT_HISTORY) alertHistory.pop();
-
-			await logAlert(msg);
-			await sendWebhook(msg);
-			await sendNtfy(msg, priority);
-		}
 		previousStatuses.set(s.name, s.status);
+
+		// Only alert on transitions between "healthy" and "down"
+		if (!prev || prev === s.status) continue;
+
+		let msg: string | null = null;
+		let level: AlertEntry["level"] = "info";
+		let priority = "default";
+
+		if (s.status === "down" && prev === "healthy") {
+			msg = `[DOWN] ${s.name} is not signing`;
+			level = "down";
+			priority = "high";
+		} else if (s.status === "healthy" && prev === "down") {
+			msg = `[UP] ${s.name} is back online`;
+			level = "up";
+			priority = "low";
+		}
+		// All other transitions (degraded, etc.) are silently recorded, no push notification
+
+		if (!msg) continue;
+
+		// Deduplicate: same alert for the same service at most once per hour
+		const alertKey = `${s.name}:${level}`;
+		const lastSent = lastAlertedAt.get(alertKey) ?? 0;
+		const now = Date.now();
+		if (now - lastSent < ALERT_COOLDOWN_MS) continue;
+		lastAlertedAt.set(alertKey, now);
+
+		const ts = new Date().toISOString();
+		alertHistory.unshift({ timestamp: ts, message: msg, level });
+		if (alertHistory.length > MAX_ALERT_HISTORY) alertHistory.pop();
+
+		await logAlert(msg);
+		await sendWebhook(msg);
+		await sendNtfy(msg, priority);
 	}
 }
 
