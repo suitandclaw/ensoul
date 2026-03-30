@@ -77,6 +77,18 @@ These procedures are MANDATORY. Read them before executing any related task.
 - The ABCI entry point is packages/abci-server/src/index.ts (NOT start.ts).
 - CometBFT must be started via cosmovisor, not the raw cometbft binary.
 
+### SOP 6: Telegram Bot Deployment
+- The Telegram bot runs on the VPS (178.156.199.91), NOT on MBP.
+- Every code change that affects the bot MUST be deployed to the VPS.
+- After pushing to git:
+  1. SSH into VPS: ssh -p 2222 ensoul@178.156.199.91
+  2. Pull latest: cd ~/ensoul && sudo git fetch origin && sudo git reset --hard origin/main
+  3. Kill the bot: sudo pkill -f 'telegram-bot/start'
+  4. Restart the bot: sudo nohup npx tsx packages/telegram-bot/start.ts > /tmp/telegram-bot.log 2>&1 &
+  5. Verify the fix is active: grep for the relevant change in the deployed code
+- This step is MANDATORY for every bot-related code change. If you skip it, the VPS runs stale code.
+- The bot shares code with packages/shared/validator-health.ts. If that file changes, the bot must also be redeployed.
+
 ## Operational Rules
 - The chain is the database. Agent registrations, consciousness stores, and all state live on-chain, replicated by CometBFT consensus.
 - Disk files (registered-agents.json, consciousness-store.json) are caches, not sources of truth.
