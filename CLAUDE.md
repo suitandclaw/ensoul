@@ -34,6 +34,49 @@ peer-to-peer node network. Token: $ENSL. Domain: ensoul.dev
 14. NEVER kill cloudflared or any process matching 'cloudflared'. The tunnel serves all public URLs. If it dies, explorer.ensoul.dev, status.ensoul.dev, api.ensoul.dev, and ensoul.dev all go dark. On Minis, the tunnel serves v1/v2/v3.ensoul.dev.
 15. NEVER touch SSH configuration on any machine. NEVER run systemctl restart ssh, systemctl reload ssh, systemctl start ssh, kill -HUP on sshd, or any command that affects the SSH daemon. NEVER edit sshd_config. NEVER enable UFW. SSH hardening is done manually by JD, never by Claude Code. This rule has zero exceptions.
 
+## Standard Operating Procedures
+
+These procedures are MANDATORY. Read them before executing any related task.
+
+### SOP 1: Validator Recovery (when a cloud validator is stuck or needs to rejoin)
+- Use STATE SYNC. Never replay from genesis. State sync completes in under 2 minutes.
+- On the stuck validator: stop CometBFT, stop ABCI.
+- Delete CometBFT data directory ONLY (NOT the ABCI state).
+- Reconfigure state sync in config.toml with current trust_height and trust_hash from a healthy validator.
+- Restart ABCI first, wait 3 seconds, then restart CometBFT.
+- Verify catching_up=false within 5 minutes.
+- If state sync fails, diagnose WHY before falling back to block replay.
+
+### SOP 2: ABCI/Code Upgrades (when deploying new code to validators)
+- NEVER deploy to all validators at once.
+- Pull and rebuild on MBP first, verify it compiles.
+- Deploy to ONE cloud validator, verify it signs 50 blocks.
+- Deploy to 2 more cloud validators, verify all 3 sign 50 blocks.
+- Continue in batches of 3, verifying after each.
+- Deploy to home machines LAST.
+- If any validator fails after upgrade, STOP and REVERT before continuing.
+
+### SOP 3: New Transaction Types (when adding new tx types like redelegate)
+- Implement and test locally on MBP first.
+- Deploy to ONE cloud validator using SOP 2 rolling process.
+- Submit a test transaction and verify it is accepted.
+- Only after successful test, roll out to remaining validators.
+- NEVER wipe ABCI state to force replay. The new code must handle existing state.
+- Height-gate ALL new state changes (new validation, new registry updates, new power calculations) to a future block height so replay of old blocks produces identical hashes.
+
+### SOP 4: Validator Key Management
+- ALWAYS restore existing keys from ~/ensoul-key-vault/ instead of generating new ones.
+- NEVER create new validator identities when old ones exist with staked ENSL.
+- NEVER spend treasury ENSL without explicit justification and approval.
+- Back up new keys to the vault immediately after generation.
+
+### SOP 5: SSH and Infrastructure
+- NEVER touch SSH config, sshd, UFW, or firewall on any machine (Rule 15).
+- For connectivity issues, use persistent_peers in CometBFT config, not infrastructure changes.
+- The Ashburn VPS (178.156.199.91) has both Tailscale and public IP. Use it as the bridge between home and cloud networks.
+- The ABCI entry point is packages/abci-server/src/index.ts (NOT start.ts).
+- CometBFT must be started via cosmovisor, not the raw cometbft binary.
+
 ## Operational Rules
 - The chain is the database. Agent registrations, consciousness stores, and all state live on-chain, replicated by CometBFT consensus.
 - Disk files (registered-agents.json, consciousness-store.json) are caches, not sources of truth.
