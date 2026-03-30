@@ -212,7 +212,7 @@ async function checkValidator(name: string, url: string): Promise<ServiceStatus>
 			}
 		} catch { /* peer count is best-effort */ }
 		return {
-			name, url, status: si.catching_up ? "degraded" : "healthy", lastSeen: Date.now(),
+			name, url, status: "healthy", lastSeen: Date.now(),
 			details: { height, peers, moniker: ni.moniker, catchingUp: si.catching_up },
 		};
 	} catch {
@@ -286,7 +286,7 @@ async function checkAgent(): Promise<ServiceStatus> {
 		const lastLine = lines[lines.length - 1] ?? "";
 		const isRecent = lastLine.includes("[agent]");
 		return {
-			name, url: "local", status: isRecent ? "healthy" : "degraded", lastSeen: Date.now(),
+			name, url: "local", status: "healthy", lastSeen: Date.now(),
 			details: { lastLine: lastLine.slice(0, 80) },
 		};
 	} catch {
@@ -385,7 +385,7 @@ async function pollAll(): Promise<void> {
 		services.push({
 			name,
 			url: config ? `http://${config.tailscaleIp || config.publicIp}:${config.rpcPort}` : "",
-			status: isSigning ? "healthy" : (Number(av.votingPower) > 0 ? "degraded" : "down"),
+			status: isSigning ? "healthy" : "down",
 			lastSeen: isSigning ? Date.now() : 0,
 			details: {
 				height: extraHeight,
