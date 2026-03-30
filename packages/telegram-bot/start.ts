@@ -477,12 +477,35 @@ async function sendAlert(text: string): Promise<void> {
 	}
 }
 
-// Alert state tracking (avoid duplicate alerts)
+// Alert state: tracks current status per key + last alert timestamp for dedup
 const alertState = new Map<string, boolean>();
+const alertLastSent = new Map<string, number>();
+const ALERT_DEDUP_MS = 60 * 60 * 1000; // 1 hour
 
+/**
+ * Monitoring loop: checks 4 alert conditions only.
+ *   1. Chain stall (no new block in 120+ seconds)
+ *   2. Validator stopped signing (block signatures, not RPC)
+ *   3. Validator recovered (back to signing)
+ *   4. URL down (explorer/dashboard/API returns non-200)
+ *
+ * No peer count alerts. No syncing alerts. No degraded alerts.
+ * Each alert type is deduplicated to max once per hour per key.
+ */
 async function monitoringLoop(): Promise<void> {
-	if (!alertChatId) return; // No chat ID yet
+	if (!alertChatId) return;
 
+	const now = Date.now();
+
+	/** Fire an alert if not deduplicated. */
+	const fireAlert = async (key: string, msg: string): Promise<void> => {
+		const lastSent = alertLastSent.get(key) ?? 0;
+		if (now - lastSent < ALERT_DEDUP_MS) return;
+		alertLastSent.set(key, now);
+		await sendAlert(msg);
+	};
+
+	// ── Alert 1: Chain stall ──────────────────────────────────────
 	const localStatus = await cometRpc("localhost", 26657, "status");
 	const height = localStatus
 		? Number((localStatus["sync_info"] as Record<string, unknown>)["latest_block_height"])
@@ -492,49 +515,44 @@ async function monitoringLoop(): Promise<void> {
 		: 0;
 	const blockAge = blockTime ? Math.round((Date.now() - blockTime) / 1000) : 999;
 
-	// Chain stall
 	if (blockAge > 120) {
 		if (!alertState.get("stall")) {
 			alertState.set("stall", true);
-			await sendAlert(`Chain stalled. No block in ${blockAge}s.\nHeight: ${height}`);
+			await fireAlert("stall", `Chain stalled. No block in ${blockAge}s.\nHeight: ${height}`);
 		}
 	} else {
 		if (alertState.get("stall")) {
 			alertState.set("stall", false);
-			await sendAlert(`Chain resumed at height ${height}.`);
+			await fireAlert("stall-recover", `Chain resumed at height ${height}.`);
 		}
 	}
 
-	// Check each validator
+	// ── Alerts 2 & 3: Validator signing status ────────────────────
+	// Uses shared block-signature check (last 20 blocks, local CometBFT only)
+	const health = await checkValidatorHealth();
+
 	for (const vc of VALIDATORS) {
+		const addr = vc.cometbftAddress ?? "";
+		const vh = health.validators.get(addr);
 		const key = `offline-${vc.moniker}`;
-		const status = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "status");
-		if (!status) {
+		const isSigning = vh?.status === "signing";
+
+		if (!isSigning && vh?.active) {
+			// Active validator not signing
 			if (!alertState.get(key)) {
 				alertState.set(key, true);
-				await sendAlert(`${vc.moniker} is OFFLINE.\nHeight: ${height}`);
+				await fireAlert(key, `${vc.moniker} is NOT SIGNING.\nHeight: ${height}`);
 			}
-		} else {
+		} else if (isSigning) {
+			// Validator recovered
 			if (alertState.get(key)) {
 				alertState.set(key, false);
-				await sendAlert(`${vc.moniker} is back ONLINE.`);
-			}
-			// Peer count
-			const net = await cometRpc(vc.tailscaleIp || vc.publicIp || "localhost", vc.rpcPort, "net_info");
-			const peers = net ? Number(net["n_peers"]) : 0;
-			const peerKey = `lowpeers-${vc.moniker}`;
-			if (peers < 4 && peers >= 0) {
-				if (!alertState.get(peerKey)) {
-					alertState.set(peerKey, true);
-					await sendAlert(`${vc.moniker} has only ${peers} peers.\nHeight: ${height}`);
-				}
-			} else {
-				alertState.set(peerKey, false);
+				await fireAlert(`${key}-recover`, `${vc.moniker} is back online and signing.`);
 			}
 		}
 	}
 
-	// Check public URLs
+	// ── Alert 4: URL health ──────────────────────────────────────
 	const urls = [
 		{ name: "explorer.ensoul.dev", url: "https://explorer.ensoul.dev/api/v1/status" },
 		{ name: "status.ensoul.dev", url: "https://status.ensoul.dev/api/health" },
@@ -542,23 +560,21 @@ async function monitoringLoop(): Promise<void> {
 	];
 	for (const svc of urls) {
 		const key = `url-${svc.name}`;
+		let ok = false;
 		try {
 			const resp = await fetch(svc.url, { signal: AbortSignal.timeout(10000) });
-			if (!resp.ok) {
-				if (!alertState.get(key)) {
-					alertState.set(key, true);
-					await sendAlert(`${svc.name} returned HTTP ${resp.status}.\nHeight: ${height}`);
-				}
-			} else {
-				if (alertState.get(key)) {
-					alertState.set(key, false);
-					await sendAlert(`${svc.name} recovered (HTTP 200).`);
-				}
-			}
-		} catch {
+			ok = resp.ok;
+		} catch { ok = false; }
+
+		if (!ok) {
 			if (!alertState.get(key)) {
 				alertState.set(key, true);
-				await sendAlert(`${svc.name} is unreachable.\nHeight: ${height}`);
+				await fireAlert(key, `${svc.name} is down.\nHeight: ${height}`);
+			}
+		} else {
+			if (alertState.get(key)) {
+				alertState.set(key, false);
+				await fireAlert(`${key}-recover`, `${svc.name} recovered.`);
 			}
 		}
 	}
