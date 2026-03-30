@@ -228,47 +228,56 @@ async function handleStatus(chatId: number): Promise<void> {
 		}
 	}
 
-	const checkedAddrs = new Set<string>();
-
-	// Check configured validators first (have names)
-	for (const vc of VALIDATORS) {
-		const ip = vc.tailscaleIp || vc.publicIp || "localhost";
-		const status = await cometRpc(ip, vc.rpcPort, "status");
-		if (!status) {
-			lines.push(`${vc.moniker}: <b>OFFLINE</b>`);
-		} else {
-			const si = status["sync_info"] as Record<string, unknown>;
-			const vi = status["validator_info"] as Record<string, unknown>;
-			const h = si["latest_block_height"];
-			const catching = si["catching_up"];
-			const icon = catching ? "\u{1F7E1}" : "\u{1F7E2}";
-			lines.push(`${icon} ${vc.moniker}: h=${h} ${catching ? "syncing" : "signing"}`);
-			if (vi) checkedAddrs.add(String(vi["address"]));
-		}
-		if (vc.cometbftAddress) checkedAddrs.add(String(vc.cometbftAddress));
-	}
-
-	// Check unconfigured active validators via peer IPs
-	for (const addr of activeAddrs) {
-		if (checkedAddrs.has(addr)) continue;
-		let found = false;
-		for (const [moniker, ip] of peerMoniker) {
-			if (ip.startsWith("100.") || ip.startsWith("10.")) continue;
+	// Health check: scan last 20 blocks from LOCAL CometBFT for validator signatures.
+	// This never requires reaching the validator's remote RPC.
+	const sigCounts = new Map<string, number>();
+	if (localStatus) {
+		const si = localStatus["sync_info"] as Record<string, unknown>;
+		const latestH = Number(si["latest_block_height"]);
+		for (let h = latestH; h > Math.max(latestH - 20, 0); h--) {
 			try {
-				const s = await cometRpc(ip, 26657, "status");
-				if (s) {
-					const vi = s["validator_info"] as Record<string, unknown>;
-					if (String(vi?.["address"]) === addr) {
-						const si = s["sync_info"] as Record<string, unknown>;
-						const icon = si["catching_up"] ? "\u{1F7E1}" : "\u{1F7E2}";
-						lines.push(`${icon} ${moniker}: h=${si["latest_block_height"]} ${si["catching_up"] ? "syncing" : "signing"}`);
-						found = true;
-						break;
+				const blockResp = await cometRpc("localhost", 26657, "block", { height: String(h) });
+				if (!blockResp) continue;
+				const block = blockResp["block"] as Record<string, unknown>;
+				const lastCommit = block["last_commit"] as Record<string, unknown>;
+				const sigs = lastCommit["signatures"] as Array<Record<string, unknown>>;
+				for (const sig of sigs ?? []) {
+					const addr = String(sig["validator_address"] ?? "");
+					if (addr && sig["block_id_flag"] === 2) {
+						sigCounts.set(addr, (sigCounts.get(addr) ?? 0) + 1);
 					}
 				}
-			} catch { /* skip */ }
+			} catch { /* skip block */ }
 		}
-		if (!found) lines.push(`\u{1F7E0} ${addr.slice(0, 8)}...: active (RPC unreachable)`);
+	}
+
+	const checkedAddrs = new Set<string>();
+
+	// Display configured validators with signature-based health
+	for (const vc of VALIDATORS) {
+		const addr = vc.cometbftAddress ?? "";
+		const signed = sigCounts.get(addr) ?? 0;
+		const isActive = activeAddrs.has(addr);
+		if (isActive && signed > 0) {
+			lines.push(`\u{1F7E2} ${vc.moniker}: signing (${signed}/20 blocks)`);
+		} else if (isActive && signed === 0) {
+			lines.push(`\u{1F534} ${vc.moniker}: <b>NOT SIGNING</b>`);
+		} else {
+			lines.push(`\u{26AA} ${vc.moniker}: inactive`);
+		}
+		if (addr) checkedAddrs.add(addr);
+	}
+
+	// Show unconfigured active validators
+	for (const addr of activeAddrs) {
+		if (checkedAddrs.has(addr)) continue;
+		const signed = sigCounts.get(addr) ?? 0;
+		const moniker = [...peerMoniker.entries()].find(([, ip]) => ip)?.at(0) ?? addr.slice(0, 8);
+		if (signed > 0) {
+			lines.push(`\u{1F7E2} ${moniker}: signing (${signed}/20)`);
+		} else {
+			lines.push(`\u{1F534} ${moniker}: <b>NOT SIGNING</b>`);
+		}
 		checkedAddrs.add(addr);
 	}
 
