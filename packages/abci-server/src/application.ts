@@ -966,7 +966,9 @@ async function handleFinalizeBlock(
 			const pubkey = pubkeyFromDid(tx.from);
 			if (!pubkey) continue;
 			const acct = state.working.getAccount(tx.from);
-			const delegated = state.delegations.getTotalDelegatedTo(tx.from);
+			// Before height 127500, power = stakedBalance only (preserves deterministic replay).
+			// From 127500 onward, power includes delegated tokens.
+			const delegated = height >= 127500 ? state.delegations.getTotalDelegatedTo(tx.from) : 0n;
 			const power = (acct.stakedBalance + delegated) / DECIMALS;
 			validatorUpdates.push({
 				pubKey: { ed25519: Buffer.from(pubkey) },
