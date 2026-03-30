@@ -237,6 +237,18 @@ export function validateTransaction(
 			}
 			break;
 		}
+		case "redelegate": {
+			if (sender.delegatedBalance < tx.amount) {
+				return {
+					valid: false,
+					error: "Insufficient delegated balance to redelegate",
+				};
+			}
+			if (tx.from === tx.to) {
+				return { valid: false, error: "Cannot redelegate to same validator" };
+			}
+			break;
+		}
 		case "slash": {
 			// Only protocol can slash -- from must be protocol treasury
 			if (tx.from !== PROTOCOL_TREASURY) {
@@ -337,6 +349,11 @@ export function applyTransaction(
 		}
 		case "undelegate": {
 			state.undelegateTokens(tx.from, tx.amount);
+			break;
+		}
+		case "redelegate": {
+			// Account balances unchanged; delegatedBalance stays the same.
+			// The DelegationRegistry update is handled by the ABCI layer.
 			break;
 		}
 		case "slash": {
