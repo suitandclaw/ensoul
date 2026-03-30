@@ -448,6 +448,71 @@ async function handleInitChain(
 	if (appStateBytes && appStateBytes.length > 0) {
 		try {
 			const raw = JSON.parse(appStateBytes.toString("utf-8")) as Record<string, unknown>;
+
+			// Testnet state import: if app_state contains "importedState", load it
+			// directly instead of processing allocations. This allows the testnet to
+			// start with a snapshot of production state for realistic testing.
+			if (raw["importedState"]) {
+				const imported = raw["importedState"] as Record<string, unknown>;
+				log("  Loading imported state (testnet mode)...");
+
+				const accountState = new AccountState();
+				const accounts = (imported["accounts"] as Array<Record<string, unknown>>) ?? [];
+				for (const a of accounts) {
+					accountState.setAccount({
+						did: a["did"] as string,
+						balance: BigInt(a["balance"] as string ?? "0"),
+						stakedBalance: BigInt(a["stakedBalance"] as string ?? "0"),
+						unstakingBalance: 0n,
+						unstakingCompleteAt: 0,
+						stakeLockedUntil: 0,
+						delegatedBalance: BigInt(a["delegatedBalance"] as string ?? "0"),
+						pendingRewards: BigInt(a["pendingRewards"] as string ?? "0"),
+						nonce: (a["nonce"] as number) ?? 0,
+						storageCredits: BigInt(a["storageCredits"] as string ?? "0"),
+						lastActivity: (a["lastActivity"] as number) ?? 0,
+					});
+				}
+				const consensusSet = (imported["consensusSet"] as string[]) ?? [];
+				for (const did of consensusSet) {
+					accountState.joinConsensus(did);
+				}
+
+				const delegationEntries = (imported["delegations"] as Array<{ validator: string; delegator: string; amount: string }>) ?? [];
+				const delegationRegistry = DelegationRegistry.deserialize(delegationEntries);
+
+				state.committed = accountState;
+				state.working = accountState.clone();
+				state.checkTx = accountState.clone();
+				state.delegations = delegationRegistry;
+				state.totalEmitted = BigInt(imported["totalEmitted"] as string ?? "0");
+				state.totalTransactions = (imported["totalTransactions"] as number) ?? 0;
+
+				// Restore genesis config
+				const gen = imported["genesis"] as Record<string, unknown> | null;
+				if (gen) {
+					state.genesis = {
+						chainId,
+						timestamp: 0,
+						totalSupply: 1_000_000_000n * DECIMALS,
+						allocations: [],
+						emissionPerBlock: BigInt(gen["emissionPerBlock"] as string),
+						networkRewardsPool: BigInt(gen["networkRewardsPool"] as string),
+						protocolFees: {
+							storageFeeProtocolShare: gen["storageFeeProtocolShare"] as number,
+							txBaseFee: 1000n,
+						},
+					};
+				}
+
+				const root = computeAppHash(state);
+				state.appHash = root;
+				log(`  Imported: ${accounts.length} accounts, ${consensusSet.length} validators, ${delegationEntries.length} delegations`);
+				log(`  App hash: ${root.toString("hex").slice(0, 16)}...`);
+
+				return { initChain: { appHash: state.appHash } };
+			}
+
 			const genesis = parseGenesisFromAppState(raw);
 			state.genesis = genesis;
 
