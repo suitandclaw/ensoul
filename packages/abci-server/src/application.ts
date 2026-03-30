@@ -956,6 +956,10 @@ async function handleFinalizeBlock(
 	// CometBFT applies these at height H+2.
 	const validatorUpdates: Array<{ pubKey: { ed25519: Buffer }; power: string }> = [];
 
+	// Track validators that need power updates from redelegate transactions.
+	// Collected first, emitted after ALL transactions are processed so that
+	// getTotalDelegatedTo reflects the cumulative effect of all redelegates.
+	const redelegateAffected = new Set<string>();
 	const updatedValidators = new Set<string>();
 
 	for (const txBytes of rawTxs) {
@@ -986,39 +990,85 @@ async function handleFinalizeBlock(
 			updatedValidators.add(tx.from);
 			log(`Validator update: REMOVE ${tx.from.slice(0, 30)}...`);
 		} else if (height >= 127500 && tx.type === "redelegate" as TransactionType && tx.data) {
-			// Update power for both source and target validators
+			// Collect affected validators for deferred power update
 			try {
 				const dataBytes = tx.data instanceof Uint8Array ? tx.data : new Uint8Array(tx.data);
 				const parsed = JSON.parse(new TextDecoder().decode(dataBytes)) as { fromValidator: string };
-				const fromVal = parsed.fromValidator;
-				const toVal = tx.to;
-
-				// Update source validator power (if not already updated this block)
-				if (fromVal && !updatedValidators.has(fromVal)) {
-					const pk = pubkeyFromDid(fromVal);
-					if (pk) {
-						const acct = state.working.getAccount(fromVal);
-						const delegated = state.delegations.getTotalDelegatedTo(fromVal);
-						const power = (acct.stakedBalance + delegated) / DECIMALS;
-						validatorUpdates.push({ pubKey: { ed25519: Buffer.from(pk) }, power: power.toString() });
-						updatedValidators.add(fromVal);
-						log(`Redelegate power update: ${fromVal.slice(0, 25)}... power=${power}`);
-					}
-				}
-
-				// Update target validator power (if not already updated this block)
-				if (toVal && !updatedValidators.has(toVal)) {
-					const pk = pubkeyFromDid(toVal);
-					if (pk) {
-						const acct = state.working.getAccount(toVal);
-						const delegated = state.delegations.getTotalDelegatedTo(toVal);
-						const power = (acct.stakedBalance + delegated) / DECIMALS;
-						validatorUpdates.push({ pubKey: { ed25519: Buffer.from(pk) }, power: power.toString() });
-						updatedValidators.add(toVal);
-						log(`Redelegate power update: ${toVal.slice(0, 25)}... power=${power}`);
-					}
-				}
+				if (parsed.fromValidator) redelegateAffected.add(parsed.fromValidator);
+				if (tx.to) redelegateAffected.add(tx.to);
 			} catch { /* data parse error handled earlier */ }
+		}
+	}
+
+	// Height-gate: before 136000, use the old per-tx deduplication behavior
+	// to preserve deterministic replay of blocks 127500 through 135999.
+	// From 136000 onward, emit correct cumulative power for ALL affected validators.
+	if (height < 136000) {
+		// Legacy behavior: first-seen-wins deduplication (buggy but deterministic)
+		const legacyProcessed = new Set<string>();
+		for (const txBytes of rawTxs) {
+			const tx = decodeTx(txBytes as Buffer);
+			if (!tx) continue;
+			if (height >= 127500 && tx.type === "redelegate" as TransactionType && tx.data) {
+				try {
+					const dataBytes = tx.data instanceof Uint8Array ? tx.data : new Uint8Array(tx.data);
+					const parsed = JSON.parse(new TextDecoder().decode(dataBytes)) as { fromValidator: string };
+					const fromVal = parsed.fromValidator;
+					const toVal = tx.to;
+					if (fromVal && !updatedValidators.has(fromVal) && !legacyProcessed.has(fromVal)) {
+						const pk = pubkeyFromDid(fromVal);
+						if (pk) {
+							const acct = state.working.getAccount(fromVal);
+							const delegated = state.delegations.getTotalDelegatedTo(fromVal);
+							const power = (acct.stakedBalance + delegated) / DECIMALS;
+							validatorUpdates.push({ pubKey: { ed25519: Buffer.from(pk) }, power: power.toString() });
+							legacyProcessed.add(fromVal);
+							log(`Redelegate power update: ${fromVal.slice(0, 25)}... power=${power}`);
+						}
+					}
+					if (toVal && !updatedValidators.has(toVal) && !legacyProcessed.has(toVal)) {
+						const pk = pubkeyFromDid(toVal);
+						if (pk) {
+							const acct = state.working.getAccount(toVal);
+							const delegated = state.delegations.getTotalDelegatedTo(toVal);
+							const power = (acct.stakedBalance + delegated) / DECIMALS;
+							validatorUpdates.push({ pubKey: { ed25519: Buffer.from(pk) }, power: power.toString() });
+							legacyProcessed.add(toVal);
+							log(`Redelegate power update: ${toVal.slice(0, 25)}... power=${power}`);
+						}
+					}
+				} catch { /* handled */ }
+			}
+		}
+	} else {
+		// Fixed behavior from height 136000: emit final power for ALL affected validators
+		for (const valDid of redelegateAffected) {
+			if (updatedValidators.has(valDid)) continue;
+			const pk = pubkeyFromDid(valDid);
+			if (!pk) continue;
+			const acct = state.working.getAccount(valDid);
+			const delegated = state.delegations.getTotalDelegatedTo(valDid);
+			const power = (acct.stakedBalance + delegated) / DECIMALS;
+			validatorUpdates.push({ pubKey: { ed25519: Buffer.from(pk) }, power: power.toString() });
+			updatedValidators.add(valDid);
+			log(`Redelegate power update (fixed): ${valDid.slice(0, 25)}... power=${power}`);
+		}
+	}
+
+	// One-time correction at height 136000: emit power updates for ALL consensus
+	// members to fix the deduplication bug from the initial redelegate deployment.
+	if (height === 136000) {
+		const consensusSet = state.working.getConsensusSet();
+		for (const valDid of consensusSet) {
+			if (updatedValidators.has(valDid)) continue;
+			const pk = pubkeyFromDid(valDid);
+			if (!pk) continue;
+			const acct = state.working.getAccount(valDid);
+			const delegated = state.delegations.getTotalDelegatedTo(valDid);
+			const power = (acct.stakedBalance + delegated) / DECIMALS;
+			validatorUpdates.push({ pubKey: { ed25519: Buffer.from(pk) }, power: power.toString() });
+			updatedValidators.add(valDid);
+			log(`Power correction: ${valDid.slice(0, 25)}... power=${power}`);
 		}
 	}
 
