@@ -2,6 +2,8 @@ import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import { hashTrustAssessment, assessTrust } from "@ensoul/node";
 import type { ExplorerDataSource } from "./types.js";
+
+const CMT_RPC = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -229,7 +231,7 @@ export async function createExplorer(
 			} else {
 				// Fetch from CometBFT
 				try {
-					const resp = await fetch("http://localhost:26657", {
+					const resp = await fetch(CMT_RPC, {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },
 						body: JSON.stringify({ jsonrpc: "2.0", id: "b", method: "block", params: { height: String(h) } }),
@@ -266,7 +268,7 @@ export async function createExplorer(
 		const scanLimit = Math.min(2000, chainHeight);
 		for (let h = chainHeight; h > chainHeight - scanLimit && allTxs.length < perPage * page + perPage; h--) {
 			try {
-				const resp = await fetch("http://localhost:26657", {
+				const resp = await fetch(CMT_RPC, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ jsonrpc: "2.0", id: "b", method: "block", params: { height: String(h) } }),

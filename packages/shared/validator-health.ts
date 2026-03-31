@@ -5,10 +5,10 @@
  * and count how many each validator signed (block_id_flag === 2).
  *
  * Used by: telegram-bot, monitor, explorer.
- * Runs on MBP. Queries localhost:26657 only. Never reaches remote RPCs.
+ * Queries the configured CometBFT RPC (CMT_RPC env var or Ashburn fallback).
  */
 
-const DEFAULT_RPC = "http://localhost:26657";
+const DEFAULT_RPC = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
 const DEFAULT_SCAN_BLOCKS = 20;
 
 export interface ValidatorHealth {

@@ -28,7 +28,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const LOG_DIR = join(homedir(), ".ensoul");
 const LOG_FILE = join(LOG_DIR, "consciousness-heartbeat.log");
 const CONFIG_FILE = join(LOG_DIR, "heartbeat-agents.json");
-const CMT_RPC = "http://localhost:26657";
+const CMT_RPC = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
 
 // ── Logging ─────────────────────────────────────────────────────────
 

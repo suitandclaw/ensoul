@@ -50,6 +50,7 @@ const peerUrls = (networkPeersArg ?? networkPeersEnv ?? "")
 const validatorCountOverride = process.env["ENSOUL_VALIDATOR_COUNT"]
 	? Number(process.env["ENSOUL_VALIDATOR_COUNT"])
 	: null;
+const CMT_RPC = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
 
 // ── Types for peer responses ─────────────────────────────────────────
 
@@ -240,7 +241,7 @@ class NetworkDataSource implements ExplorerDataSource {
 		unstaking: string; nonce: number; storageCredits: string;
 	} | null> {
 		try {
-			const resp = await fetch("http://localhost:26657", {
+			const resp = await fetch(CMT_RPC, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ jsonrpc: "2.0", id: "a", method: "abci_query", params: { path: `/balance/${did}` } }),
@@ -331,7 +332,7 @@ class NetworkDataSource implements ExplorerDataSource {
 	private async refreshValidators(): Promise<void> {
 		try {
 			// Get validator list with stake from ABCI
-			const abciResp = await fetch("http://localhost:26657", {
+			const abciResp = await fetch(CMT_RPC, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ jsonrpc: "2.0", id: "v", method: "abci_query", params: { path: "/validators" } }),
@@ -355,7 +356,7 @@ class NetworkDataSource implements ExplorerDataSource {
 
 			// Auto-discover CometBFT address mappings for new validators
 			try {
-				const cmtResp = await fetch("http://localhost:26657", {
+				const cmtResp = await fetch(CMT_RPC, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ jsonrpc: "2.0", id: "cv", method: "validators", params: {} }),
@@ -419,7 +420,7 @@ class NetworkDataSource implements ExplorerDataSource {
 	/** Count block proposers from the last 1000 blocks via CometBFT blockchain RPC. */
 	private async refreshProposerCounts(): Promise<void> {
 		try {
-			const statusResp = await fetch("http://localhost:26657", {
+			const statusResp = await fetch(CMT_RPC, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ jsonrpc: "2.0", id: "s", method: "status", params: {} }),
@@ -435,7 +436,7 @@ class NetworkDataSource implements ExplorerDataSource {
 			for (let min = fromHeight; min <= tipHeight; min += 20) {
 				const max = Math.min(min + 19, tipHeight);
 				try {
-					const resp = await fetch("http://localhost:26657", {
+					const resp = await fetch(CMT_RPC, {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },
 						body: JSON.stringify({ jsonrpc: "2.0", id: "bc", method: "blockchain", params: { minHeight: String(min), maxHeight: String(max) } }),
@@ -462,7 +463,7 @@ class NetworkDataSource implements ExplorerDataSource {
 	/** Fetch all chain statistics from ABCI state via CometBFT RPC (single source of truth). */
 	private async refreshChainStats(): Promise<void> {
 		try {
-			const resp = await fetch("http://localhost:26657", {
+			const resp = await fetch(CMT_RPC, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ jsonrpc: "2.0", id: "stats", method: "abci_query", params: { path: "/stats" } }),
@@ -489,7 +490,7 @@ class NetworkDataSource implements ExplorerDataSource {
 	/** Poll CometBFT RPC for the current chain height and cache recent blocks. */
 	private async pollAllPeers(): Promise<void> {
 		try {
-			const resp = await fetch("http://localhost:26657", {
+			const resp = await fetch(CMT_RPC, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ jsonrpc: "2.0", id: "s", method: "status", params: {} }),
@@ -504,7 +505,7 @@ class NetworkDataSource implements ExplorerDataSource {
 			const prevHeight = prev?.height ?? Math.max(0, height - 10);
 
 			this.peers.set("localhost", {
-				url: "http://localhost:26657",
+				url: CMT_RPC,
 				did: moniker,
 				height,
 				alive: true,
@@ -525,7 +526,7 @@ class NetworkDataSource implements ExplorerDataSource {
 		for (let h = start; h <= to; h++) {
 			if (this.blockCache.has(h)) continue;
 			try {
-				const resp = await fetch("http://localhost:26657", {
+				const resp = await fetch(CMT_RPC, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ jsonrpc: "2.0", id: "b", method: "block", params: { height: String(h) } }),

@@ -156,9 +156,11 @@ async function cometRpc(ip: string, port: number, method: string, params: Record
 	} catch { return null; }
 }
 
+const CMT_RPC_BOT = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
+
 async function abciQuery(path: string): Promise<Record<string, unknown> | null> {
 	try {
-		const resp = await fetch("http://localhost:26657", {
+		const resp = await fetch(CMT_RPC_BOT, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ jsonrpc: "2.0", id: "q", method: "abci_query", params: { path } }),
