@@ -36,7 +36,8 @@ export {
 
 export { createDefaultGenesis, validateGenesis, buildGenesisTransactions } from "./genesis.js";
 
-export { DelegationRegistry, MIN_DELEGATION, COMMISSION_RATE, STORAGE_CREDIT_THRESHOLD } from "./delegations.js";
+export { DelegationRegistry, MIN_DELEGATION, COMMISSION_RATE, STORAGE_CREDIT_THRESHOLD, PIONEER_LOCK_DURATION_MS } from "./delegations.js";
+export type { DelegationCategory } from "./delegations.js";
 
 // L1 protections (lessons learned from Solana, Ethereum, Sui, Polygon)
 export {
