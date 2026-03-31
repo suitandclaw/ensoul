@@ -1,0 +1,112 @@
+{
+  "_description": "Stake category mapping for each validator DID. Categories: genesis-partners, foundation, pioneer, community.",
+  "_note": "Each original genesis entry has ~4,285,714 ENSL. Full split pending review. MBP + Minis confirmed as genesis-partners.",
+  "_allocation": {
+    "genesis-partners": "100,000,000 ENSL (10%) - 23 of 35 genesis entries",
+    "foundation": "30,000,000 ENSL (3%) - 7 of 35 genesis entries",
+    "pioneer": "20,000,000 ENSL (2%) - 20 Pioneer slots at 1M each (not yet delegated)",
+    "unallocated_from_original_35": "5 genesis entries (~21.4M) to redistribute between foundation and genesis-partners"
+  },
+  "validators": {
+    "did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X": {
+      "moniker": "ensoul-mbp",
+      "category": "genesis-partners",
+      "staked": "4285724000000000000000000"
+    },
+    "did:key:z6MkfUJgmfDw9ipEtUEj1aM2KzvcL5V35YPfzeCqnhprH6pv": {
+      "moniker": "ensoul-mini1",
+      "category": "genesis-partners",
+      "staked": "4285714000000000000000000"
+    },
+    "did:key:z6MkhJ5ErDvgXp1wpmSW55sDpbBxXJ9o4dGE9Ukue77rPSaR": {
+      "moniker": "ensoul-mini2",
+      "category": "genesis-partners",
+      "staked": "4285714000000000000000000"
+    },
+    "did:key:z6MkvmK2YQ9GzUJKfQzhmfwoEtmT2GQTLKqa941GSMszSb3U": {
+      "moniker": "ensoul-mini3",
+      "category": "genesis-partners",
+      "staked": "4285714000000000000000000"
+    },
+    "did:key:z6Mkf3a7MhLm2Ate22pTDAcnAYyvep176gRas6Qxrr4yKKSv": {
+      "moniker": "ensoul-ashburn1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MkmjpHc9ae5WGf6WYjyiy6q4vyyvUj78Ybn7ca2KytsuJS": {
+      "moniker": "ensoul-uswest1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MkiHUm3mnutJ2zQn9dxTNTsVd9TdtF52KwhEJe8vTN5uY7": {
+      "moniker": "ensoul-helsinki1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MktaVcKeyFLd3Y9i1kL6eVJesHUhQL8Z4aBhWAom8cLV2R": {
+      "moniker": "ensoul-nuremberg1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6Mkk4SoTsrTC1SFLMVyNHDus1KVjY4M2Fa4iHjPtg7g2JUu": {
+      "moniker": "ensoul-nyc1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MkrHHv7iHKC9tNaCchMtaxL8L3tSPZoVPGJNvNY6H2FMDd": {
+      "moniker": "ensoul-singapore1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MksWvh8dYLMyZnjxxeA8UnZVwQx5nipptDomYkjh6q7Dbm": {
+      "moniker": "ensoul-london1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MkizqcK1oovKYgosSw2UWyUbTUCh43qhkQD8trvvHJq2v9": {
+      "moniker": "ensoul-singapore2",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MktBn22qC9iYT69uAvLSDRLoKkADqnimGQK5g9UmqUTy7o": {
+      "moniker": "ensoul-boston1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MknspWy1YHKCrDSDKzMBDaAjKV22VG2v1didFaAjcYLUXp": {
+      "moniker": "ensoul-lithuania1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MkhzppwzKBMbdgjYhs9vh38f7imWNa2wEtQ74MsoAJBnPn": {
+      "moniker": "ensoul-france1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MktGKyB8y3pjVSAjHmSt9DorEFdg9kZueBrfv3gXjp4n9A": {
+      "moniker": "ensoul-frankfurt1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MkkkktTaa25E1P9Vh5Y7Abb4uJ5u9ChWn4G4Hwr1nJixmV": {
+      "moniker": "ensoul-uk2",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MkkF7Vsf74yfUVmauMBGnTfpE6dGTwSdxPfs1qmDws6tPG": {
+      "moniker": "ensoul-bangalore1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6Mki2nw2XUJe1KqW5L6TEvqgBSVyvJPUqNUhT6xpUWFVha6": {
+      "moniker": "ensoul-sydney1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    },
+    "did:key:z6MkpsgG1gJio5529CiCKPmTKcs14Y9GBwEKdTa5imQNFcz7": {
+      "moniker": "ensoul-toronto1",
+      "category": "pending-review",
+      "staked": "2000000000000000000000000"
+    }
+  }
+}
