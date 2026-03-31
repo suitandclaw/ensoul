@@ -13,7 +13,7 @@
  */
 
 import { createIdentity } from "@ensoul/identity";
-import { checkValidatorHealth } from "../shared/validator-health.js";
+import { checkValidatorHealth, updateUptimeTracker, getUptimePercent } from "../shared/validator-health.js";
 import type { AgentIdentity } from "@ensoul/identity";
 import {
 	createDefaultGenesis,
@@ -342,6 +342,9 @@ class NetworkDataSource implements ExplorerDataSource {
 			this.signatureCounts = counts;
 			this.uptimeSampleSize = health.height > 0 ? Math.min(20, health.height) : 0;
 			this.onlineDids = online;
+
+			// Feed into the persistent rolling uptime tracker
+			updateUptimeTracker(health);
 		} catch { /* non-fatal */ }
 	}
 
@@ -413,19 +416,21 @@ class NetworkDataSource implements ExplorerDataSource {
 				const totalStake = BigInt(v.stakedBalance) + BigInt(v.delegatedToThis);
 				const isOnline = this.onlineDids.has(v.did) || v.power > 0;
 
-				// Calculate uptime from actual signature data
-				let uptimePercent = isOnline ? 100 : 0;
-				if (this.uptimeSampleSize > 0) {
-					let addr = "";
-					for (const [a, d] of this.addressToDid) {
-						if (d === v.did) { addr = a; break; }
-					}
-					if (addr) {
-						const signed = this.signatureCounts.get(addr) ?? 0;
-						const computed = Math.round((signed / this.uptimeSampleSize) * 1000) / 10;
-						uptimePercent = Math.max(computed, isOnline ? 0.1 : 0);
+				// Uptime: use persistent rolling tracker (10,000 block window)
+				// Health dot uses the 20-block check (isOnline), uptime % uses the rolling average
+				let uptimePercent = -1; // -1 means "N/A" (not enough samples)
+				let addr = "";
+				for (const [a, d] of this.addressToDid) {
+					if (d === v.did) { addr = a; break; }
+				}
+				if (addr) {
+					const rolling = getUptimePercent(addr);
+					if (rolling !== null) {
+						uptimePercent = rolling;
 					}
 				}
+				// Fallback: if rolling not available, use -1 (N/A)
+				// isOnline is used for the green/red dot, not the percentage
 
 				return {
 					did: v.did,
