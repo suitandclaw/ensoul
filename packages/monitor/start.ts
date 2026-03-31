@@ -760,7 +760,7 @@ h2{font-size:0.85em;color:#888;text-transform:uppercase;letter-spacing:1px;margi
 <body>
 <div class="wrap">
 <div class="header">
-<h1>Ensoul Network Status</h1>
+<h1 style="display:inline-flex;align-items:center;gap:10px"><svg viewBox="0 0 110 110" width="32" height="32"><circle cx="55" cy="55" r="42" fill="none" stroke="#7C6AE8" stroke-width="1.5"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="#7C6AE8"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>Ensoul Network Status</h1>
 <div class="sub">Auto-refreshes every 30 seconds</div>
 </div>
 <div id="content">Loading...</div>
