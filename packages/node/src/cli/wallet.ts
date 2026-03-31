@@ -86,7 +86,7 @@ export function parseWalletArgs(argv: string[]): WalletCommand {
 		recipientDid: "",
 		amount: 0n,
 		dataDir: "~/.ensoul",
-		rpc: "http://localhost:9000",
+		rpc: process.env["ENSOUL_API_URL"] ?? "https://api.ensoul.dev",
 	};
 
 	let walletFound = false;
@@ -427,10 +427,22 @@ async function loadIdentityFromDisk(dataDir: string): Promise<AgentIdentity | nu
  */
 async function queryAccount(rpc: string, did: string): Promise<RpcAccountInfo | null> {
 	try {
-		const url = `${rpc}/peer/account/${encodeURIComponent(did)}`;
+		const url = `${rpc}/v1/account/${encodeURIComponent(did)}`;
 		const resp = await fetch(url);
 		if (!resp.ok) return null;
-		return (await resp.json()) as RpcAccountInfo;
+		const d = (await resp.json()) as Record<string, unknown>;
+		const raw = (d["raw"] as Record<string, string>) ?? {};
+		return {
+			did: String(d["did"] ?? did),
+			balance: raw["available"] ?? raw["balance"] ?? "0",
+			staked: raw["staked"] ?? raw["stakedBalance"] ?? "0",
+			unstaking: raw["unstaking"] ?? raw["unstakingBalance"] ?? "0",
+			unstakingCompleteAt: Number(d["unstakingCompleteAt"] ?? 0),
+			nonce: Number(d["nonce"] ?? raw["nonce"] ?? 0),
+			storageCredits: raw["storageCredits"] ?? "0",
+			delegated: raw["delegated"] ?? raw["delegatedBalance"] ?? "0",
+			pendingRewards: raw["pendingRewards"] ?? "0",
+		};
 	} catch {
 		return null;
 	}
@@ -474,8 +486,10 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 
 	const balance = BigInt(account.balance);
 	const staked = BigInt(account.staked);
+	const delegated = BigInt(account.delegated ?? "0");
 	const unstaking = BigInt(account.unstaking ?? "0");
-	const total = balance + staked + unstaking;
+	const rewards = BigInt(account.pendingRewards ?? "0");
+	const total = balance + staked + delegated + unstaking + rewards;
 
 	switch (cmd.subcommand) {
 		case "balance": {
@@ -483,12 +497,14 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 				? new Date(account.unstakingCompleteAt * 1000).toISOString().slice(0, 16)
 				: "N/A";
 			out("");
-			out(`  DID:       ${identity.did}`);
-			out(`  Available: ${formatEnsl(balance)}`);
-			out(`  Staked:    ${formatEnsl(staked)}`);
-			out(`  Unstaking: ${formatEnsl(unstaking)} (completes: ${completesAt})`);
-			out(`  Total:     ${formatEnsl(total)}`);
-			out(`  Nonce:     ${account.nonce}`);
+			out(`  DID:             ${identity.did}`);
+			out(`  Available:       ${formatEnsl(balance)}`);
+			out(`  Staked:          ${formatEnsl(staked)}`);
+			out(`  Delegated:       ${formatEnsl(delegated)}`);
+			out(`  Unstaking:       ${formatEnsl(unstaking)} (completes: ${completesAt})`);
+			out(`  Pending Rewards: ${formatEnsl(rewards)}`);
+			out(`  Total:           ${formatEnsl(total)}`);
+			out(`  Nonce:           ${account.nonce}`);
 			out("");
 			break;
 		}
