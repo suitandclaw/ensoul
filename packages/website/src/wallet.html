@@ -141,7 +141,7 @@
 <h2>Network</h2>
 <div class="network-stats">
 <div class="net-stat"><div class="val" id="w-height">--</div><div class="lbl">Block Height</div></div>
-<div class="net-stat"><div class="val">35</div><div class="lbl">Validators</div></div>
+<div class="net-stat"><div class="val" id="w-validators">20</div><div class="lbl">Validators</div></div>
 <div class="net-stat"><div class="val" id="w-agents">--</div><div class="lbl">Agents</div></div>
 </div>
 <div style="font-size:0.8em;color:var(--text-dim);text-align:center;margin-top:4px">
@@ -159,7 +159,7 @@
 <div class="wallet-row"><span class="label">Staked</span><span class="value" id="b-staked">0.00 ENSL</span></div>
 <div class="wallet-row"><span class="label">Delegated</span><span class="value" id="b-delegated">0.00 ENSL</span></div>
 <div class="wallet-row"><span class="label">Unstaking</span><span class="value" id="b-unstaking">0.00 ENSL</span></div>
-<div class="wallet-row"><span class="label">Pending Rewards</span><span class="value" id="b-rewards">0.00 ENSL</span></div>
+<div class="wallet-row"><span class="label">Pending Rewards</span><span class="value" id="b-rewards">0.00 ENSL</span><button class="wallet-btn small primary" id="claim-btn" onclick="claimRewards()" style="display:none;margin-left:8px">Claim</button></div>
 <div class="wallet-row"><span class="label">Storage</span><span class="value" id="b-storage">0 MB/month</span></div>
 <div class="wallet-row" style="border-top:1px solid var(--border-dim);padding-top:8px;margin-top:4px"><span class="label" style="font-weight:600">Total</span><span class="value primary" id="b-total">0.00 ENSL</span></div>
 </div>
@@ -168,15 +168,61 @@
 <div class="wallet-card">
 <h2>Actions</h2>
 <div id="action-msg"></div>
-<div class="wallet-actions">
-<button class="wallet-btn primary" style="width:100%" onclick="registerAgent()">Register Agent (100 ENSL after first store)</button>
-<button class="wallet-btn secondary" style="width:100%" onclick="showActionMsg('Coming soon: send via web wallet','info')">Send ENSL</button>
+
+<!-- Send -->
+<details style="margin:8px 0">
+<summary style="cursor:pointer;font-weight:600;color:var(--primary-light);font-size:0.95em">Send ENSL</summary>
+<div class="action-form" style="margin-top:8px">
+<input class="wallet-input" type="text" id="send-to" placeholder="Recipient DID (did:key:z6Mk...)">
+<input class="wallet-input" type="number" id="send-amount" placeholder="Amount (ENSL)" step="0.01" min="0">
+<button class="wallet-btn primary" onclick="doSend()">Send</button>
 </div>
-<div style="height:8px"></div>
-<div class="wallet-actions">
-<button class="wallet-btn secondary" style="width:100%" onclick="showActionMsg('Coming soon: stake via web wallet','info')">Stake</button>
-<button class="wallet-btn secondary" style="width:100%" onclick="showActionMsg('Coming soon: delegate via web wallet','info')">Delegate</button>
+</details>
+
+<!-- Stake -->
+<details style="margin:8px 0">
+<summary style="cursor:pointer;font-weight:600;color:var(--primary-light);font-size:0.95em">Stake ENSL</summary>
+<div class="action-form" style="margin-top:8px">
+<p style="font-size:0.8em;color:var(--text-secondary)">Staked tokens are locked for 30 days. Block rewards begin immediately.</p>
+<input class="wallet-input" type="number" id="stake-amount" placeholder="Amount (ENSL)" step="0.01" min="0">
+<button class="wallet-btn primary" onclick="doStake()">Stake</button>
 </div>
+</details>
+
+<!-- Unstake -->
+<details style="margin:8px 0">
+<summary style="cursor:pointer;font-weight:600;color:var(--primary-light);font-size:0.95em">Unstake ENSL</summary>
+<div class="action-form" style="margin-top:8px">
+<p style="font-size:0.8em;color:var(--text-secondary)">7-day cooldown after unstaking. Requires 30-day lockup to have expired.</p>
+<input class="wallet-input" type="number" id="unstake-amount" placeholder="Amount (ENSL)" step="0.01" min="0">
+<button class="wallet-btn primary" onclick="doUnstake()">Unstake</button>
+</div>
+</details>
+
+<!-- Delegate -->
+<details style="margin:8px 0">
+<summary style="cursor:pointer;font-weight:600;color:var(--primary-light);font-size:0.95em">Delegate to Validator</summary>
+<div class="action-form" style="margin-top:8px">
+<p style="font-size:0.8em;color:var(--text-secondary)">Earn rewards proportional to your delegation. Minimum 100 ENSL.</p>
+<input class="wallet-input" type="text" id="delegate-validator" placeholder="Validator DID (did:key:z6Mk...)">
+<input class="wallet-input" type="number" id="delegate-amount" placeholder="Amount (ENSL)" step="0.01" min="100">
+<button class="wallet-btn primary" onclick="doDelegate()">Delegate</button>
+</div>
+</details>
+
+<!-- Register Agent -->
+<details style="margin:8px 0">
+<summary style="cursor:pointer;font-weight:600;color:var(--primary-light);font-size:0.95em">Register Agent</summary>
+<div class="action-form" style="margin-top:8px">
+<button class="wallet-btn primary" onclick="registerAgent()">Register Agent on Ensoul Network</button>
+</div>
+</details>
+</div>
+
+<!-- Delegations -->
+<div class="wallet-card">
+<h2>Delegations</h2>
+<div id="delegations-list"><p style="color:var(--text-dim);font-size:0.85em">Loading delegations...</p></div>
 </div>
 
 <!-- History -->
@@ -394,8 +440,12 @@ function showDashboard(){
   el("dash-did").textContent=currentDid;
   refreshBalance();
   refreshNetwork();
+  refreshDelegations();
+  updateClaimButton();
   setInterval(refreshBalance,10000);
   setInterval(refreshNetwork,10000);
+  setInterval(refreshDelegations,30000);
+  setInterval(updateClaimButton,10000);
 }
 
 async function refreshBalance(){
@@ -487,6 +537,138 @@ window.deleteWallet=function(){
   hide("dashboard");
   show("onboard");
 };
+
+// ---- Transaction Actions ----
+
+var SESSION_TIMEOUT=30*60*1000; // 30 minutes
+var lastActivity=Date.now();
+document.addEventListener("click",function(){lastActivity=Date.now();});
+setInterval(function(){
+  if(currentSeed&&Date.now()-lastActivity>SESSION_TIMEOUT){
+    currentSeed=null;
+    showActionMsg("Session expired. Enter password to continue.","info");
+  }
+},60000);
+
+async function buildAndBroadcast(type,to,amount,data){
+  if(!currentSeed){showActionMsg("Wallet locked. Re-enter password.","error");return null;}
+  showActionMsg("Broadcasting transaction...","info");
+  try{
+    var nonce=0;
+    try{
+      var nr=await fetch(API+"/v1/account/"+encodeURIComponent(currentDid));
+      if(nr.ok){var nd=await nr.json();nonce=nd.nonce||nd.raw?.nonce||0;}
+    }catch(e){}
+    var ts=Date.now();
+    var payload=JSON.stringify({type:type,from:currentDid,to:to,amount:String(amount),nonce:nonce,timestamp:ts});
+    // Sign with Ed25519 (requires decrypted seed in memory)
+    var sig="unsigned"; // TODO: real Ed25519 signing with noble library
+    var tx={type:type,from:currentDid,to:to,amount:String(amount),nonce:nonce,timestamp:ts,signature:sig};
+    if(data)tx.data=Array.from(new TextEncoder().encode(JSON.stringify(data)));
+    var txB64=btoa(JSON.stringify(tx));
+    var resp=await fetch(API+"/v1/tx/broadcast",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(tx)
+    });
+    var result=await resp.json();
+    if(result.applied){
+      showActionMsg("Transaction confirmed at height "+result.height,"success");
+      refreshBalance();
+      return result;
+    }else{
+      showActionMsg("Transaction rejected: "+(result.error||"unknown error"),"error");
+      return null;
+    }
+  }catch(e){
+    showActionMsg("Failed to broadcast: "+e.message,"error");
+    return null;
+  }
+}
+
+var DECIMALS="1000000000000000000";
+function toWei(ensl){return(BigInt(Math.floor(Number(ensl)*100))*BigInt(DECIMALS)/100n).toString();}
+
+window.doSend=async function(){
+  var to=el("send-to").value.trim();
+  var amt=parseFloat(el("send-amount").value);
+  if(!to||!to.startsWith("did:")){showActionMsg("Enter a valid DID","error");return;}
+  if(!amt||amt<=0){showActionMsg("Enter a valid amount","error");return;}
+  await buildAndBroadcast("transfer",to,toWei(amt));
+};
+
+window.doStake=async function(){
+  var amt=parseFloat(el("stake-amount").value);
+  if(!amt||amt<=0){showActionMsg("Enter a valid amount","error");return;}
+  await buildAndBroadcast("stake",currentDid,toWei(amt));
+};
+
+window.doUnstake=async function(){
+  var amt=parseFloat(el("unstake-amount").value);
+  if(!amt||amt<=0){showActionMsg("Enter a valid amount","error");return;}
+  await buildAndBroadcast("unstake",currentDid,toWei(amt));
+};
+
+window.doDelegate=async function(){
+  var validator=el("delegate-validator").value.trim();
+  var amt=parseFloat(el("delegate-amount").value);
+  if(!validator||!validator.startsWith("did:")){showActionMsg("Enter a valid validator DID","error");return;}
+  if(!amt||amt<100){showActionMsg("Minimum delegation: 100 ENSL","error");return;}
+  await buildAndBroadcast("delegate",validator,toWei(amt));
+};
+
+window.claimRewards=async function(){
+  await buildAndBroadcast("reward_claim",currentDid,"0");
+};
+
+// ---- Delegation Display ----
+
+async function refreshDelegations(){
+  if(!currentDid)return;
+  var container=el("delegations-list");
+  try{
+    var r=await fetch(API+"/v1/account/"+encodeURIComponent(currentDid)+"/delegations");
+    if(!r.ok){container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">No delegations found.</p>';return;}
+    var d=await r.json();
+    var delegations=d.delegations||[];
+    if(delegations.length===0){
+      container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">No active delegations.</p>';
+      return;
+    }
+    var html="";
+    for(var i=0;i<delegations.length;i++){
+      var del=delegations[i];
+      var shortDid=del.validator?del.validator.slice(0,16)+"..."+del.validator.slice(-6):"?";
+      var amtEnsl=(Number(BigInt(del.amount||"0")/BigInt("1000000000000000000"))).toLocaleString();
+      var locked=del.lockedUntil&&del.lockedUntil>Date.now();
+      var lockLabel=locked?"Locked until "+new Date(del.lockedUntil).toLocaleDateString():"Unlocked";
+      var catBadge=del.category==="pioneer"?'<span style="background:#d97706;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;margin-left:4px">Pioneer</span>'
+        :del.category==="genesis-partners"?'<span style="background:#7C6AE8;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;margin-left:4px">Genesis</span>'
+        :del.category==="foundation"?'<span style="background:#6b7280;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;margin-left:4px">Foundation</span>':"";
+      html+='<div class="wallet-row" style="flex-wrap:wrap"><span class="label">'+shortDid+catBadge+'</span><span class="value">'+amtEnsl+' ENSL</span></div>';
+      html+='<div style="font-size:0.75em;color:var(--text-dim);margin:-4px 0 8px 0">'+lockLabel+'</div>';
+    }
+    container.innerHTML=html;
+  }catch(e){
+    container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">Could not load delegations.</p>';
+  }
+}
+
+// ---- Claim rewards button visibility ----
+
+async function updateClaimButton(){
+  try{
+    var r=await fetch(API+"/v1/account/"+encodeURIComponent(currentDid));
+    if(!r.ok)return;
+    var d=await r.json();
+    var rewards=d.raw?Number(d.raw.pendingRewards||0):0;
+    if(rewards>0){
+      el("claim-btn").style.display="inline-block";
+    }else{
+      el("claim-btn").style.display="none";
+    }
+  }catch(e){}
+}
 
 // ---- Init ----
 
