@@ -104,6 +104,8 @@ class NetworkDataSource implements ExplorerDataSource {
 	private genesisDids: string[] = [];
 	/** Cached validator data. */
 	private validatorCache: ValidatorData[] = [];
+	/** Stake category mapping (DID -> category). */
+	private stakeCategories: Map<string, "genesis-partners" | "foundation" | "pioneer" | "community"> = new Map();
 	/** Cached agent count from the API. */
 	private agentCount = 0;
 	private consciousnessCount = 0;
@@ -140,9 +142,28 @@ class NetworkDataSource implements ExplorerDataSource {
 		}
 	}
 
+	/** Load stake categories from configs/stake-categories.json. */
+	async loadStakeCategories(): Promise<void> {
+		const { readFile } = await import("node:fs/promises");
+		const { join, dirname } = await import("node:path");
+		const { fileURLToPath } = await import("node:url");
+		const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+		try {
+			const raw = await readFile(join(repoRoot, "configs", "stake-categories.json"), "utf-8");
+			const data = JSON.parse(raw) as { validators: Record<string, { category: string }> };
+			for (const [did, info] of Object.entries(data.validators)) {
+				this.stakeCategories.set(did, info.category as "genesis-partners" | "foundation" | "pioneer" | "community");
+			}
+			process.stdout.write(`  Stake categories: ${this.stakeCategories.size} validators mapped\n`);
+		} catch {
+			process.stdout.write("  Warning: could not load stake-categories.json\n");
+		}
+	}
+
 	/** Start polling. */
 	async start(): Promise<void> {
 		await this.loadGenesis();
+		await this.loadStakeCategories();
 		await this.loadAddressMapping();
 		await this.pollAllPeers();
 		await this.refreshValidators();
@@ -412,6 +433,7 @@ class NetworkDataSource implements ExplorerDataSource {
 					blocksProduced: this.proposerCounts.get(v.did) ?? 0,
 					uptimePercent,
 					delegation: "foundation" as const,
+					category: this.stakeCategories.get(v.did),
 				};
 			});
 		} catch { /* non-fatal, keep last cache */ }

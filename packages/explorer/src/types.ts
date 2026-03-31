@@ -41,6 +41,7 @@ export interface ValidatorData {
 	uptimePercent: number;
 	delegation: "foundation" | "self" | "delegated";
 	tier?: "genesis" | "foundation" | "pioneer" | "open" | "standard";
+	category?: "genesis-partners" | "foundation" | "pioneer" | "community";
 }
 
 export interface AgentProfile {

@@ -362,15 +362,17 @@ export function renderValidators(validators: ValidatorData[]): string {
 				const statusDot = v.uptimePercent > 0
 					? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80"></span>'
 					: '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f87171"></span>';
-				const tier = v.tier ?? "genesis";
-				const tierBadge = tier === "pioneer"
-					? ' <span class="badge badge-anchored">PIONEER</span>'
-					: tier === "genesis" || tier === "foundation"
-						? ' <span class="badge badge-sovereign">FOUNDATION</span>'
-						: tier === "open"
-							? ' <span class="badge badge-verified">OPEN</span>'
-							: "";
-				return `<tr data-stake="${v.stake}" data-blocks="${v.blocksProduced}" data-uptime="${v.uptimePercent}"><td>${i + 1}</td><td><a href="/account/${encodeURIComponent(v.did)}">${shortDid}</a>${tierBadge}</td><td>${statusDot}</td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${v.uptimePercent.toFixed(1)}%</td></tr>`;
+				const cat = v.category ?? v.tier ?? "";
+				const catBadge = cat === "genesis-partners"
+					? ' <span style="display:inline-block;background:#7C6AE8;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;vertical-align:middle;margin-left:4px">Genesis Partners</span>'
+					: cat === "foundation"
+						? ' <span style="display:inline-block;background:#6b7280;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;vertical-align:middle;margin-left:4px">Foundation</span>'
+						: cat === "pioneer"
+							? ' <span style="display:inline-block;background:#d97706;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;vertical-align:middle;margin-left:4px">Pioneer</span>'
+							: cat === "community"
+								? ' <span style="display:inline-block;background:#059669;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;vertical-align:middle;margin-left:4px">Community</span>'
+								: "";
+				return `<tr data-stake="${v.stake}" data-blocks="${v.blocksProduced}" data-uptime="${v.uptimePercent}"><td>${i + 1}</td><td><a href="/account/${encodeURIComponent(v.did)}">${shortDid}</a>${catBadge}</td><td>${statusDot}</td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${v.uptimePercent.toFixed(1)}%</td></tr>`;
 			},
 		)
 		.join("");
