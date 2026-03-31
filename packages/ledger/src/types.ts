@@ -15,7 +15,8 @@ export type TransactionType =
 	| "burn"
 	| "redelegate"
 	| "consensus_join"
-	| "consensus_leave";
+	| "consensus_leave"
+	| "pioneer_delegate";
 
 /**
  * A transaction on the Ensoul chain.

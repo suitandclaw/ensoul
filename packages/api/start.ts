@@ -1161,16 +1161,15 @@ async function main(): Promise<void> {
 			return { status: "already_approved", did, delegationHeight: app_entry.delegationHeight };
 		}
 
-		// Delegate from governance account to the validator with 24-month lock
+		// Use pioneer_delegate privileged transaction: governance key signs,
+		// ABCI sources tokens from Protocol Treasury and creates locked delegation
 		const amount = amountOverride ?? PIONEER_DELEGATION_AMOUNT;
-		const lockedUntil = Date.now() + PIONEER_LOCK_MS;
 
 		const result = await signAndBroadcast(
-			"delegate",
+			"pioneer_delegate",
 			governanceDid,
 			did,
 			amount,
-			{ lockedUntil, category: "pioneer" },
 		);
 
 		if (!result.applied) {
@@ -1181,6 +1180,7 @@ async function main(): Promise<void> {
 			});
 		}
 
+		const lockedUntil = Date.now() + PIONEER_LOCK_MS;
 		app_entry.status = "approved";
 		app_entry.approvedAt = new Date().toISOString();
 		app_entry.delegationHeight = result.height;
