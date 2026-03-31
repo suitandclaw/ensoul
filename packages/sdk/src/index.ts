@@ -49,6 +49,31 @@ export interface ConsciousnessState {
 	storedAt: number;
 }
 
+export interface AccountBalance {
+	available: bigint;
+	staked: bigint;
+	delegated: bigint;
+	unstaking: bigint;
+	pendingRewards: bigint;
+	storageCredits: bigint;
+	nonce: number;
+}
+
+export interface DelegationInfo {
+	validator: string;
+	amount: string;
+	lockedUntil: number;
+	category: string;
+	locked: boolean;
+}
+
+export interface TxResult {
+	applied: boolean;
+	height: number;
+	hash?: string;
+	error?: string;
+}
+
 export interface HandshakeResult {
 	valid: boolean;
 	did: string;
@@ -280,6 +305,149 @@ export class Ensoul {
 			signal: AbortSignal.timeout(10000),
 		});
 		return (await resp.json()) as HandshakeResult;
+	}
+
+	// ── Token Operations ───────────────────────────────────────
+
+	/**
+	 * Send ENSL to another account.
+	 *
+	 * ```typescript
+	 * await agent.send("did:key:z6Mk...", 100); // send 100 ENSL
+	 * ```
+	 */
+	async send(to: string, amount: number): Promise<TxResult> {
+		await this.refreshNonce();
+		const amountWei = BigInt(Math.floor(amount)) * 10n ** 18n;
+		const tx = await this.signTransaction("transfer", to, amountWei.toString());
+		return this.broadcast(tx);
+	}
+
+	/**
+	 * Stake ENSL to participate in consensus and earn rewards.
+	 * Staked tokens are locked for 30 days before they can be unstaked.
+	 *
+	 * ```typescript
+	 * await agent.stake(10000); // stake 10,000 ENSL
+	 * ```
+	 */
+	async stake(amount: number): Promise<TxResult> {
+		await this.refreshNonce();
+		const amountWei = BigInt(Math.floor(amount)) * 10n ** 18n;
+		const tx = await this.signTransaction("stake", this.did, amountWei.toString());
+		return this.broadcast(tx);
+	}
+
+	/**
+	 * Unstake ENSL. Requires the 30-day lockup to have expired.
+	 * After unstaking, tokens enter a 7-day cooldown before becoming available.
+	 *
+	 * ```typescript
+	 * await agent.unstake(5000); // unstake 5,000 ENSL
+	 * ```
+	 */
+	async unstake(amount: number): Promise<TxResult> {
+		await this.refreshNonce();
+		const amountWei = BigInt(Math.floor(amount)) * 10n ** 18n;
+		const tx = await this.signTransaction("unstake", this.did, amountWei.toString());
+		return this.broadcast(tx);
+	}
+
+	/**
+	 * Delegate ENSL to a validator. Earn rewards proportional to your delegation.
+	 *
+	 * ```typescript
+	 * await agent.delegate("did:key:z6MkValidator...", 1000);
+	 * ```
+	 */
+	async delegate(validatorDid: string, amount: number): Promise<TxResult> {
+		await this.refreshNonce();
+		const amountWei = BigInt(Math.floor(amount)) * 10n ** 18n;
+		const tx = await this.signTransaction("delegate", validatorDid, amountWei.toString());
+		return this.broadcast(tx);
+	}
+
+	/**
+	 * Undelegate ENSL from a validator. Enters 7-day cooldown.
+	 * Locked delegations (Pioneer/Foundation) cannot be undelegated until the lock expires.
+	 *
+	 * ```typescript
+	 * await agent.undelegate("did:key:z6MkValidator...", 1000);
+	 * ```
+	 */
+	async undelegate(validatorDid: string, amount: number): Promise<TxResult> {
+		await this.refreshNonce();
+		const amountWei = BigInt(Math.floor(amount)) * 10n ** 18n;
+		const tx = await this.signTransaction("undelegate", validatorDid, amountWei.toString());
+		return this.broadcast(tx);
+	}
+
+	/**
+	 * Claim pending block rewards. Moves accumulated rewards to available balance.
+	 *
+	 * ```typescript
+	 * const result = await agent.claimRewards();
+	 * console.log(`Claimed rewards at height ${result.height}`);
+	 * ```
+	 */
+	async claimRewards(): Promise<TxResult> {
+		await this.refreshNonce();
+		const tx = await this.signTransaction("reward_claim", this.did, "0");
+		return this.broadcast(tx);
+	}
+
+	/**
+	 * Get the account balance breakdown.
+	 *
+	 * ```typescript
+	 * const bal = await agent.getBalance();
+	 * console.log(`Available: ${bal.available}, Staked: ${bal.staked}`);
+	 * ```
+	 */
+	async getBalance(): Promise<AccountBalance> {
+		const resp = await fetch(
+			`${this.apiUrl}/v1/account/${encodeURIComponent(this.did)}`,
+			{ signal: AbortSignal.timeout(10000) },
+		);
+		if (!resp.ok) {
+			return { available: 0n, staked: 0n, delegated: 0n, unstaking: 0n, pendingRewards: 0n, storageCredits: 0n, nonce: 0 };
+		}
+		const d = (await resp.json()) as Record<string, string | number>;
+		return {
+			available: BigInt(d["balance"] ?? "0"),
+			staked: BigInt(d["stakedBalance"] ?? "0"),
+			delegated: BigInt(d["delegatedBalance"] ?? "0"),
+			unstaking: BigInt(d["unstakingBalance"] ?? "0"),
+			pendingRewards: BigInt(d["pendingRewards"] ?? "0"),
+			storageCredits: BigInt(d["storageCredits"] ?? "0"),
+			nonce: Number(d["nonce"] ?? 0),
+		};
+	}
+
+	/**
+	 * Get all active delegations for this account with lock status.
+	 *
+	 * ```typescript
+	 * const delegations = await agent.getDelegations();
+	 * for (const d of delegations) {
+	 *   console.log(`${d.validator}: ${d.amount} ENSL, locked: ${d.locked}`);
+	 * }
+	 * ```
+	 */
+	async getDelegations(): Promise<DelegationInfo[]> {
+		const resp = await fetch(
+			`${this.apiUrl}/v1/account/${encodeURIComponent(this.did)}/delegations`,
+			{ signal: AbortSignal.timeout(10000) },
+		);
+		if (!resp.ok) return [];
+		const data = (await resp.json()) as { delegations?: Array<Record<string, unknown>> };
+		return (data.delegations ?? []).map((d) => ({
+			validator: String(d["validator"] ?? ""),
+			amount: String(d["amount"] ?? "0"),
+			lockedUntil: Number(d["lockedUntil"] ?? 0),
+			category: String(d["category"] ?? "community"),
+			locked: Number(d["lockedUntil"] ?? 0) > Date.now(),
+		}));
 	}
 
 	// ── Internal ────────────────────────────────────────────────
