@@ -25,8 +25,8 @@ const DEFAULT_ONBOARDING_KEY_PATH = join(REPO_DIR, "genesis-keys", "onboarding.j
 const LOG_DIR = join(homedir(), ".ensoul");
 const LOG_FILE = join(LOG_DIR, "api.log");
 
-// CometBFT RPC endpoint. Uses local if available, falls back to Ashburn.
-const CMT_RPC = process.env["CMT_RPC"] ?? "http://localhost:26657";
+// CometBFT RPC endpoint. Defaults to Ashburn (cloud, always available).
+const CMT_RPC = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
 
 // ── Types ────────────────────────────────────────────────────────────
 

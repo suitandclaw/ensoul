@@ -20,7 +20,7 @@
 
 import Fastify from "fastify";
 
-const CMT_RPC = "http://localhost:26657";
+const CMT_RPC = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
 const PROXY_PORT = Number(process.argv.find((_, i, a) => a[i - 1] === "--port") ?? 9000);
 
 function log(msg: string): void {

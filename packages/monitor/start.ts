@@ -30,6 +30,7 @@ const AGENT_LOG = join(LOG_DIR, "agent.log");
 const MOLTBOOK_LOG = join(LOG_DIR, "moltbook-agent.log");
 const WEBHOOK_URL = process.env["ALERT_WEBHOOK_URL"] ?? "";
 const STATUS_PASSWORD = process.env["ENSOUL_STATUS_PASSWORD"] ?? "";
+const CMT_RPC = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -305,7 +306,7 @@ async function pollAll(): Promise<void> {
 	// Step 1: Get active validator set from CometBFT
 	let activeValidators: Array<{ address: string; votingPower: string }> = [];
 	try {
-		const valResp = await fetch("http://localhost:26657", {
+		const valResp = await fetch(CMT_RPC, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ jsonrpc: "2.0", id: "v", method: "validators", params: {} }),
@@ -322,7 +323,7 @@ async function pollAll(): Promise<void> {
 	// Step 2: Get peer IPs from net_info for address resolution
 	const peerIps = new Map<string, string>(); // moniker -> IP
 	try {
-		const netResp = await fetch("http://localhost:26657", {
+		const netResp = await fetch(CMT_RPC, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ jsonrpc: "2.0", id: "n", method: "net_info", params: {} }),
@@ -400,7 +401,7 @@ async function pollAll(): Promise<void> {
 	// Non-validator peers (full nodes)
 	const fullNodes: Array<{ moniker: string; ip: string; nodeId: string; version: string }> = [];
 	try {
-		const netResp = await fetch("http://localhost:26657", {
+		const netResp = await fetch(CMT_RPC, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ jsonrpc: "2.0", id: "n", method: "net_info", params: {} }),
@@ -478,7 +479,7 @@ async function pollAll(): Promise<void> {
 	let consciousnessStored = 0;
 	let validatorCount = 0;
 	try {
-		const statsResp = await fetch("http://localhost:26657", {
+		const statsResp = await fetch(CMT_RPC, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ jsonrpc: "2.0", id: "stats", method: "abci_query", params: { path: "/stats" } }),
