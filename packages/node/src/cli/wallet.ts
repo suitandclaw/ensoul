@@ -18,6 +18,10 @@ export interface WalletCommand {
 		| "history"
 		| "stake"
 		| "unstake"
+		| "delegate"
+		| "undelegate"
+		| "claim-rewards"
+		| "delegations"
 		| "none";
 	recipientDid: string;
 	amount: bigint;
@@ -98,6 +102,20 @@ export function parseWalletArgs(argv: string[]): WalletCommand {
 			cmd.subcommand = "unstake";
 			if (argv[i + 1]) cmd.amount = parseEnslAmount(argv[i + 1]!);
 			i++;
+		} else if (arg === "delegate") {
+			cmd.subcommand = "delegate";
+			if (argv[i + 1]) cmd.recipientDid = argv[i + 1]!;
+			if (argv[i + 2]) cmd.amount = parseEnslAmount(argv[i + 2]!);
+			i += 2;
+		} else if (arg === "undelegate") {
+			cmd.subcommand = "undelegate";
+			if (argv[i + 1]) cmd.recipientDid = argv[i + 1]!;
+			if (argv[i + 2]) cmd.amount = parseEnslAmount(argv[i + 2]!);
+			i += 2;
+		} else if (arg === "claim-rewards") {
+			cmd.subcommand = "claim-rewards";
+		} else if (arg === "delegations") {
+			cmd.subcommand = "delegations";
 		}
 	}
 
@@ -354,6 +372,8 @@ interface RpcAccountInfo {
 	unstakingCompleteAt: number;
 	nonce: number;
 	storageCredits: string;
+	delegated?: string;
+	pendingRewards?: string;
 }
 
 /**
@@ -481,6 +501,45 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 			}
 			out(`\n  Unstake ${formatEnsl(cmd.amount)} from ${shortenDid(identity.did)}`);
 			out("  (Transaction submission via RPC not yet implemented)\n");
+			break;
+		}
+
+		case "delegate": {
+			if (!cmd.recipientDid || cmd.amount === 0n) {
+				out("Usage: ensoul-node wallet delegate <validator_did> <amount>");
+				break;
+			}
+			if (!validateDid(cmd.recipientDid)) {
+				out(`Invalid validator DID: ${cmd.recipientDid}`);
+				break;
+			}
+			out(`\n  Delegate ${formatEnsl(cmd.amount)} to validator ${shortenDid(cmd.recipientDid)}`);
+			out("  Minimum delegation: 100 ENSL. Earn block rewards proportional to your delegation.");
+			out("  (Transaction submission via RPC not yet implemented)\n");
+			break;
+		}
+
+		case "undelegate": {
+			if (!cmd.recipientDid || cmd.amount === 0n) {
+				out("Usage: ensoul-node wallet undelegate <validator_did> <amount>");
+				break;
+			}
+			out(`\n  Undelegate ${formatEnsl(cmd.amount)} from validator ${shortenDid(cmd.recipientDid)}`);
+			out("  7-day cooldown after undelegation. Locked delegations cannot be undelegated.");
+			out("  (Transaction submission via RPC not yet implemented)\n");
+			break;
+		}
+
+		case "claim-rewards": {
+			out(`\n  Claim pending rewards for ${shortenDid(identity.did)}`);
+			out(`  Pending rewards: ${account.pendingRewards ?? "0"} ENSL`);
+			out("  (Transaction submission via RPC not yet implemented)\n");
+			break;
+		}
+
+		case "delegations": {
+			out(`\n  Active delegations for ${shortenDid(identity.did)}`);
+			out("  (Delegation query via RPC not yet implemented)\n");
 			break;
 		}
 	}
