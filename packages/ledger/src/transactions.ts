@@ -249,6 +249,13 @@ export function validateTransaction(
 			}
 			break;
 		}
+		case "pioneer_delegate": {
+			// Privileged: handled entirely by the ABCI layer (like software_upgrade).
+			// The ledger only validates that the transaction exists.
+			// Signature check, treasury debit, and delegation registry update
+			// are all in the ABCI FinalizeBlock handler.
+			break;
+		}
 		case "slash": {
 			// Only protocol can slash -- from must be protocol treasury
 			if (tx.from !== PROTOCOL_TREASURY) {
@@ -354,6 +361,11 @@ export function applyTransaction(
 		case "redelegate": {
 			// Account balances unchanged; delegatedBalance stays the same.
 			// The DelegationRegistry update is handled by the ABCI layer.
+			break;
+		}
+		case "pioneer_delegate": {
+			// Privileged governance action. All state changes handled by ABCI.
+			// The ledger layer is a no-op for this type.
 			break;
 		}
 		case "slash": {

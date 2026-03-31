@@ -243,8 +243,16 @@ interface CompletedUpgrade {
 	completedAt: number; // timestamp ms
 }
 
-// Pioneer key DID (governance authority for upgrade proposals)
+// Pioneer key DID (governance authority for upgrade proposals and Pioneer delegations)
 const PIONEER_KEY = "did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X";
+
+// Protocol Treasury genesis account (source of Pioneer delegation funds)
+const PROTOCOL_TREASURY_GENESIS = "did:key:z6Mki9jwpYMBB93zxYfsmNUHThpSgKATqydN4xJA1xcxGecm";
+
+// Pioneer delegation constants
+const PIONEER_DELEGATION_AMOUNT = 1_000_000n * DECIMALS; // 1M ENSL
+const PIONEER_LOCK_DURATION_MS = 63_072_000_000; // 24 months
+const MAX_PIONEER_DELEGATIONS = 20;
 
 // Nonce fix activation height. Before this height, FinalizeBlock applies a
 // double nonce increment (applyTransaction increments once, then FinalizeBlock
@@ -708,6 +716,16 @@ async function handleCheckTx(
 		return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 1 } };
 	}
 
+	// Pioneer delegate: governance-only privileged transaction
+	if (tx.type === "pioneer_delegate" as TransactionType) {
+		if (tx.from !== PIONEER_KEY) {
+			return { checkTx: { code: 40, log: "pioneer_delegate requires governance key" } };
+		}
+		if (!tx.to || !tx.to.startsWith("did:key:")) {
+			return { checkTx: { code: 41, log: "pioneer_delegate requires a valid validator DID in 'to' field" } };
+		}
+	}
+
 	// Redelegate: validate data contains fromValidator
 	if (tx.type === "redelegate" as TransactionType) {
 		if (!tx.data) {
@@ -962,6 +980,41 @@ async function handleFinalizeBlock(
 			state.delegations.delegate(tx.from, tx.to, tx.amount, lockedUntil, category);
 			if (lockedUntil > 0) {
 				log(`Pioneer delegation: ${tx.from.slice(0, 20)}... -> ${tx.to.slice(0, 20)}... amount=${tx.amount / DECIMALS} locked until ${new Date(lockedUntil).toISOString().slice(0, 10)}`);
+			}
+		}
+
+		// Handle pioneer_delegate: privileged governance delegation
+		// Height-gated at 146000 for deterministic replay.
+		if (height >= 146000 && tx.type === "pioneer_delegate" as TransactionType) {
+			if (tx.from === PIONEER_KEY) {
+				const validatorDid = tx.to;
+				const amount = tx.amount;
+				const lockedUntil = Date.now() + PIONEER_LOCK_DURATION_MS;
+
+				// Safety: count existing Pioneer delegations
+				const existingPioneers = state.delegations.serialize()
+					.filter(d => {
+						const lock = state.delegations.getLock(d.delegator, d.validator);
+						return lock?.category === "pioneer";
+					}).length;
+
+				if (existingPioneers >= MAX_PIONEER_DELEGATIONS) {
+					log(`Pioneer delegation REJECTED: max ${MAX_PIONEER_DELEGATIONS} reached`);
+				} else {
+					// Debit tokens from the Protocol Treasury genesis account
+					const treasuryBalance = state.working.getBalance(PROTOCOL_TREASURY_GENESIS);
+					if (treasuryBalance >= amount) {
+						state.working.debit(PROTOCOL_TREASURY_GENESIS, amount);
+						// Credit as delegated balance on the governance account (the delegator)
+						state.working.credit(PIONEER_KEY, amount);
+						state.working.delegateTokens(PIONEER_KEY, amount);
+						// Register in the delegation registry with lock
+						state.delegations.delegate(PIONEER_KEY, validatorDid, amount, lockedUntil, "pioneer");
+						log(`Pioneer delegation: treasury -> ${validatorDid.slice(0, 25)}... amount=${amount / DECIMALS} ENSL locked until ${new Date(lockedUntil).toISOString().slice(0, 10)}`);
+					} else {
+						log(`Pioneer delegation FAILED: treasury balance ${treasuryBalance / DECIMALS} < ${amount / DECIMALS} required`);
+					}
+				}
 			}
 		}
 
