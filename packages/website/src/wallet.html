@@ -255,6 +255,13 @@
 </div></footer>
 
 <script src="/js/config.js"></script>
+<script type="module">
+// Load @noble/ed25519 for transaction signing
+import * as ed from "https://cdn.jsdelivr.net/npm/@noble/ed25519@2.1.0/+esm";
+import { sha512 } from "https://cdn.jsdelivr.net/npm/@noble/hashes@1.6.0/sha2.js/+esm";
+ed.etc.sha512Sync = function(){return sha512.apply(null,arguments);};
+window._ed25519 = ed;
+</script>
 <script>
 (function(){
 "use strict";
@@ -335,13 +342,14 @@ async function decryptSeed(encHex,password){
 // to derive a DID. In production, this would use proper Ed25519 key derivation.
 // The wallet is functional for registration and balance checking.
 
-function createKeypair(seed){
-  // Derive a deterministic "public key" from seed using SHA-256
-  // This is NOT real Ed25519 but is sufficient for testnet DID generation
-  // and balance queries. Real signing will require the full noble library.
-  return crypto.subtle.digest("SHA-256",seed).then(function(hash){
-    return new Uint8Array(hash);
-  });
+async function createKeypair(seed){
+  // Real Ed25519 public key derivation via @noble/ed25519
+  if(window._ed25519){
+    return window._ed25519.getPublicKey(seed);
+  }
+  // Fallback: SHA-256 stub (DID will not match, but wallet loads)
+  var hash=await crypto.subtle.digest("SHA-256",seed);
+  return new Uint8Array(hash);
 }
 
 // ---- UI helpers ----
@@ -561,8 +569,15 @@ async function buildAndBroadcast(type,to,amount,data){
     }catch(e){}
     var ts=Date.now();
     var payload=JSON.stringify({type:type,from:currentDid,to:to,amount:String(amount),nonce:nonce,timestamp:ts});
-    // Sign with Ed25519 (requires decrypted seed in memory)
-    var sig="unsigned"; // TODO: real Ed25519 signing with noble library
+    // Sign with Ed25519 via @noble/ed25519
+    var sig;
+    if(window._ed25519&&currentSeed){
+      var sigBytes=await window._ed25519.sign(new TextEncoder().encode(payload),currentSeed);
+      sig=hexEncode(sigBytes);
+    }else{
+      showActionMsg("Wallet locked or Ed25519 not loaded. Re-enter password.","error");
+      return null;
+    }
     var tx={type:type,from:currentDid,to:to,amount:String(amount),nonce:nonce,timestamp:ts,signature:sig};
     if(data)tx.data=Array.from(new TextEncoder().encode(JSON.stringify(data)));
     var txB64=btoa(JSON.stringify(tx));
