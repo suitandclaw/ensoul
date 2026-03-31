@@ -463,9 +463,9 @@ async function handleInitChain(
 						did: a["did"] as string,
 						balance: BigInt(a["balance"] as string ?? "0"),
 						stakedBalance: BigInt(a["stakedBalance"] as string ?? "0"),
-						unstakingBalance: 0n,
-						unstakingCompleteAt: 0,
-						stakeLockedUntil: 0,
+						unstakingBalance: BigInt(a["unstakingBalance"] as string ?? "0"),
+						unstakingCompleteAt: (a["unstakingCompleteAt"] as number) ?? 0,
+						stakeLockedUntil: (a["stakeLockedUntil"] as number) ?? 0,
 						delegatedBalance: BigInt(a["delegatedBalance"] as string ?? "0"),
 						pendingRewards: BigInt(a["pendingRewards"] as string ?? "0"),
 						nonce: (a["nonce"] as number) ?? 0,
@@ -1819,7 +1819,7 @@ async function handleApplySnapshotChunk(
 			height: number;
 			appHash: string;
 			totalEmitted: string;
-			accounts: Array<{ did: string; balance: string; stakedBalance: string; nonce: number; storageCredits: string; delegatedBalance: string; pendingRewards: string; lastActivity: number }>;
+			accounts: Array<{ did: string; balance: string; stakedBalance: string; unstakingBalance?: string; unstakingCompleteAt?: number; stakeLockedUntil?: number; nonce: number; storageCredits: string; delegatedBalance: string; pendingRewards: string; lastActivity: number }>;
 			consensusSet: string[];
 			agents: OnChainAgent[];
 			consciousness: OnChainConsciousness[];
@@ -1836,9 +1836,9 @@ async function handleApplySnapshotChunk(
 				did: acct.did,
 				balance: BigInt(acct.balance),
 				stakedBalance: BigInt(acct.stakedBalance),
-				unstakingBalance: 0n,
-				unstakingCompleteAt: 0,
-				stakeLockedUntil: 0,
+				unstakingBalance: BigInt(acct.unstakingBalance ?? "0"),
+				unstakingCompleteAt: acct.unstakingCompleteAt ?? 0,
+				stakeLockedUntil: acct.stakeLockedUntil ?? 0,
 				delegatedBalance: BigInt(acct.delegatedBalance),
 				pendingRewards: BigInt(acct.pendingRewards),
 				nonce: acct.nonce,
@@ -1954,7 +1954,7 @@ async function loadPersistedState(state: EnsoulState): Promise<void> {
 			height: number;
 			appHash: string;
 			totalEmitted: string;
-			accounts: Array<{ did: string; balance: string; stakedBalance: string; nonce: number; storageCredits: string; delegatedBalance: string; pendingRewards: string; lastActivity: number }>;
+			accounts: Array<{ did: string; balance: string; stakedBalance: string; unstakingBalance?: string; unstakingCompleteAt?: number; stakeLockedUntil?: number; nonce: number; storageCredits: string; delegatedBalance: string; pendingRewards: string; lastActivity: number }>;
 			consensusSet: string[];
 		};
 
@@ -1966,9 +1966,9 @@ async function loadPersistedState(state: EnsoulState): Promise<void> {
 				did: acct.did,
 				balance: BigInt(acct.balance),
 				stakedBalance: BigInt(acct.stakedBalance),
-				unstakingBalance: 0n,
-				unstakingCompleteAt: 0,
-				stakeLockedUntil: 0,
+				unstakingBalance: BigInt(acct.unstakingBalance ?? "0"),
+				unstakingCompleteAt: acct.unstakingCompleteAt ?? 0,
+				stakeLockedUntil: acct.stakeLockedUntil ?? 0,
 				delegatedBalance: BigInt(acct.delegatedBalance),
 				pendingRewards: BigInt(acct.pendingRewards),
 				nonce: acct.nonce,
@@ -2045,6 +2045,9 @@ function serializeAccounts(accountState: AccountState): Array<Record<string, unk
 			did,
 			balance: acct.balance.toString(),
 			stakedBalance: acct.stakedBalance.toString(),
+			unstakingBalance: acct.unstakingBalance.toString(),
+			unstakingCompleteAt: acct.unstakingCompleteAt,
+			stakeLockedUntil: acct.stakeLockedUntil,
 			nonce: acct.nonce,
 			storageCredits: acct.storageCredits.toString(),
 			delegatedBalance: acct.delegatedBalance.toString(),

@@ -17,14 +17,37 @@ export const STORAGE_CREDIT_THRESHOLD = 10_000n * DECIMALS;
  * Tracks delegation relationships: who delegated how much to which validator.
  * Stored as validator -> delegator -> amount.
  */
+/** 24 months in milliseconds (365-day years). */
+export const PIONEER_LOCK_DURATION_MS = 24 * 365 * 24 * 60 * 60 * 1000; // 63,072,000,000
+
+/** Delegation category labels. */
+export type DelegationCategory = "foundation" | "genesis-partners" | "pioneer" | "community";
+
+/** Per-delegation lock metadata (follows Cosmos SDK vesting pattern). */
+interface DelegationLock {
+	/** Timestamp (ms) when the delegation unlock occurs. 0 = no lock. */
+	lockedUntil: number;
+	/** Delegation category for display purposes. */
+	category: DelegationCategory;
+}
+
 export class DelegationRegistry {
 	/** validator DID -> (delegator DID -> amount) */
 	private delegations: Map<string, Map<string, bigint>> = new Map();
+	/** Composite key "validator:delegator" -> lock metadata */
+	private locks: Map<string, DelegationLock> = new Map();
 
 	/**
 	 * Add a delegation from delegator to validator.
+	 * Optional lockedUntil (ms timestamp) and category for Pioneer/foundation locks.
 	 */
-	delegate(delegator: string, validator: string, amount: bigint): void {
+	delegate(
+		delegator: string,
+		validator: string,
+		amount: bigint,
+		lockedUntil = 0,
+		category: DelegationCategory = "community",
+	): void {
 		if (amount < MIN_DELEGATION) {
 			throw new Error(
 				`Delegation below minimum: ${amount} < ${MIN_DELEGATION}`,
@@ -39,12 +62,51 @@ export class DelegationRegistry {
 
 		const existing = validatorMap.get(delegator) ?? 0n;
 		validatorMap.set(delegator, existing + amount);
+
+		// Set or update lock metadata
+		if (lockedUntil > 0 || category !== "community") {
+			const key = `${validator}:${delegator}`;
+			const existing_lock = this.locks.get(key);
+			// Keep the longer lock if one already exists
+			const finalLock = Math.max(existing_lock?.lockedUntil ?? 0, lockedUntil);
+			this.locks.set(key, { lockedUntil: finalLock, category });
+		}
+	}
+
+	/**
+	 * Get the lock metadata for a delegation. Returns null if no lock.
+	 */
+	getLock(delegator: string, validator: string): DelegationLock | null {
+		return this.locks.get(`${validator}:${delegator}`) ?? null;
+	}
+
+	/**
+	 * Check if a delegation is currently locked.
+	 */
+	isLocked(delegator: string, validator: string, nowMs?: number): boolean {
+		const lock = this.getLock(delegator, validator);
+		if (!lock || lock.lockedUntil === 0) return false;
+		return lock.lockedUntil > (nowMs ?? Date.now());
 	}
 
 	/**
 	 * Remove a delegation (or part of it) from delegator to validator.
+	 * Rejects if the delegation is locked (Pioneer/foundation lock).
+	 * Pass nowMs for deterministic testing; defaults to Date.now().
 	 */
-	undelegate(delegator: string, validator: string, amount: bigint): void {
+	undelegate(delegator: string, validator: string, amount: bigint, nowMs?: number): void {
+		// Check lock before allowing undelegate
+		const lock = this.getLock(delegator, validator);
+		if (lock && lock.lockedUntil > 0) {
+			const now = nowMs ?? Date.now();
+			if (lock.lockedUntil > now) {
+				const unlockDate = new Date(lock.lockedUntil).toISOString().slice(0, 10);
+				throw new Error(
+					`Delegation locked until ${unlockDate}. ${lock.category === "pioneer" ? "Pioneer" : "Foundation"} delegations are locked for 24 months. Block rewards remain claimable.`,
+				);
+			}
+		}
+
 		const validatorMap = this.delegations.get(validator);
 		if (!validatorMap) {
 			throw new Error("No delegation found");
@@ -60,6 +122,7 @@ export class DelegationRegistry {
 		const remaining = existing - amount;
 		if (remaining === 0n) {
 			validatorMap.delete(delegator);
+			this.locks.delete(`${validator}:${delegator}`);
 			if (validatorMap.size === 0) {
 				this.delegations.delete(validator);
 			}
@@ -71,17 +134,43 @@ export class DelegationRegistry {
 	/**
 	 * Move a delegation from one validator to another.
 	 * The delegator retains ownership; only the target validator changes.
+	 * Lock metadata carries forward to the destination (Cosmos SDK pattern:
+	 * the lock follows the tokens, not the validator).
 	 */
 	redelegate(delegator: string, fromValidator: string, toValidator: string, amount: bigint): void {
-		this.undelegate(delegator, fromValidator, amount);
-		// Skip MIN_DELEGATION check for redelegate since tokens were already validated at initial delegation
-		let validatorMap = this.delegations.get(toValidator);
-		if (!validatorMap) {
-			validatorMap = new Map();
-			this.delegations.set(toValidator, validatorMap);
-		}
+		// Carry forward the lock from source before undelegating
+		const sourceLock = this.getLock(delegator, fromValidator);
+
+		// Bypass lock check for redelegate (lock carries forward, not enforced on move)
+		const validatorMap = this.delegations.get(fromValidator);
+		if (!validatorMap) throw new Error("No delegation found");
 		const existing = validatorMap.get(delegator) ?? 0n;
-		validatorMap.set(delegator, existing + amount);
+		if (existing < amount) throw new Error(`Insufficient delegation: ${existing} < ${amount}`);
+		const remaining = existing - amount;
+		if (remaining === 0n) {
+			validatorMap.delete(delegator);
+			this.locks.delete(`${fromValidator}:${delegator}`);
+			if (validatorMap.size === 0) this.delegations.delete(fromValidator);
+		} else {
+			validatorMap.set(delegator, remaining);
+		}
+
+		// Add to destination
+		let destMap = this.delegations.get(toValidator);
+		if (!destMap) {
+			destMap = new Map();
+			this.delegations.set(toValidator, destMap);
+		}
+		const existingDest = destMap.get(delegator) ?? 0n;
+		destMap.set(delegator, existingDest + amount);
+
+		// Carry the lock to the destination
+		if (sourceLock && sourceLock.lockedUntil > 0) {
+			const destKey = `${toValidator}:${delegator}`;
+			const existingDestLock = this.locks.get(destKey);
+			const finalLock = Math.max(existingDestLock?.lockedUntil ?? 0, sourceLock.lockedUntil);
+			this.locks.set(destKey, { lockedUntil: finalLock, category: sourceLock.category });
+		}
 	}
 
 	/**
@@ -234,38 +323,50 @@ export class DelegationRegistry {
 			.map(([validator, delegatorMap]) => {
 				const delegators = [...delegatorMap.entries()]
 					.sort(([a], [b]) => a.localeCompare(b))
-					.map(([d, a]) => `${d}:${a.toString()}`);
+					.map(([d, a]) => {
+						const lock = this.locks.get(`${validator}:${d}`);
+						const lockSuffix = lock && lock.lockedUntil > 0 ? `:L${lock.lockedUntil}` : "";
+						return `${d}:${a.toString()}${lockSuffix}`;
+					});
 				return `${validator}=${delegators.join(",")}`;
 			});
 		return bytesToHex(blake3(ENC.encode(sorted.join("|"))));
 	}
 
 	/**
-	 * Serialize all delegations for persistence.
+	 * Serialize all delegations for persistence (includes lock metadata).
 	 */
-	serialize(): Array<{ validator: string; delegator: string; amount: string }> {
+	serialize(): Array<{ validator: string; delegator: string; amount: string; lockedUntil?: number; category?: string }> {
 		const entries: Array<{
 			validator: string;
 			delegator: string;
 			amount: string;
+			lockedUntil?: number;
+			category?: string;
 		}> = [];
 		for (const [validator, delegatorMap] of this.delegations) {
 			for (const [delegator, amount] of delegatorMap) {
-				entries.push({
+				const lock = this.locks.get(`${validator}:${delegator}`);
+				const entry: { validator: string; delegator: string; amount: string; lockedUntil?: number; category?: string } = {
 					validator,
 					delegator,
 					amount: amount.toString(),
-				});
+				};
+				if (lock && lock.lockedUntil > 0) {
+					entry.lockedUntil = lock.lockedUntil;
+					entry.category = lock.category;
+				}
+				entries.push(entry);
 			}
 		}
 		return entries;
 	}
 
 	/**
-	 * Load delegations from serialized form.
+	 * Load delegations from serialized form (includes lock metadata).
 	 */
 	static deserialize(
-		entries: Array<{ validator: string; delegator: string; amount: string }>,
+		entries: Array<{ validator: string; delegator: string; amount: string; lockedUntil?: number; category?: string }>,
 	): DelegationRegistry {
 		const registry = new DelegationRegistry();
 		for (const e of entries) {
@@ -275,6 +376,14 @@ export class DelegationRegistry {
 				registry.delegations.set(e.validator, validatorMap);
 			}
 			validatorMap.set(e.delegator, BigInt(e.amount));
+
+			// Restore lock metadata if present
+			if (e.lockedUntil && e.lockedUntil > 0) {
+				registry.locks.set(`${e.validator}:${e.delegator}`, {
+					lockedUntil: e.lockedUntil,
+					category: (e.category as DelegationCategory) ?? "community",
+				});
+			}
 		}
 		return registry;
 	}
@@ -290,6 +399,10 @@ export class DelegationRegistry {
 				copyMap.set(delegator, amount);
 			}
 			copy.delegations.set(validator, copyMap);
+		}
+		// Clone locks
+		for (const [key, lock] of this.locks) {
+			copy.locks.set(key, { ...lock });
 		}
 		return copy;
 	}
