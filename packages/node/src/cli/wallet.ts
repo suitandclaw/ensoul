@@ -6,8 +6,38 @@ import { encodeTxPayload } from "@ensoul/ledger";
 import type { AccountState } from "@ensoul/ledger";
 import type { Block, Transaction, TransactionType } from "@ensoul/ledger";
 import { expandHome } from "./args.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 
 const DECIMALS = 10n ** 18n;
+const ENC = new TextEncoder();
+const API_URL = process.env["ENSOUL_API_URL"] ?? "https://api.ensoul.dev";
+
+/** Sign a transaction and broadcast via the API. */
+async function signAndBroadcast(
+	identity: AgentIdentity,
+	type: string,
+	to: string,
+	amount: string,
+	nonce: number,
+	data?: Record<string, unknown>,
+): Promise<{ applied: boolean; height?: number; hash?: string; error?: string }> {
+	const ts = Date.now();
+	const payload = JSON.stringify({ type, from: identity.did, to, amount, nonce, timestamp: ts });
+	const sig = await identity.sign(ENC.encode(payload));
+	const tx: Record<string, unknown> = {
+		type, from: identity.did, to, amount, nonce, timestamp: ts,
+		signature: bytesToHex(sig),
+	};
+	if (data) tx["data"] = Array.from(ENC.encode(JSON.stringify(data)));
+
+	const resp = await fetch(`${API_URL}/v1/tx/broadcast`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(tx),
+		signal: AbortSignal.timeout(30000),
+	});
+	return (await resp.json()) as { applied: boolean; height?: number; hash?: string; error?: string };
+}
 
 /** Parsed wallet command. */
 export interface WalletCommand {
@@ -472,8 +502,14 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 				out(`Invalid DID: ${cmd.recipientDid}`);
 				break;
 			}
-			out(formatSendConfirmation(cmd.recipientDid, cmd.amount));
-			out("(Transaction submission via RPC not yet implemented)");
+			out(`\n  Sending ${formatEnsl(cmd.amount)} to ${shortenDid(cmd.recipientDid)}...`);
+			const sendResult = await signAndBroadcast(identity, "transfer", cmd.recipientDid, cmd.amount.toString(), account.nonce);
+			if (sendResult.applied) {
+				out(`  Confirmed at height ${sendResult.height}. Hash: ${sendResult.hash ?? "pending"}`);
+			} else {
+				out(`  Failed: ${sendResult.error ?? "unknown error"}`);
+			}
+			out("");
 			break;
 		}
 
@@ -489,8 +525,14 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 				out("Usage: ensoul-node wallet stake <amount>");
 				break;
 			}
-			out(`\n  Stake ${formatEnsl(cmd.amount)} from ${shortenDid(identity.did)}`);
-			out("  (Transaction submission via RPC not yet implemented)\n");
+			out(`\n  Staking ${formatEnsl(cmd.amount)}...`);
+			const stakeResult = await signAndBroadcast(identity, "stake", identity.did, cmd.amount.toString(), account.nonce);
+			if (stakeResult.applied) {
+				out(`  Confirmed at height ${stakeResult.height}. Tokens locked for 30 days.`);
+			} else {
+				out(`  Failed: ${stakeResult.error ?? "unknown error"}`);
+			}
+			out("");
 			break;
 		}
 
@@ -499,8 +541,14 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 				out("Usage: ensoul-node wallet unstake <amount>");
 				break;
 			}
-			out(`\n  Unstake ${formatEnsl(cmd.amount)} from ${shortenDid(identity.did)}`);
-			out("  (Transaction submission via RPC not yet implemented)\n");
+			out(`\n  Unstaking ${formatEnsl(cmd.amount)}...`);
+			const unstakeResult = await signAndBroadcast(identity, "unstake", identity.did, cmd.amount.toString(), account.nonce);
+			if (unstakeResult.applied) {
+				out(`  Confirmed at height ${unstakeResult.height}. 7-day cooldown started.`);
+			} else {
+				out(`  Failed: ${unstakeResult.error ?? "unknown error"}`);
+			}
+			out("");
 			break;
 		}
 
@@ -513,9 +561,14 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 				out(`Invalid validator DID: ${cmd.recipientDid}`);
 				break;
 			}
-			out(`\n  Delegate ${formatEnsl(cmd.amount)} to validator ${shortenDid(cmd.recipientDid)}`);
-			out("  Minimum delegation: 100 ENSL. Earn block rewards proportional to your delegation.");
-			out("  (Transaction submission via RPC not yet implemented)\n");
+			out(`\n  Delegating ${formatEnsl(cmd.amount)} to ${shortenDid(cmd.recipientDid)}...`);
+			const delResult = await signAndBroadcast(identity, "delegate", cmd.recipientDid, cmd.amount.toString(), account.nonce);
+			if (delResult.applied) {
+				out(`  Confirmed at height ${delResult.height}. Earning rewards proportional to delegation.`);
+			} else {
+				out(`  Failed: ${delResult.error ?? "unknown error"}`);
+			}
+			out("");
 			break;
 		}
 
@@ -524,22 +577,55 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 				out("Usage: ensoul-node wallet undelegate <validator_did> <amount>");
 				break;
 			}
-			out(`\n  Undelegate ${formatEnsl(cmd.amount)} from validator ${shortenDid(cmd.recipientDid)}`);
-			out("  7-day cooldown after undelegation. Locked delegations cannot be undelegated.");
-			out("  (Transaction submission via RPC not yet implemented)\n");
+			out(`\n  Undelegating ${formatEnsl(cmd.amount)} from ${shortenDid(cmd.recipientDid)}...`);
+			const undelResult = await signAndBroadcast(identity, "undelegate", cmd.recipientDid, cmd.amount.toString(), account.nonce);
+			if (undelResult.applied) {
+				out(`  Confirmed at height ${undelResult.height}. 7-day cooldown started.`);
+			} else {
+				out(`  Failed: ${undelResult.error ?? "unknown error"}`);
+			}
+			out("");
 			break;
 		}
 
 		case "claim-rewards": {
-			out(`\n  Claim pending rewards for ${shortenDid(identity.did)}`);
-			out(`  Pending rewards: ${account.pendingRewards ?? "0"} ENSL`);
-			out("  (Transaction submission via RPC not yet implemented)\n");
+			out(`\n  Claiming rewards for ${shortenDid(identity.did)}...`);
+			out(`  Pending: ${account.pendingRewards ?? "0"} ENSL`);
+			const claimResult = await signAndBroadcast(identity, "reward_claim", identity.did, "0", account.nonce);
+			if (claimResult.applied) {
+				out(`  Confirmed at height ${claimResult.height}. Rewards moved to available balance.`);
+			} else {
+				out(`  Failed: ${claimResult.error ?? "unknown error"}`);
+			}
+			out("");
 			break;
 		}
 
 		case "delegations": {
-			out(`\n  Active delegations for ${shortenDid(identity.did)}`);
-			out("  (Delegation query via RPC not yet implemented)\n");
+			out(`\n  Delegations for ${shortenDid(identity.did)}`);
+			try {
+				const delResp = await fetch(`${API_URL}/v1/account/${encodeURIComponent(identity.did)}/delegations`, { signal: AbortSignal.timeout(10000) });
+				if (delResp.ok) {
+					const delData = (await delResp.json()) as { delegations?: Array<{ validator: string; amount: string; lockedUntil?: number; category?: string }> };
+					const dels = delData.delegations ?? [];
+					if (dels.length === 0) {
+						out("  No active delegations.\n");
+					} else {
+						for (const d of dels) {
+							const locked = d.lockedUntil && d.lockedUntil > Date.now();
+							const lockStr = locked ? `locked until ${new Date(d.lockedUntil!).toISOString().slice(0, 10)}` : "unlocked";
+							const cat = d.category ? ` [${d.category}]` : "";
+							const amt = formatEnsl(BigInt(d.amount));
+							out(`  ${shortenDid(d.validator)}: ${amt} (${lockStr})${cat}`);
+						}
+						out("");
+					}
+				} else {
+					out("  Could not fetch delegations.\n");
+				}
+			} catch {
+				out("  Could not reach the API.\n");
+			}
 			break;
 		}
 	}
@@ -547,6 +633,4 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 	return true;
 }
 
-function formatSendConfirmation(recipientDid: string, amount: bigint): string {
-	return `\n  Send ${formatEnsl(amount)} to ${shortenDid(recipientDid)}?\n  (Transaction submission via RPC not yet implemented)`;
-}
+// formatSendConfirmation removed: send now broadcasts directly
