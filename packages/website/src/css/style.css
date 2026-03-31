@@ -100,6 +100,11 @@ nav .logo {
 	display: inline-flex; align-items: center; gap: 8px;
 }
 nav .logo svg { flex-shrink: 0; }
+nav .try-link {
+	background: var(--primary); color: #fff !important; padding: 4px 14px;
+	border-radius: 6px; font-weight: 600; font-size: 0.9em;
+}
+nav .try-link:hover { opacity: 0.85; }
 
 nav .links { display: flex; gap: 24px; margin-left: auto; }
 nav .links a { color: var(--text-secondary); font-size: 0.9em; font-weight: 500; }
