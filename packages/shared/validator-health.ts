@@ -109,6 +109,112 @@ export async function checkValidatorHealth(
 	return result;
 }
 
+// ── Persistent Rolling Uptime Tracker ────────────────────────────────
+
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const UPTIME_FILE = join(homedir(), ".ensoul", "uptime-tracker.json");
+const UPTIME_WINDOW = 10_000; // blocks
+const MIN_SAMPLES = 100;
+const PERSIST_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Per-validator rolling uptime totals. */
+export interface UptimeEntry {
+	totalSampled: number;
+	totalSigned: number;
+	lastHeight: number;
+}
+
+/** Loaded uptime state keyed by CometBFT address. */
+let uptimeData: Map<string, UptimeEntry> = new Map();
+let uptimeLoaded = false;
+let lastPersistTime = 0;
+
+function loadUptimeData(): void {
+	if (uptimeLoaded) return;
+	uptimeLoaded = true;
+	try {
+		const raw = readFileSync(UPTIME_FILE, "utf-8");
+		const parsed = JSON.parse(raw) as Record<string, UptimeEntry>;
+		for (const [addr, entry] of Object.entries(parsed)) {
+			uptimeData.set(addr, entry);
+		}
+	} catch { /* no file or corrupt, start fresh */ }
+}
+
+function persistUptimeData(): void {
+	const now = Date.now();
+	if (now - lastPersistTime < PERSIST_INTERVAL_MS) return;
+	lastPersistTime = now;
+	try {
+		mkdirSync(join(homedir(), ".ensoul"), { recursive: true });
+		const obj: Record<string, UptimeEntry> = {};
+		for (const [addr, entry] of uptimeData) obj[addr] = entry;
+		writeFileSync(UPTIME_FILE, JSON.stringify(obj, null, 2));
+	} catch { /* non-fatal */ }
+}
+
+/**
+ * Update the rolling uptime tracker with the latest health check result.
+ * Call this after each health check cycle.
+ */
+export function updateUptimeTracker(health: HealthCheckResult): void {
+	loadUptimeData();
+	if (health.height === 0) return;
+
+	for (const [addr, vh] of health.validators) {
+		let entry = uptimeData.get(addr);
+		if (!entry) {
+			entry = { totalSampled: 0, totalSigned: 0, lastHeight: 0 };
+			uptimeData.set(addr, entry);
+		}
+
+		// Only count if we advanced past the last recorded height
+		if (health.height <= entry.lastHeight) continue;
+
+		// Add the sample from this check (1 sample per check cycle, not per block)
+		// The health check already scanned 20 blocks; we record the aggregate
+		const isSigning = vh.signed > 0;
+		entry.totalSampled += 1;
+		if (isSigning) entry.totalSigned += 1;
+		entry.lastHeight = health.height;
+
+		// Prune: if we have way more samples than the window, decay
+		// Each sample represents ~20 blocks (health check interval).
+		// 10,000 block window / 20 blocks per sample = 500 samples max.
+		const maxSamples = Math.ceil(UPTIME_WINDOW / DEFAULT_SCAN_BLOCKS);
+		if (entry.totalSampled > maxSamples * 2) {
+			// Scale down to maxSamples while preserving the ratio
+			const ratio = entry.totalSigned / entry.totalSampled;
+			entry.totalSampled = maxSamples;
+			entry.totalSigned = Math.round(ratio * maxSamples);
+		}
+	}
+
+	persistUptimeData();
+}
+
+/**
+ * Get the rolling uptime percentage for a validator.
+ * Returns null if fewer than MIN_SAMPLES have been collected.
+ */
+export function getUptimePercent(address: string): number | null {
+	loadUptimeData();
+	const entry = uptimeData.get(address);
+	if (!entry || entry.totalSampled < MIN_SAMPLES) return null;
+	return Math.round((entry.totalSigned / entry.totalSampled) * 1000) / 10;
+}
+
+/**
+ * Get all uptime data (for the explorer API).
+ */
+export function getAllUptimeData(): Map<string, UptimeEntry> {
+	loadUptimeData();
+	return new Map(uptimeData);
+}
+
 /** Simple CometBFT JSON-RPC helper. */
 async function rpc(
 	url: string,

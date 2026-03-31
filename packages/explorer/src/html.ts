@@ -350,7 +350,7 @@ export function renderTransactions(
  * Render the validators page.
  */
 export function renderValidators(validators: ValidatorData[]): string {
-	const online = validators.filter((v) => v.uptimePercent > 0).length;
+	const online = validators.filter((v) => v.uptimePercent !== 0 && v.uptimePercent !== -1).length;
 	const totalStakeWei = validators.reduce((s, v) => s + BigInt(v.stake || "0"), 0n);
 	const totalStake = formatEnsl(totalStakeWei.toString());
 
@@ -359,9 +359,12 @@ export function renderValidators(validators: ValidatorData[]): string {
 			(v, i) => {
 				const shortDid = v.did.length > 40 ? `${v.did.slice(0, 16)}...${v.did.slice(-6)}` : v.did;
 				const stakeEnsl = formatEnsl(v.stake);
-				const statusDot = v.uptimePercent > 0
+				const statusDot = v.uptimePercent !== 0 && v.uptimePercent !== -1
 					? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80"></span>'
 					: '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f87171"></span>';
+				const uptimeDisplay = v.uptimePercent < 0
+					? '<span title="Collecting data (need 100+ samples)">N/A</span>'
+					: `${v.uptimePercent.toFixed(1)}%`;
 				const cat = v.category ?? v.tier ?? "";
 				const catBadge = cat === "genesis-partners"
 					? ' <span style="display:inline-block;background:#7C6AE8;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;vertical-align:middle;margin-left:4px">Genesis Partners</span>'
@@ -372,7 +375,7 @@ export function renderValidators(validators: ValidatorData[]): string {
 							: cat === "community"
 								? ' <span style="display:inline-block;background:#059669;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;vertical-align:middle;margin-left:4px">Community</span>'
 								: "";
-				return `<tr data-stake="${v.stake}" data-blocks="${v.blocksProduced}" data-uptime="${v.uptimePercent}"><td>${i + 1}</td><td><a href="/account/${encodeURIComponent(v.did)}">${shortDid}</a>${catBadge}</td><td>${statusDot}</td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${v.uptimePercent.toFixed(1)}%</td></tr>`;
+				return `<tr data-stake="${v.stake}" data-blocks="${v.blocksProduced}" data-uptime="${v.uptimePercent}"><td>${i + 1}</td><td><a href="/account/${encodeURIComponent(v.did)}">${shortDid}</a>${catBadge}</td><td>${statusDot}</td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${uptimeDisplay}</td></tr>`;
 			},
 		)
 		.join("");
