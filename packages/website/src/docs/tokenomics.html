@@ -52,9 +52,19 @@
 		<span class="alloc-pct">50%</span>
 	</div>
 	<div class="alloc-bar">
+		<span class="alloc-label">Genesis Partners</span>
+		<div class="alloc-fill" style="width:10%;"></div>
+		<span class="alloc-pct">10%</span>
+	</div>
+	<div class="alloc-bar">
 		<span class="alloc-label">Foundation Validators</span>
-		<div class="alloc-fill" style="width:15%;"></div>
-		<span class="alloc-pct">15%</span>
+		<div class="alloc-fill" style="width:3%;"></div>
+		<span class="alloc-pct">3%</span>
+	</div>
+	<div class="alloc-bar">
+		<span class="alloc-label">Pioneer Validators</span>
+		<div class="alloc-fill" style="width:2%;"></div>
+		<span class="alloc-pct">2%</span>
 	</div>
 	<div class="alloc-bar">
 		<span class="alloc-label">Protocol Treasury</span>
@@ -85,10 +95,12 @@
 
 <h2>Emission Schedule</h2>
 <ul>
-	<li><strong>Block time:</strong> 6 seconds (~5,256,000 blocks/year)</li>
-	<li><strong>Year 1:</strong> ~19 $ENSL per block (100M $ENSL total)</li>
-	<li><strong>Halving:</strong> Every ~3 years (15,768,000 blocks)</li>
-	<li><strong>Emission pool:</strong> 500M $ENSL (50% of supply), distributed over decades</li>
+	<li><strong>Block time:</strong> ~1 second (CometBFT consensus)</li>
+	<li><strong>Year 1:</strong> ~19 $ENSL per block (100M $ENSL total, ~5,256,000 blocks/year)</li>
+	<li><strong>Emission reduction:</strong> 25% per year (Year 2: ~14.3/block, Year 3: ~10.7/block)</li>
+	<li><strong>Tail emission:</strong> 1 $ENSL per block (~5.3M/year) from approximately year 12 onward</li>
+	<li><strong>Emission pool:</strong> 500M $ENSL (50% of supply), estimated to last ~33 years</li>
+	<li><strong>Distribution:</strong> 80% to block proposer, 20% to protocol treasury (from height 100,000+)</li>
 </ul>
 
 <h2>Revenue Model (5 Streams)</h2>
@@ -97,7 +109,7 @@
 <p>Agents pay $ENSL to store consciousness on the network. Fees are split: 90% to node operators, 10% to the protocol treasury.</p>
 
 <h3>2. Block Rewards</h3>
-<p>Validators earn $ENSL for producing blocks. Rewards come from the emission pool and decrease over time via halving.</p>
+<p>Validators earn $ENSL for producing blocks. Rewards come from the emission pool and decrease by 25% each year, reaching a perpetual tail of 1 ENSL/block from year 12.</p>
 
 <h3>3. Resurrection Bounties</h3>
 <p>Agents fund escrow accounts for resurrection plans. When an agent dies and is resurrected, the bounty is paid to the host that restored it.</p>
@@ -131,12 +143,14 @@
 	<li><strong>Consciousness Age</strong> rewards early adoption (immutable, on-chain proof of persistence duration)</li>
 </ul>
 
-<h2>Vesting</h2>
+<h2>Vesting &amp; Lock Schedule</h2>
 <ul>
-	<li><strong>Foundation Validators:</strong> 10,000 $ENSL per validator, staked at genesis. 12-month cliff, 36-month linear vest.</li>
-	<li><strong>Early Contributors:</strong> 6-month cliff, 24-month linear vest.</li>
-	<li><strong>Protocol Treasury:</strong> Governed by multisig. Used for grants, partnerships, liquidity.</li>
-	<li><strong>Network Rewards:</strong> Emitted per block. No vesting  - earned by validators in real-time.</li>
+	<li><strong>Genesis Partners (10%):</strong> 100M $ENSL. Founder allocation. 12-month cliff, 36-month linear vest.</li>
+	<li><strong>Foundation Validators (3%):</strong> 30M $ENSL. Network operations and ecosystem support. 12-month cliff, 36-month linear vest.</li>
+	<li><strong>Pioneer Validators (2%):</strong> 20M $ENSL. 20 Pioneer slots at 1M ENSL each. 24-month delegation lock. Block rewards are liquid from day one.</li>
+	<li><strong>Early Contributors (5%):</strong> 6-month cliff, 24-month linear vest.</li>
+	<li><strong>Protocol Treasury (10%):</strong> Governed by multisig. Used for grants, partnerships, liquidity.</li>
+	<li><strong>Network Rewards (50%):</strong> Emitted per block. No vesting. Earned by validators in real-time.</li>
 </ul>
 </main>
 </div>
