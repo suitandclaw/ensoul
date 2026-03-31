@@ -159,15 +159,35 @@
 </div>
 
 <h3>After installation</h3>
-<p>The installer prints your validator address, public key, and node ID. Save this information.</p>
+<p>The installer automatically derives your DID, registers your validator, and prints a complete summary. If auto-registration succeeds, you are done. Wait for sync to complete.</p>
 <p>Check sync progress:</p>
 <pre><code>curl -s http://localhost:26657/status | python3 -c \
   "import sys,json; d=json.load(sys.stdin)['result']['sync_info']; \
    print(f'Height: {d[\"latest_block_height\"]}, Catching up: {d[\"catching_up\"]}')"</code></pre>
-<p>Wait for <code>catching_up: false</code> (typically 1 to 4 hours). Then register your validator:</p>
-<pre><code>curl -X POST https://api.ensoul.dev/v1/validators/register \
+<p>Once <code>catching_up</code> becomes <code>false</code> (typically under 5 minutes with state sync), your validator begins participating in consensus.</p>
+
+<h3>Getting stake to produce blocks</h3>
+<p>A validator needs stake (ENSL tokens) to produce blocks. Voting power is proportional to stake.</p>
+
+<div class="option-card">
+<h4>Pioneer Program <span class="tag">20 slots</span></h4>
+<p>Vetted external operators receive a <strong>1,000,000 ENSL</strong> foundation delegation. You start signing blocks immediately after approval. Apply after your validator is synced:</p>
+<pre><code>curl -s -X POST https://api.ensoul.dev/v1/pioneers/apply \
   -H "Content-Type: application/json" \
-  -d '{"did":"YOUR_DID","publicKey":"YOUR_PUBKEY","name":"your-name"}'</code></pre>
+  -d '{"did":"YOUR_DID","name":"your-name","contact":"moltbook-username-or-email"}'</code></pre>
+<p>Applications are reviewed within 48 hours. You will be contacted via the provided contact method.</p>
+</div>
+
+<div class="option-card">
+<h4>Open Tier <span class="tag">unlimited</span></h4>
+<p>Anyone can register. The foundation provides an initial <strong>10,000 ENSL</strong> delegation to approved validators during the early network phase. Delegation grows automatically with proven uptime:</p>
+<ul>
+<li>Day 0: 10,000 ENSL (enter the active set)</li>
+<li>After 7 days at 95%+ uptime: 50,000 ENSL</li>
+<li>After 30 days at 95%+ uptime: 100,000 ENSL</li>
+</ul>
+<p>To apply for Open Tier delegation, register your validator (done automatically by the installer) and post your DID on <a href="https://moltbook.com/m/ensoul">m/ensoul on Moltbook</a> or contact the team via the <a href="https://ensoul.dev/try">Try It page</a>.</p>
+</div>
 
 <h2>Manual installation</h2>
 <p>For experienced operators who want full control, see the <a href="https://github.com/suitandclaw/ensoul/blob/main/docs/VALIDATOR-GUIDE.md#6-manual-installation">complete manual installation guide</a> covering every step individually.</p>
