@@ -980,12 +980,134 @@ async function main(): Promise<void> {
 
 	// ── Pioneer Applications ─────────────────────────────────────
 
+	// ── Pioneer Application State ───────────────────────────────
+
+	interface PioneerApp {
+		did: string;
+		name: string;
+		contact: string;
+		appliedAt: string;
+		status: "pending" | "approved" | "rejected";
+		approvedAt?: string;
+		rejectedAt?: string;
+		rejectionReason?: string;
+		delegationHeight?: number;
+		delegationHash?: string;
+		lockedUntil?: number;
+	}
+
 	const PIONEER_APPS_FILE = join(LOG_DIR, "pioneer-applications.json");
-	const pioneerApps: Array<{ did: string; name: string; contact: string; appliedAt: string }> = [];
+	const pioneerApps: PioneerApp[] = [];
 	try {
 		const raw = await readFile(PIONEER_APPS_FILE, "utf-8");
-		pioneerApps.push(...JSON.parse(raw));
+		const loaded = JSON.parse(raw) as Array<Record<string, unknown>>;
+		for (const a of loaded) {
+			pioneerApps.push({
+				did: String(a["did"] ?? ""),
+				name: String(a["name"] ?? ""),
+				contact: String(a["contact"] ?? ""),
+				appliedAt: String(a["appliedAt"] ?? ""),
+				status: (a["status"] as PioneerApp["status"]) ?? "pending",
+				approvedAt: a["approvedAt"] as string | undefined,
+				rejectedAt: a["rejectedAt"] as string | undefined,
+				rejectionReason: a["rejectionReason"] as string | undefined,
+				delegationHeight: a["delegationHeight"] as number | undefined,
+				delegationHash: a["delegationHash"] as string | undefined,
+				lockedUntil: a["lockedUntil"] as number | undefined,
+			});
+		}
 	} catch { /* no existing applications */ }
+
+	async function savePioneerApps(): Promise<void> {
+		try { await writeFile(PIONEER_APPS_FILE, JSON.stringify(pioneerApps, null, 2)); } catch { /* non-fatal */ }
+	}
+
+	const ADMIN_KEY = process.env["ENSOUL_ADMIN_KEY"] ?? "";
+	const PIONEER_LOCK_MS = 63_072_000_000; // 24 months
+	const PIONEER_DELEGATION_AMOUNT = "1000000000000000000000000"; // 1M ENSL (18 decimals)
+
+	function checkAdminKey(key: string): boolean {
+		return ADMIN_KEY.length > 0 && key === ADMIN_KEY;
+	}
+
+	// Load the governance signing key (PIONEER_KEY identity)
+	let governanceSeed: Uint8Array | null = null;
+	let governanceDid = "";
+	try {
+		const idPath = join(homedir(), ".ensoul", "validator-0", "identity.json");
+		const idRaw = readFileSync(idPath, "utf-8");
+		const id = JSON.parse(idRaw) as { did: string; seed: string };
+		governanceDid = id.did;
+		governanceSeed = new Uint8Array(id.seed.match(/.{2}/g)!.map((b: string) => parseInt(b, 16)));
+	} catch {
+		process.stderr.write("[api] WARNING: Could not load governance key from ~/.ensoul/validator-0/identity.json\n");
+	}
+
+	/** Sign and broadcast a transaction using the governance key. */
+	async function signAndBroadcast(
+		type: string, from: string, to: string, amount: string,
+		data?: Record<string, unknown>,
+	): Promise<{ applied: boolean; height?: number; hash?: string; error?: string }> {
+		if (!governanceSeed) return { applied: false, error: "Governance key not loaded" };
+
+		// Get nonce
+		const nonceResp = await fetch(`${CMT_RPC}`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "n", method: "abci_query", params: { path: `balance/${from}` } }),
+			signal: AbortSignal.timeout(5000),
+		}).catch(() => null);
+
+		let nonce = 0;
+		if (nonceResp?.ok) {
+			const nr = (await nonceResp.json()) as { result?: { response?: { value?: string } } };
+			if (nr.result?.response?.value) {
+				const decoded = JSON.parse(Buffer.from(nr.result.response.value, "base64").toString());
+				nonce = (decoded as { nonce?: number }).nonce ?? 0;
+			}
+		}
+
+		const ts = Date.now();
+		const payload = JSON.stringify({ type, from, to, amount, nonce, timestamp: ts });
+
+		// Sign with Ed25519 (dynamic import to avoid top-level await)
+		const ed = await import("@noble/ed25519");
+		const { sha512 } = await import("@noble/hashes/sha2.js");
+		const { bytesToHex } = await import("@noble/hashes/utils.js");
+		(ed as unknown as { hashes: { sha512: ((m: Uint8Array) => Uint8Array) | undefined } }).hashes.sha512 = (m: Uint8Array) => sha512(m);
+
+		const sig = await ed.signAsync(new TextEncoder().encode(payload), governanceSeed);
+
+		const tx: Record<string, unknown> = {
+			type, from, to, amount, nonce, timestamp: ts,
+			signature: bytesToHex(sig),
+		};
+		if (data) {
+			tx["data"] = Array.from(new TextEncoder().encode(JSON.stringify(data)));
+		}
+
+		// Broadcast
+		const txB64 = Buffer.from(JSON.stringify(tx)).toString("base64");
+		try {
+			const resp = await fetch(CMT_RPC, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "tx", method: "broadcast_tx_sync", params: { tx: txB64 } }),
+				signal: AbortSignal.timeout(15000),
+			});
+			const result = (await resp.json()) as { result?: { code?: number; log?: string; hash?: string } };
+			const code = result.result?.code ?? -1;
+			return {
+				applied: code === 0,
+				hash: result.result?.hash,
+				error: code !== 0 ? result.result?.log : undefined,
+			};
+		} catch (err) {
+			return { applied: false, error: err instanceof Error ? err.message : "broadcast failed" };
+		}
+	}
+
+	// ── Pioneer Apply ───────────────────────────────────────────
 
 	app.post<{ Body: Record<string, unknown> }>("/v1/pioneers/apply", { config: { rateLimit: { max: 5, timeWindow: "1 hour" } } }, async (req, reply) => {
 		const did = String(req.body["did"] ?? "");
@@ -999,18 +1121,14 @@ async function main(): Promise<void> {
 			});
 		}
 
-		// Check for duplicate
 		if (pioneerApps.some((a) => a.did === did)) {
 			return { applied: true, message: "Application already received", did };
 		}
 
-		const entry = { did, name, contact, appliedAt: new Date().toISOString() };
+		const entry: PioneerApp = { did, name, contact, appliedAt: new Date().toISOString(), status: "pending" };
 		pioneerApps.push(entry);
-		try {
-			await writeFile(PIONEER_APPS_FILE, JSON.stringify(pioneerApps, null, 2));
-		} catch { /* non-fatal */ }
+		await savePioneerApps();
 
-		// Notify via ntfy
 		const ntfyTopic = (() => { try { return readFileSync(join(LOG_DIR, "ntfy-topic.txt"), "utf-8").trim(); } catch { return ""; } })();
 		if (ntfyTopic) {
 			fetch(`https://ntfy.sh/${ntfyTopic}`, {
@@ -1021,9 +1139,95 @@ async function main(): Promise<void> {
 		}
 
 		await log(`Pioneer application: ${name} (${did.slice(0, 30)}...) contact: ${contact}`);
-
 		return { applied: true, message: "Application received. You will be contacted within 48 hours.", did, name };
 	});
+
+	// ── Pioneer Approve ─────────────────────────────────────────
+
+	app.post<{ Body: Record<string, unknown> }>("/v1/admin/pioneer-approve", async (req, reply) => {
+		const did = String(req.body["did"] ?? "");
+		const adminKey = String(req.body["adminKey"] ?? "");
+		const amountOverride = req.body["amount"] ? String(req.body["amount"]) : undefined;
+
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+
+		const app_entry = pioneerApps.find((a) => a.did === did);
+		if (!app_entry) {
+			return reply.status(404).send({ error: "Application not found for this DID" });
+		}
+		if (app_entry.status === "approved") {
+			return { status: "already_approved", did, delegationHeight: app_entry.delegationHeight };
+		}
+
+		// Delegate from governance account to the validator with 24-month lock
+		const amount = amountOverride ?? PIONEER_DELEGATION_AMOUNT;
+		const lockedUntil = Date.now() + PIONEER_LOCK_MS;
+
+		const result = await signAndBroadcast(
+			"delegate",
+			governanceDid,
+			did,
+			amount,
+			{ lockedUntil, category: "pioneer" },
+		);
+
+		if (!result.applied) {
+			return reply.status(500).send({
+				error: "Delegation transaction failed",
+				detail: result.error,
+				did,
+			});
+		}
+
+		app_entry.status = "approved";
+		app_entry.approvedAt = new Date().toISOString();
+		app_entry.delegationHeight = result.height;
+		app_entry.delegationHash = result.hash;
+		app_entry.lockedUntil = lockedUntil;
+		await savePioneerApps();
+
+		await log(`Pioneer APPROVED: ${app_entry.name} (${did.slice(0, 30)}...) hash=${result.hash ?? "pending"}`);
+
+		return {
+			status: "approved",
+			did,
+			name: app_entry.name,
+			amount,
+			lockedUntil,
+			lockExpiryDate: new Date(lockedUntil).toISOString(),
+			txHash: result.hash,
+		};
+	});
+
+	// ── Pioneer Reject ──────────────────────────────────────────
+
+	app.post<{ Body: Record<string, unknown> }>("/v1/admin/pioneer-reject", async (req, reply) => {
+		const did = String(req.body["did"] ?? "");
+		const reason = String(req.body["reason"] ?? "");
+		const adminKey = String(req.body["adminKey"] ?? "");
+
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+
+		const app_entry = pioneerApps.find((a) => a.did === did);
+		if (!app_entry) {
+			return reply.status(404).send({ error: "Application not found for this DID" });
+		}
+
+		app_entry.status = "rejected";
+		app_entry.rejectedAt = new Date().toISOString();
+		app_entry.rejectionReason = reason;
+		await savePioneerApps();
+
+		await log(`Pioneer REJECTED: ${app_entry.name} (${did.slice(0, 30)}...) reason: ${reason}`);
+
+		return { status: "rejected", did, reason };
+	});
+
+	// ── Pioneer List ────────────────────────────────────────────
 
 	app.get("/v1/pioneers/applications", async () => {
 		return { applications: pioneerApps, count: pioneerApps.length };

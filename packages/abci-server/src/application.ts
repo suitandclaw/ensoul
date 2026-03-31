@@ -946,6 +946,25 @@ async function handleFinalizeBlock(
 			state.genesis?.protocolFees.storageFeeProtocolShare ?? 10,
 		);
 
+		// Handle delegate: register in DelegationRegistry with optional lock
+		// Height-gated at 146000 for deterministic replay of older blocks.
+		if (height >= 146000 && tx.type === "delegate" as TransactionType) {
+			let lockedUntil = 0;
+			let category: "foundation" | "genesis-partners" | "pioneer" | "community" = "community";
+			if (tx.data) {
+				try {
+					const dataBytes = tx.data instanceof Uint8Array ? tx.data : new Uint8Array(tx.data);
+					const parsed = JSON.parse(new TextDecoder().decode(dataBytes)) as { lockedUntil?: number; category?: string };
+					lockedUntil = parsed.lockedUntil ?? 0;
+					category = (parsed.category as typeof category) ?? "community";
+				} catch { /* no data or invalid JSON, use defaults */ }
+			}
+			state.delegations.delegate(tx.from, tx.to, tx.amount, lockedUntil, category);
+			if (lockedUntil > 0) {
+				log(`Pioneer delegation: ${tx.from.slice(0, 20)}... -> ${tx.to.slice(0, 20)}... amount=${tx.amount / DECIMALS} locked until ${new Date(lockedUntil).toISOString().slice(0, 10)}`);
+			}
+		}
+
 		// Handle redelegate: update the DelegationRegistry
 		// Height-gated to avoid AppHash mismatch during rollout (redelegate tx at 127397
 		// was processed by old code that did not update the registry).
