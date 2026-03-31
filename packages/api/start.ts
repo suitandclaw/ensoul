@@ -14,6 +14,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -975,6 +976,57 @@ async function main(): Promise<void> {
 		if (data) return data;
 		// Fallback
 		return { validators: [], error: "ABCI unreachable" };
+	});
+
+	// ── Pioneer Applications ─────────────────────────────────────
+
+	const PIONEER_APPS_FILE = join(LOG_DIR, "pioneer-applications.json");
+	const pioneerApps: Array<{ did: string; name: string; contact: string; appliedAt: string }> = [];
+	try {
+		const raw = await readFile(PIONEER_APPS_FILE, "utf-8");
+		pioneerApps.push(...JSON.parse(raw));
+	} catch { /* no existing applications */ }
+
+	app.post<{ Body: Record<string, unknown> }>("/v1/pioneers/apply", { config: { rateLimit: { max: 5, timeWindow: "1 hour" } } }, async (req, reply) => {
+		const did = String(req.body["did"] ?? "");
+		const name = String(req.body["name"] ?? "");
+		const contact = String(req.body["contact"] ?? "");
+
+		if (!did || !name || !contact) {
+			return reply.status(400).send({
+				error: "Required fields: did, name, contact",
+				example: { did: "did:key:z6Mk...", name: "operator-name", contact: "moltbook-username-or-email" },
+			});
+		}
+
+		// Check for duplicate
+		if (pioneerApps.some((a) => a.did === did)) {
+			return { applied: true, message: "Application already received", did };
+		}
+
+		const entry = { did, name, contact, appliedAt: new Date().toISOString() };
+		pioneerApps.push(entry);
+		try {
+			await writeFile(PIONEER_APPS_FILE, JSON.stringify(pioneerApps, null, 2));
+		} catch { /* non-fatal */ }
+
+		// Notify via ntfy
+		const ntfyTopic = (() => { try { return readFileSync(join(LOG_DIR, "ntfy-topic.txt"), "utf-8").trim(); } catch { return ""; } })();
+		if (ntfyTopic) {
+			fetch(`https://ntfy.sh/${ntfyTopic}`, {
+				method: "POST",
+				headers: { "Title": "Pioneer Application", "Priority": "high" },
+				body: `New Pioneer application:\nDID: ${did}\nName: ${name}\nContact: ${contact}`,
+			}).catch(() => {});
+		}
+
+		await log(`Pioneer application: ${name} (${did.slice(0, 30)}...) contact: ${contact}`);
+
+		return { applied: true, message: "Application received. You will be contacted within 48 hours.", did, name };
+	});
+
+	app.get("/v1/pioneers/applications", async () => {
+		return { applications: pioneerApps, count: pioneerApps.length };
 	});
 
 	// ── Consciousness Store ──────────────────────────────────────

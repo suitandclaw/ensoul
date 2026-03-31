@@ -736,12 +736,35 @@ wait_and_report() {
         n_peers=$(echo "$net_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['n_peers'])" 2>/dev/null || echo "0")
     fi
 
-    # Derive DID from CometBFT validator key
-    local did="(will be available after DID derivation)"
-    if [ -f "$CMT_HOME/config/priv_validator_key.json" ]; then
-        # The DID can be derived from the ed25519 public key using multicodec + base58btc
-        # For now, display the CometBFT address and pubkey
-        did="(derive from validator pubkey via /v1/verify-did endpoint)"
+    # Derive DID from CometBFT validator pubkey
+    local did=""
+    local pubkey_hex=""
+    if [ -n "$val_pubkey" ] && [ "$val_pubkey" != "unknown" ]; then
+        pubkey_hex=$(echo "$val_pubkey" | base64 -d 2>/dev/null | xxd -p -c 64 2>/dev/null || echo "")
+        if [ -n "$pubkey_hex" ]; then
+            did=$(curl -s -m 5 "$API_URL/v1/verify-did?publicKey=$pubkey_hex" 2>/dev/null | \
+                python3 -c "import sys,json; print(json.load(sys.stdin)['did'])" 2>/dev/null || echo "")
+        fi
+    fi
+
+    # Auto-register the validator
+    local reg_status="not registered"
+    if [ -n "$did" ] && [ -n "$pubkey_hex" ]; then
+        local reg_resp
+        reg_resp=$(curl -s -m 10 -X POST "$API_URL/v1/validators/register" \
+            -H "Content-Type: application/json" \
+            -d "{\"did\":\"$did\",\"publicKey\":\"$pubkey_hex\",\"name\":\"$MONIKER\"}" 2>/dev/null || echo "")
+        local reg_ok
+        reg_ok=$(echo "$reg_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('registered', False))" 2>/dev/null || echo "False")
+        if [ "$reg_ok" = "True" ]; then
+            reg_status="registered"
+            log "Validator registered: $did"
+        else
+            reg_status="registration failed (register manually)"
+            log "Auto-registration failed. Register manually after sync completes."
+        fi
+    else
+        log "Could not derive DID. Register manually after sync completes."
     fi
 
     # ── Print Summary ────────────────────────────────────────────────
@@ -753,8 +776,10 @@ wait_and_report() {
     echo ""
     echo "  Moniker:           $MONIKER"
     echo "  Chain ID:          $CHAIN_ID"
+    echo "  DID:               ${did:-unknown (derive after sync)}"
+    echo "  Registration:      $reg_status"
     echo "  CometBFT Address:  $val_address"
-    echo "  CometBFT PubKey:   $val_pubkey"
+    echo "  Public Key (hex):  ${pubkey_hex:-unknown}"
     echo "  Node ID:           $node_id"
     echo "  Current Height:    $latest_height"
     echo "  Catching Up:       $catching_up"
@@ -764,31 +789,36 @@ wait_and_report() {
     echo "    26656  P2P (must be reachable from internet)"
     echo "    26657  CometBFT RPC (localhost only)"
     echo "    26658  ABCI server (localhost only)"
-    echo "    9000   Compat proxy"
-    echo "    5050   API gateway"
     echo ""
     echo "  Logs:"
     echo "    ABCI:      $DATA_DIR/abci-server.log"
     echo "    CometBFT:  $DATA_DIR/cometbft.log"
-    echo "    Proxy:     $DATA_DIR/compat-proxy.log"
-    echo "    API:       $DATA_DIR/api.log"
     echo ""
     echo "  Keys:"
     echo "    Validator key:  $CMT_HOME/config/priv_validator_key.json"
     echo "    Node key:       $CMT_HOME/config/node_key.json"
     echo "    BACK THESE UP!  They cannot be recovered if lost."
     echo ""
-    echo "  Next Steps:"
-    echo "    1. Wait for sync to complete (catching_up: false)"
-    echo "       curl -s http://localhost:26657/status | python3 -c \\"
-    echo "         \"import sys,json; d=json.load(sys.stdin)['result']['sync_info']; print(f'Height: {d[\\\"latest_block_height\\\"]}, Catching up: {d[\\\"catching_up\\\"]}')\""
-    echo ""
-    echo "    2. Register as a validator via the API:"
-    echo "       curl -X POST https://api.ensoul.dev/v1/validators/register \\"
-    echo "         -H 'Content-Type: application/json' \\"
-    echo "         -d '{\"did\":\"YOUR_DID\",\"publicKey\":\"YOUR_PUBKEY\",\"name\":\"$MONIKER\"}'"
-    echo ""
-    echo "    3. Stake tokens to begin producing blocks"
+    if [ "$reg_status" = "registered" ]; then
+        echo "  Your validator is registered and syncing."
+        echo "  Wait for catching_up to become false, then you will begin signing blocks."
+        echo ""
+        echo "  Check sync progress:"
+        echo "    curl -s localhost:26657/status | python3 -c \\"
+        echo "      \"import sys,json; d=json.load(sys.stdin)['result']['sync_info']; print(f'Height: {d[\\\"latest_block_height\\\"]}, Catching up: {d[\\\"catching_up\\\"]}')\""
+        echo ""
+        echo "  Apply for Pioneer delegation (1M ENSL):"
+        echo "    curl -s -X POST https://api.ensoul.dev/v1/pioneers/apply \\"
+        echo "      -H 'Content-Type: application/json' \\"
+        echo "      -d '{\"did\":\"$did\",\"name\":\"$MONIKER\",\"contact\":\"your-moltbook-username\"}'"
+    else
+        echo "  Next Steps:"
+        echo "    1. Wait for sync to complete (catching_up: false)"
+        echo "    2. Register manually:"
+        echo "       curl -X POST https://api.ensoul.dev/v1/validators/register \\"
+        echo "         -H 'Content-Type: application/json' \\"
+        echo "         -d '{\"did\":\"${did:-YOUR_DID}\",\"publicKey\":\"${pubkey_hex:-YOUR_PUBKEY_HEX}\",\"name\":\"$MONIKER\"}'"
+    fi
     echo ""
 
     # Check if the node has a public IP set
