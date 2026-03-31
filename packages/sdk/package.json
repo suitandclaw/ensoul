@@ -1,6 +1,6 @@
 {
 	"name": "@ensoul-network/sdk",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Ensoul SDK: persistent consciousness for AI agents in 5 lines of code",
 	"type": "module",
 	"main": "dist/index.js",
