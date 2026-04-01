@@ -1043,12 +1043,25 @@ async function main(): Promise<void> {
 		process.stderr.write("[api] WARNING: Could not load governance key from ~/.ensoul/validator-0/identity.json\n");
 	}
 
-	/** Sign and broadcast a transaction using the governance key. */
-	async function signAndBroadcast(
-		type: string, from: string, to: string, amount: string,
+	// Load the onboarding fund key (sends self-stake ENSL to new Pioneers)
+	const PIONEER_SELF_STAKE = "100000000000000000000"; // 100 ENSL (18 decimals)
+	let onboardingSeed: Uint8Array | null = null;
+	let onboardingDid = "";
+	try {
+		const onbPath = join(process.cwd(), "genesis-keys", "onboarding.json");
+		const onbRaw = readFileSync(onbPath, "utf-8");
+		const onb = JSON.parse(onbRaw) as { did: string; seed: string };
+		onboardingDid = onb.did;
+		onboardingSeed = new Uint8Array(onb.seed.match(/.{2}/g)!.map((b: string) => parseInt(b, 16)));
+	} catch {
+		process.stderr.write("[api] WARNING: Could not load onboarding key from genesis-keys/onboarding.json\n");
+	}
+
+	/** Sign and broadcast a transaction using a specific key. */
+	async function signAndBroadcastWith(
+		seed: Uint8Array, type: string, from: string, to: string, amount: string,
 		data?: Record<string, unknown>,
 	): Promise<{ applied: boolean; height?: number; hash?: string; error?: string }> {
-		if (!governanceSeed) return { applied: false, error: "Governance key not loaded" };
 
 		// Get nonce
 		const nonceResp = await fetch(`${CMT_RPC}`, {
@@ -1076,7 +1089,7 @@ async function main(): Promise<void> {
 		const { bytesToHex } = await import("@noble/hashes/utils.js");
 		(ed as unknown as { hashes: { sha512: ((m: Uint8Array) => Uint8Array) | undefined } }).hashes.sha512 = (m: Uint8Array) => sha512(m);
 
-		const sig = await ed.signAsync(new TextEncoder().encode(payload), governanceSeed);
+		const sig = await ed.signAsync(new TextEncoder().encode(payload), seed);
 
 		const tx: Record<string, unknown> = {
 			type, from, to, amount, nonce, timestamp: ts,
@@ -1105,6 +1118,15 @@ async function main(): Promise<void> {
 		} catch (err) {
 			return { applied: false, error: err instanceof Error ? err.message : "broadcast failed" };
 		}
+	}
+
+	/** Sign and broadcast using the governance key (convenience wrapper). */
+	async function signAndBroadcast(
+		type: string, from: string, to: string, amount: string,
+		data?: Record<string, unknown>,
+	): Promise<{ applied: boolean; height?: number; hash?: string; error?: string }> {
+		if (!governanceSeed) return { applied: false, error: "Governance key not loaded" };
+		return signAndBroadcastWith(governanceSeed, type, from, to, amount, data);
 	}
 
 	// ── Pioneer Apply ───────────────────────────────────────────
@@ -1161,8 +1183,22 @@ async function main(): Promise<void> {
 			return { status: "already_approved", did, delegationHeight: app_entry.delegationHeight };
 		}
 
-		// Use pioneer_delegate privileged transaction: governance key signs,
-		// ABCI sources tokens from Protocol Treasury and creates locked delegation
+		// Step 1: Send 100 ENSL from onboarding fund for self-staking.
+		// The Pioneer needs stakedBalance > 0 to submit consensus_join.
+		let selfStakeResult: { applied: boolean; hash?: string; error?: string } = { applied: false, error: "Onboarding key not loaded" };
+		if (onboardingSeed) {
+			selfStakeResult = await signAndBroadcastWith(
+				onboardingSeed, "transfer", onboardingDid, did, PIONEER_SELF_STAKE,
+			);
+			if (selfStakeResult.applied) {
+				await log(`Pioneer self-stake sent: 100 ENSL to ${did.slice(0, 30)}... hash=${selfStakeResult.hash ?? "pending"}`);
+			} else {
+				await log(`Pioneer self-stake FAILED: ${selfStakeResult.error}`);
+				// Continue with delegation anyway; the Pioneer can self-fund later
+			}
+		}
+
+		// Step 2: pioneer_delegate 1M ENSL from treasury (locked 24 months)
 		const amount = amountOverride ?? PIONEER_DELEGATION_AMOUNT;
 
 		const result = await signAndBroadcast(
@@ -1176,6 +1212,7 @@ async function main(): Promise<void> {
 			return reply.status(500).send({
 				error: "Delegation transaction failed",
 				detail: result.error,
+				selfStakeSent: selfStakeResult.applied,
 				did,
 			});
 		}
@@ -1194,7 +1231,9 @@ async function main(): Promise<void> {
 			status: "approved",
 			did,
 			name: app_entry.name,
-			amount,
+			selfStakeSent: selfStakeResult.applied,
+			selfStakeAmount: PIONEER_SELF_STAKE,
+			delegationAmount: amount,
 			lockedUntil,
 			lockExpiryDate: new Date(lockedUntil).toISOString(),
 			txHash: result.hash,
