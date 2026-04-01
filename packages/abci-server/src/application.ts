@@ -1179,6 +1179,10 @@ async function handleFinalizeBlock(
 				if (parsed.fromValidator) redelegateAffected.add(parsed.fromValidator);
 				if (tx.to) redelegateAffected.add(tx.to);
 			} catch { /* data parse error handled earlier */ }
+		} else if (height >= 155000 && (tx.type === "delegate" as TransactionType || tx.type === "pioneer_delegate" as TransactionType)) {
+			// Delegation changes voting power for the target validator.
+			// Collect for deferred power update (same pattern as redelegate).
+			if (tx.to) redelegateAffected.add(tx.to);
 		}
 	}
 
