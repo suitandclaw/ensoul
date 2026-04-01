@@ -102,6 +102,16 @@ These procedures are MANDATORY. Read them before executing any related task.
 - Code updates go through scripts/update-all-validators.sh (rolling update with health checks).
 - Both social agents (X and Moltbook) are disabled via ~/.ensoul/agents-disabled and ~/.ensoul/x-agent-disabled. Do not re-enable without explicit instruction.
 
+## Future: Protocol Governance
+
+The protocol currently has single-key admin control for foundation operations (Pioneer approvals, treasury management, parameter changes). Before mainnet or any public token event, implement multisig governance:
+- Foundation treasury operations require M-of-N signatures
+- Validator set changes (slashing, forced unbonding) require multisig
+- Protocol parameter updates (emission rate, lock durations) require multisig
+- Admin API endpoints (pioneer-approve, pioneer-reject, pioneer-delegate) must transition from single admin key to multisig authorization
+- No single point of failure for protocol control
+- Research Cosmos SDK's x/gov and x/group modules, and Safe (formerly Gnosis Safe) patterns for the multisig design
+
 ## Build Commands
 - pnpm install - Install dependencies
 - pnpm build - Build all packages
