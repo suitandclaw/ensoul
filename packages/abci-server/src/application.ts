@@ -804,6 +804,12 @@ async function handleFinalizeBlock(
 			continue;
 		}
 
+		// Wrap ALL per-tx processing in try/catch. An uncaught throw here
+		// would abort FinalizeBlock, producing no appHash. CometBFT would
+		// then commit a block with a zero hash, and on the next restart
+		// assertAppHashEqualsOneFromState panics, stalling the chain.
+		try {
+
 		// ── Signature verification (Byzantine proposer protection) ────
 		// Only enforced from EMISSION_V2_HEIGHT onward for deterministic replay
 		if (height >= EMISSION_V2_HEIGHT) {
@@ -1052,6 +1058,13 @@ async function handleFinalizeBlock(
 		}
 		validTxCount++;
 		txResults.push({ code: 0, log: "ok" });
+
+		} catch (txErr) {
+			// Catch-all: skip this tx but NEVER abort FinalizeBlock.
+			const msg = txErr instanceof Error ? txErr.message : String(txErr);
+			log(`FATAL tx error at height=${height} type=${tx.type} from=${tx.from.slice(0, 25)}...: ${msg}`);
+			txResults.push({ code: 99, log: `internal: ${msg}` });
+		}
 	}
 
 	// Compute block emission (v1 or v2 depending on height)
