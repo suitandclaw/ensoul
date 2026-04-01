@@ -148,13 +148,17 @@
 		<details style="margin-top:8px">
 			<summary style="color:var(--primary-light);cursor:pointer;font-size:0.85em;font-weight:600">After Pioneer Approval</summary>
 			<ol style="color:var(--text-secondary);font-size:0.85em;margin:8px 0 0;padding-left:20px;line-height:1.7">
-				<li>You receive a notification that your 1M ENSL delegation has been processed</li>
-				<li>Your validator's voting power is updated automatically by the network</li>
-				<li>Your node will begin signing blocks in the next epoch</li>
-				<li>Verify your delegation and voting power on the <a href="https://explorer.ensoul.dev" style="color:var(--primary)">explorer</a></li>
-				<li>Block rewards begin accumulating immediately and are claimable at any time via the wallet</li>
-				<li>Your 1M ENSL delegation is locked for 24 months. You cannot undelegate during this period. Block rewards are liquid from day one.</li>
-				<li>Uptime expectations: maintain 95%+ uptime. Validators below 50% uptime for 7 consecutive days may be removed from the active set.</li>
+				<li>You receive 100 ENSL (for self-stake) and a 1M ENSL locked delegation</li>
+				<li>Run on your validator to activate:<br>
+					<code style="display:block;background:#1a1a2e;padding:8px 12px;border-radius:4px;margin:6px 0;font-size:0.9em;color:#a78bfa">
+						ensoul-node wallet stake 100<br>ensoul-node wallet consensus-join
+					</code>
+				</li>
+				<li>Your 1M delegation increases voting power automatically</li>
+				<li>Your node begins signing blocks and earning rewards</li>
+				<li>Verify on the <a href="https://explorer.ensoul.dev" style="color:var(--primary)">explorer</a></li>
+				<li>Rewards are liquid from day one. The 1M delegation is locked for 24 months.</li>
+				<li>Maintain 95%+ uptime. Validators below 50% for 7 consecutive days may be removed.</li>
 			</ol>
 		</details>
 	</div>
