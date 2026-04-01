@@ -1,6 +1,7 @@
 {
 	"name": "@ensoul-network/plugin-elizaos",
-	"version": "0.2.0",
+	"version": "0.3.0",
+	"description": "ElizaOS plugin for Ensoul Network. Agent memory persistence, identity backup, and consciousness state recovery.",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
@@ -21,5 +22,18 @@
 		"@ensoul/memory": "workspace:*",
 		"@ensoul/network-client": "workspace:*",
 		"@ensoul/state-tree": "workspace:*"
+	},
+	"agentConfig": {
+		"pluginType": "elizaos:plugin:1.0.0",
+		"pluginParameters": {
+			"ENSOUL_API_URL": {
+				"type": "string",
+				"description": "Ensoul Network API endpoint (defaults to https://api.ensoul.dev)"
+			},
+			"ENSOUL_SEED": {
+				"type": "string",
+				"description": "Agent identity seed (hex). Generated automatically if not provided."
+			}
+		}
 	}
 }
