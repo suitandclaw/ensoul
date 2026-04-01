@@ -145,17 +145,15 @@ export function startTSPServer(
 				const msgBytes = buffer.subarray(varintLen, totalLen);
 				buffer = buffer.subarray(totalLen);
 
+				// Decode the Request wrapper
+				let requestField = "";
+				let request: protobuf.Message | null = null;
+
 				try {
-					// Decode the Request wrapper
-					const request = RequestType.decode(msgBytes);
+					request = RequestType.decode(msgBytes);
 
 					// Find which oneof field is actually set.
-					// Use the protobufjs internal representation: the "value"
-					// field name is stored on the decoded message object.
-					// We check which field has a non-default value by looking
-					// at the raw decoded message (NOT toObject with defaults).
 					const reqAny = request as unknown as Record<string, unknown>;
-					let requestField = "";
 					const oneofFields = RequestType.oneofs?.["value"]?.fieldsArray ?? [];
 					for (const field of oneofFields) {
 						if (reqAny[field.name] != null) {
@@ -173,25 +171,50 @@ export function startTSPServer(
 							}
 						}
 					}
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					logger(`Error decoding request: ${msg}`);
+					// Send an exception response to keep the protocol in sync
+					const errResp = ResponseType.create({ exception: { error: msg } });
+					const errBytes = ResponseType.encode(errResp).finish();
+					socket.write(Buffer.concat([encodeVarint(errBytes.length), Buffer.from(errBytes)]));
+					continue;
+				}
 
-					if (!requestField) {
-						logger("Empty request received, skipping");
-						continue;
-					}
+				if (!requestField) {
+					logger("Empty request received, sending empty response");
+					// MUST send a response even for empty requests to keep protocol in sync
+					const emptyResp = ResponseType.create({ exception: { error: "empty request" } });
+					const emptyBytes = ResponseType.encode(emptyResp).finish();
+					socket.write(Buffer.concat([encodeVarint(emptyBytes.length), Buffer.from(emptyBytes)]));
+					continue;
+				}
 
-					// Handle the request
-					const responseObj = await handler(request, requestField);
+				// Handle the request. CRITICAL: always send a response, even on error.
+				// Skipping a response causes protocol desync and crashes CometBFT.
+				let responseObj: Record<string, unknown>;
+				try {
+					responseObj = await handler(request!, requestField);
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					logger(`Error handling ${requestField}: ${msg}`);
+					// Send a typed error response matching the request type
+					// CometBFT expects Response_X for Request_X
+					responseObj = { [requestField]: {} };
+				}
 
-					// Encode the Response
+				try {
 					const responseMsg = ResponseType.create(responseObj);
 					const responseBytes = ResponseType.encode(responseMsg).finish();
-
-					// Write length-prefixed response
 					const lenPrefix = encodeVarint(responseBytes.length);
 					socket.write(Buffer.concat([lenPrefix, Buffer.from(responseBytes)]));
 				} catch (err) {
 					const msg = err instanceof Error ? err.message : String(err);
-					logger(`Error processing request: ${msg}`);
+					logger(`Error encoding response for ${requestField}: ${msg}`);
+					// Last resort: send exception response
+					const errResp = ResponseType.create({ exception: { error: msg } });
+					const errBytes = ResponseType.encode(errResp).finish();
+					socket.write(Buffer.concat([encodeVarint(errBytes.length), Buffer.from(errBytes)]));
 				}
 			}
 		}
