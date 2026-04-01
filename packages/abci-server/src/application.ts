@@ -980,9 +980,13 @@ async function handleFinalizeBlock(
 					category = (parsed.category as typeof category) ?? "community";
 				} catch { /* no data or invalid JSON, use defaults */ }
 			}
-			state.delegations.delegate(tx.from, tx.to, tx.amount, lockedUntil, category);
-			if (lockedUntil > 0) {
-				log(`Pioneer delegation: ${tx.from.slice(0, 20)}... -> ${tx.to.slice(0, 20)}... amount=${tx.amount / DECIMALS} locked until ${new Date(lockedUntil).toISOString().slice(0, 10)}`);
+			try {
+				state.delegations.delegate(tx.from, tx.to, tx.amount, lockedUntil, category);
+				if (lockedUntil > 0) {
+					log(`Pioneer delegation: ${tx.from.slice(0, 20)}... -> ${tx.to.slice(0, 20)}... amount=${tx.amount / DECIMALS} locked until ${new Date(lockedUntil).toISOString().slice(0, 10)}`);
+				}
+			} catch (err) {
+				log(`Delegation registry update failed: ${err instanceof Error ? err.message : String(err)}`);
 			}
 		}
 
@@ -990,33 +994,37 @@ async function handleFinalizeBlock(
 		// Height-gated at 146000 for deterministic replay.
 		if (height >= 146000 && tx.type === "pioneer_delegate" as TransactionType) {
 			if (tx.from === PIONEER_KEY) {
-				const validatorDid = tx.to;
-				const amount = tx.amount;
-				const lockedUntil = blockTimeMs + PIONEER_LOCK_DURATION_MS;
+				try {
+					const validatorDid = tx.to;
+					const amount = tx.amount;
+					const lockedUntil = blockTimeMs + PIONEER_LOCK_DURATION_MS;
 
-				// Safety: count existing Pioneer delegations
-				const existingPioneers = state.delegations.serialize()
-					.filter(d => {
-						const lock = state.delegations.getLock(d.delegator, d.validator);
-						return lock?.category === "pioneer";
-					}).length;
+					// Safety: count existing Pioneer delegations
+					const existingPioneers = state.delegations.serialize()
+						.filter(d => {
+							const lock = state.delegations.getLock(d.delegator, d.validator);
+							return lock?.category === "pioneer";
+						}).length;
 
-				if (existingPioneers >= MAX_PIONEER_DELEGATIONS) {
-					log(`Pioneer delegation REJECTED: max ${MAX_PIONEER_DELEGATIONS} reached`);
-				} else {
-					// Debit tokens from the Protocol Treasury genesis account
-					const treasuryBalance = state.working.getBalance(PROTOCOL_TREASURY_GENESIS);
-					if (treasuryBalance >= amount) {
-						state.working.debit(PROTOCOL_TREASURY_GENESIS, amount);
-						// Credit as delegated balance on the governance account (the delegator)
-						state.working.credit(PIONEER_KEY, amount);
-						state.working.delegateTokens(PIONEER_KEY, amount);
-						// Register in the delegation registry with lock
-						state.delegations.delegate(PIONEER_KEY, validatorDid, amount, lockedUntil, "pioneer");
-						log(`Pioneer delegation: treasury -> ${validatorDid.slice(0, 25)}... amount=${amount / DECIMALS} ENSL locked until ${new Date(lockedUntil).toISOString().slice(0, 10)}`);
+					if (existingPioneers >= MAX_PIONEER_DELEGATIONS) {
+						log(`Pioneer delegation REJECTED: max ${MAX_PIONEER_DELEGATIONS} reached`);
 					} else {
-						log(`Pioneer delegation FAILED: treasury balance ${treasuryBalance / DECIMALS} < ${amount / DECIMALS} required`);
+						// Debit tokens from the Protocol Treasury genesis account
+						const treasuryBalance = state.working.getBalance(PROTOCOL_TREASURY_GENESIS);
+						if (treasuryBalance >= amount) {
+							state.working.debit(PROTOCOL_TREASURY_GENESIS, amount);
+							// Credit as delegated balance on the governance account (the delegator)
+							state.working.credit(PIONEER_KEY, amount);
+							state.working.delegateTokens(PIONEER_KEY, amount);
+							// Register in the delegation registry with lock
+							state.delegations.delegate(PIONEER_KEY, validatorDid, amount, lockedUntil, "pioneer");
+							log(`Pioneer delegation: treasury -> ${validatorDid.slice(0, 25)}... amount=${amount / DECIMALS} ENSL locked until ${new Date(lockedUntil).toISOString().slice(0, 10)}`);
+						} else {
+							log(`Pioneer delegation FAILED: treasury balance ${treasuryBalance / DECIMALS} < ${amount / DECIMALS} required`);
+						}
 					}
+				} catch (err) {
+					log(`Pioneer delegation error: ${err instanceof Error ? err.message : String(err)}`);
 				}
 			}
 		}
