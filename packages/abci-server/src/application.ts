@@ -786,6 +786,9 @@ async function handleFinalizeBlock(
 
 	const rawTxs = req.finalizeBlock?.txs ?? [];
 	const height = Number(req.finalizeBlock?.height ?? state.height + 1);
+	// Use the block timestamp for deterministic time-dependent logic (not Date.now()).
+	// During replay, the block time is the original commit time, ensuring identical results.
+	const blockTimeMs = Number(req.finalizeBlock?.time?.seconds ?? Math.floor(Date.now() / 1000)) * 1000;
 
 	// Clone committed state to build working state
 	state.working = state.committed.clone();
@@ -989,7 +992,7 @@ async function handleFinalizeBlock(
 			if (tx.from === PIONEER_KEY) {
 				const validatorDid = tx.to;
 				const amount = tx.amount;
-				const lockedUntil = Date.now() + PIONEER_LOCK_DURATION_MS;
+				const lockedUntil = blockTimeMs + PIONEER_LOCK_DURATION_MS;
 
 				// Safety: count existing Pioneer delegations
 				const existingPioneers = state.delegations.serialize()
