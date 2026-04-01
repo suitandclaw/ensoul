@@ -165,6 +165,7 @@ export function validateTransaction(
 	}
 
 	switch (tx.type) {
+		case "send":
 		case "transfer": {
 			if (sender.balance < tx.amount) {
 				return { valid: false, error: "Insufficient balance" };
@@ -281,6 +282,11 @@ export function validateTransaction(
 			}
 			break;
 		}
+		default:
+			return {
+				valid: false,
+				error: `Unrecognized transaction type: ${tx.type}`,
+			};
 	}
 
 	return { valid: true };
@@ -296,6 +302,7 @@ export function applyTransaction(
 	protocolFeeShare: number,
 ): void {
 	switch (tx.type) {
+		case "send":
 		case "transfer": {
 			state.debit(tx.from, tx.amount);
 			state.credit(tx.to, tx.amount);
@@ -387,6 +394,8 @@ export function applyTransaction(
 			state.leaveConsensus(tx.from);
 			break;
 		}
+		default:
+			throw new Error(`Unrecognized transaction type: ${tx.type}`);
 	}
 
 	// Protocol-generated txs do not track nonces
