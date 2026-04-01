@@ -471,6 +471,22 @@ async function pollAll(): Promise<void> {
 		lastHeightAt = now;
 	}
 
+	// Chain stall detection: alert if no new block in 3 minutes
+	const stallMinutes = Math.round((now - lastHeightAt) / 60_000);
+	if (stallMinutes >= 3 && lastHeight > 0) {
+		const stallKey = "chain-stall";
+		const lastStallAlert = lastAlertedAt.get(stallKey) ?? 0;
+		if (now - lastStallAlert >= ALERT_COOLDOWN_MS) {
+			lastAlertedAt.set(stallKey, now);
+			const msg = `[STALL] Chain stuck at height ${lastHeight} for ${stallMinutes} minutes`;
+			alertHistory.unshift({ timestamp: new Date().toISOString(), message: msg, level: "down" });
+			if (alertHistory.length > MAX_ALERT_HISTORY) alertHistory.pop();
+			await logAlert(msg);
+			await sendWebhook(msg);
+			await sendNtfy(msg, "urgent");
+		}
+	}
+
 	const downCount = services.filter((s) => s.status === "down").length;
 	const overall = downCount === 0 ? "operational" : downCount >= services.length / 2 ? "down" : "degraded";
 
