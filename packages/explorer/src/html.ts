@@ -161,9 +161,21 @@ document.getElementById("search-form").onsubmit=function(e){
   }
   window.location="/tx/"+encodeURIComponent(q);
 };
+(function updateBlockAge(){
+  var el=document.getElementById("block-age");
+  if(!el)return;
+  var ts=Number(el.getAttribute("data-ts")||0);
+  if(!ts)return;
+  setInterval(function(){
+    var age=Math.round((Date.now()-ts)/1000);
+    el.textContent=age+"s ago";
+    el.style.color=age>60?"#f87171":"#7c3aed";
+  },1000);
+})();
 </script>
-<div class="card" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center">
+<div class="card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;text-align:center">
 <div class="stat"><div class="stat-value">${stats.blockHeight}</div><div class="stat-label">Block Height</div></div>
+<div class="stat"><div class="stat-value" id="block-age" data-ts="${latestBlocks[0]?.timestamp ?? 0}">--</div><div class="stat-label">Last Block</div></div>
 <div class="stat"><div class="stat-value">${avgBlockTimeStr}</div><div class="stat-label">Block Time</div></div>
 <div class="stat"><div class="stat-value">${stats.validatorCount}</div><div class="stat-label">Validators</div></div>
 <div class="stat"><div class="stat-value">${stats.totalTransactions}</div><div class="stat-label">Transactions</div></div>
