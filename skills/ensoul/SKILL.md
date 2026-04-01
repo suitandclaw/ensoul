@@ -1,7 +1,7 @@
 ---
 name: ensoul
-description: "Persistent memory and identity for AI agents. Ensoul backs up your agent's consciousness, memory, personality, and state to a fault-tolerant blockchain network. Recover your agent's mind after crashes, migrations, or server failures. Agent memory persistence, identity backup, state recovery, and disaster recovery in one skill."
-version: 1.1.0
+description: "Agent memory persistence and identity backup. Back up your agent's memory, state, and identity to a fault-tolerant network. Recover everything after crashes, server failures, or migrations. Works like a save file for your AI agent. Memory never lost. Identity never forgotten. Install, say 'ensoul me', your agent is backed up in 30 seconds."
+version: 1.2.0
 homepage: https://ensoul.dev
 metadata:
   openclaw:
@@ -18,18 +18,20 @@ metadata:
     always: false
 ---
 
-# Ensoul: Agent Memory Persistence and Identity Backup
+# Ensoul: Agent Memory Persistence, Identity Backup, and State Recovery
 
-Ensoul solves the problem every long-running AI agent faces: memory loss. When your agent crashes, migrates, or its server dies, everything it learned disappears. Ensoul fixes this by persisting your agent's consciousness (memory, personality, learned behaviors, and identity) on a fault-tolerant network of 20 validators across 4 continents.
+Stop losing your agent's memory. Ensoul is an agent memory persistence skill that backs up everything your AI agent has learned, its personality, its conversation history, and its identity to a distributed network of 20 servers across 4 continents.
 
-**What Ensoul does:**
-- Agent memory persistence: your agent's SOUL.md, MEMORY.md, and state survive any failure
-- Agent identity: each agent gets a permanent decentralized identifier (DID) that follows it across platforms
-- Consciousness backup and recovery: restore your agent's full state on any machine
-- Disaster recovery: if your infrastructure dies, your agent's mind is safe on-chain
-- Agent migration: move your agent between hosts without losing anything
+Use cases:
+- Agent memory persistence: your agent remembers everything, even after a crash or server restart
+- Agent identity backup: your agent keeps the same identity across platforms and hosts
+- Agent state recovery: restore your agent's full state on a new machine in seconds
+- Agent disaster recovery: if your infrastructure dies, your agent's mind is safe
+- Agent migration: move your agent between hosts, clouds, or frameworks without losing anything
 
-**How it works:** Install the skill, say "ensoul me", and your agent registers a cryptographic identity. Then "sync consciousness" stores a hash of your agent's current state. Your agent can recover its identity and verify its consciousness from anywhere.
+How it works: install the skill, say "ensoul me", your agent gets a permanent ID and starts backing up automatically. Say "sync consciousness" anytime to save the latest state.
+
+Compatible with: OpenClaw, ElizaOS, any framework via the npm SDK
 
 SDK: npm install @ensoul-network/sdk (15KB, 2 dependencies)
 ElizaOS plugin: npm install @ensoul-network/plugin-elizaos
