@@ -21,6 +21,82 @@ import {
 } from "./html.js";
 
 /**
+ * Query the ABCI for an agent profile by DID.
+ * Returns an AgentProfile or null if the agent is not registered.
+ */
+async function queryAbciAgent(did: string): Promise<import("./types.js").AgentProfile | null> {
+	try {
+		const resp = await fetch(CMT_RPC, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "agent", method: "abci_query", params: { path: `/agent/${did}` } }),
+			signal: AbortSignal.timeout(5000),
+		});
+		if (!resp.ok) return null;
+		const result = (await resp.json()) as { result?: { response?: { value?: string; code?: number } } };
+		const val = result.result?.response?.value;
+		if (!val || result.result?.response?.code) return null;
+		const data = JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as {
+			did: string;
+			registered?: boolean;
+			registeredAt?: number;
+			consciousnessVersion?: number;
+			consciousnessStateRoot?: string;
+			consciousnessAge?: number;
+		};
+		if (!data.registered) return null;
+		return {
+			did: data.did,
+			consciousnessAgeDays: Math.floor((data.consciousnessAge ?? 0) * 6 / 86400),
+			consciousnessVersions: data.consciousnessVersion ?? 0,
+			consciousnessBytes: 0,
+			trustLevel: (data.consciousnessVersion ?? 0) > 0 ? "anchored" as import("@ensoul/node").TrustLevel : "basic" as import("@ensoul/node").TrustLevel,
+			ensouledSince: `Block ${data.registeredAt ?? 0}`,
+			lastHeartbeat: Date.now(),
+			healthStatus: "alive" as import("@ensoul/resurrection").VitalStatus,
+			stateRoot: data.consciousnessStateRoot ?? "",
+		};
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Query the ABCI for the full agent list (paginated).
+ */
+export async function queryAbciAgentList(page = 1, limit = 100): Promise<import("./types.js").AgentProfile[]> {
+	try {
+		const resp = await fetch(CMT_RPC, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: "agents", method: "abci_query", params: { path: `/agents?page=${page}&limit=${limit}` } }),
+			signal: AbortSignal.timeout(10000),
+		});
+		if (!resp.ok) return [];
+		const result = (await resp.json()) as { result?: { response?: { value?: string } } };
+		const val = result.result?.response?.value;
+		if (!val) return [];
+		const data = JSON.parse(Buffer.from(val, "base64").toString("utf-8")) as {
+			agents: Array<{ did: string; registeredAt: number; metadata?: string }>;
+			total: number;
+		};
+		return data.agents.map(a => ({
+			did: a.did,
+			consciousnessAgeDays: 0,
+			consciousnessVersions: 0,
+			consciousnessBytes: 0,
+			trustLevel: "basic" as import("@ensoul/node").TrustLevel,
+			ensouledSince: `Block ${a.registeredAt}`,
+			lastHeartbeat: Date.now(),
+			healthStatus: "alive" as import("@ensoul/resurrection").VitalStatus,
+			stateRoot: "",
+		}));
+	} catch {
+		return [];
+	}
+}
+
+/**
  * Create the explorer Fastify server.
  */
 export async function createExplorer(
@@ -45,7 +121,7 @@ export async function createExplorer(
 	app.get<{ Params: { did: string } }>(
 		"/api/v1/agent/:did",
 		async (req, reply) => {
-			const agent = dataSource.getAgentProfile(req.params.did);
+			const agent = dataSource.getAgentProfile(req.params.did) ?? await queryAbciAgent(req.params.did);
 			if (!agent) {
 				return reply.status(404).send({ error: "Agent not found" });
 			}
@@ -56,7 +132,7 @@ export async function createExplorer(
 	app.get<{ Params: { did: string } }>(
 		"/api/v1/agent/:did/verify",
 		async (req, reply) => {
-			const agent = dataSource.getAgentProfile(req.params.did);
+			const agent = dataSource.getAgentProfile(req.params.did) ?? await queryAbciAgent(req.params.did);
 			if (!agent) {
 				return reply.status(404).send({ error: "Agent not found" });
 			}
@@ -184,7 +260,7 @@ export async function createExplorer(
 			if (!did) {
 				return reply.redirect("/agents");
 			}
-			const agent = dataSource.getAgentProfile(did);
+			const agent = dataSource.getAgentProfile(did) ?? await queryAbciAgent(did);
 			if (!agent) {
 				return reply.status(404).type("text/html").send(
 					`<html><body><h1>Agent not found</h1><p>${did}</p><a href="/agents">Back</a></body></html>`,
