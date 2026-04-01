@@ -2,6 +2,7 @@
  * Transaction types in the Ensoul L1.
  */
 export type TransactionType =
+	| "send"
 	| "transfer"
 	| "stake"
 	| "unstake"
