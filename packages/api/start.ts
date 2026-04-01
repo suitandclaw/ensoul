@@ -1227,6 +1227,32 @@ async function main(): Promise<void> {
 
 		await log(`Pioneer APPROVED: ${app_entry.name} (${did.slice(0, 30)}...) hash=${result.hash ?? "pending"}`);
 
+		// Send ntfy notification with post-approval instructions
+		const ntfyTopic = (() => { try { return readFileSync(join(LOG_DIR, "ntfy-topic.txt"), "utf-8").trim(); } catch { return ""; } })();
+		if (ntfyTopic) {
+			fetch(`https://ntfy.sh/${ntfyTopic}`, {
+				method: "POST",
+				headers: { "Title": `Pioneer Approved: ${app_entry.name}`, "Priority": "high" },
+				body: [
+					`Pioneer ${app_entry.name} approved.`,
+					`DID: ${did}`,
+					`100 ENSL sent for self-stake, 1M ENSL delegated (locked 24 months).`,
+					``,
+					`Tell the Pioneer to run on their validator:`,
+					`  npx tsx packages/node/src/cli/main.ts wallet stake 100`,
+					`  npx tsx packages/node/src/cli/main.ts wallet consensus-join`,
+				].join("\n"),
+			}).catch(() => {});
+		}
+
+		const nextSteps = [
+			"Run on your validator to activate:",
+			"  ensoul-node wallet stake 100",
+			"  ensoul-node wallet consensus-join",
+			"This stakes your 100 ENSL and joins the active set.",
+			"Your 1M delegation increases voting power automatically.",
+		].join("\n");
+
 		return {
 			status: "approved",
 			did,
@@ -1237,6 +1263,7 @@ async function main(): Promise<void> {
 			lockedUntil,
 			lockExpiryDate: new Date(lockedUntil).toISOString(),
 			txHash: result.hash,
+			nextSteps,
 		};
 	});
 
