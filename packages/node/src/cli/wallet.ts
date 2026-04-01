@@ -52,6 +52,8 @@ export interface WalletCommand {
 		| "undelegate"
 		| "claim-rewards"
 		| "delegations"
+		| "consensus-join"
+		| "consensus-leave"
 		| "none";
 	recipientDid: string;
 	amount: bigint;
@@ -146,6 +148,10 @@ export function parseWalletArgs(argv: string[]): WalletCommand {
 			cmd.subcommand = "claim-rewards";
 		} else if (arg === "delegations") {
 			cmd.subcommand = "delegations";
+		} else if (arg === "consensus-join" || arg === "join") {
+			cmd.subcommand = "consensus-join";
+		} else if (arg === "consensus-leave" || arg === "leave") {
+			cmd.subcommand = "consensus-leave";
 		}
 	}
 
@@ -642,6 +648,37 @@ export async function runWalletCommand(cmd: WalletCommand): Promise<boolean> {
 			} catch {
 				out("  Could not reach the API.\n");
 			}
+			break;
+		}
+
+		case "consensus-join": {
+			out(`\n  Joining consensus set as ${shortenDid(identity.did)}...`);
+			if (account.staked === "0" || !account.staked) {
+				out("  Error: You need stakedBalance > 0 to join consensus.");
+				out("  Stake first: ensoul-node wallet stake <amount>");
+				out("");
+				break;
+			}
+			const joinResult = await signAndBroadcast(identity, "consensus_join", identity.did, "0", account.nonce);
+			if (joinResult.applied) {
+				out(`  Confirmed at height ${joinResult.height}. You are now in the active validator set.`);
+				out("  Your node will begin signing blocks in the next epoch.");
+			} else {
+				out(`  Failed: ${joinResult.error ?? "unknown error"}`);
+			}
+			out("");
+			break;
+		}
+
+		case "consensus-leave": {
+			out(`\n  Leaving consensus set as ${shortenDid(identity.did)}...`);
+			const leaveResult = await signAndBroadcast(identity, "consensus_leave", identity.did, "0", account.nonce);
+			if (leaveResult.applied) {
+				out(`  Confirmed at height ${leaveResult.height}. You have left the active validator set.`);
+			} else {
+				out(`  Failed: ${leaveResult.error ?? "unknown error"}`);
+			}
+			out("");
 			break;
 		}
 	}
