@@ -101,6 +101,7 @@ These procedures are MANDATORY. Read them before executing any related task.
 - Binary upgrades go through Cosmovisor via on-chain SOFTWARE_UPGRADE proposals.
 - Code updates go through scripts/update-all-validators.sh (rolling update with health checks).
 - Both social agents (X and Moltbook) are disabled via ~/.ensoul/agents-disabled and ~/.ensoul/x-agent-disabled. Do not re-enable without explicit instruction.
+- Explorer and monitor run via launchd on MBP (dev.ensoul.explorer, dev.ensoul.monitor). They auto-restart on crash. Do not create launchd agents for ABCI or CometBFT.
 
 ## Future: Protocol Governance
 
