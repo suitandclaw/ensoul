@@ -767,6 +767,75 @@ wait_and_report() {
         log "Could not derive DID. Register manually after sync completes."
     fi
 
+    # ── Auto-submit consensus_join ──────────────────────────────────
+    # The validator must be in the consensus set to sign blocks and
+    # receive delegations. consensus_join requires stakedBalance > 0,
+    # which all genesis validators have. New Pioneer validators will
+    # need to stake a small amount first (sent from the onboarding fund
+    # during approval) before this step succeeds.
+
+    # Extract the private key seed from CometBFT's priv_validator_key.json
+    local identity_seed=""
+    if [ -f "$CMT_HOME/config/priv_validator_key.json" ]; then
+        identity_seed=$(python3 -c "
+import json, base64
+d = json.load(open('$CMT_HOME/config/priv_validator_key.json'))
+raw = base64.b64decode(d['priv_key']['value'])
+print(raw[:32].hex())
+" 2>/dev/null || echo "")
+    fi
+
+    local join_status="not submitted"
+    if [ "$reg_status" = "registered" ] && [ -n "$did" ] && [ -n "$identity_seed" ]; then
+        # Check if already in consensus set
+        local in_consensus
+        in_consensus=$(curl -s -m 5 "$API_URL/v1/validators" 2>/dev/null | \
+            python3 -c "import sys,json; vals=json.load(sys.stdin).get('validators',[]); print('yes' if any(v.get('did','')=='$did' for v in vals) else 'no')" 2>/dev/null || echo "unknown")
+
+        if [ "$in_consensus" = "yes" ]; then
+            join_status="already in consensus set"
+            log "Validator already in consensus set"
+        elif [ "$in_consensus" = "no" ]; then
+            # Submit consensus_join via the API broadcast endpoint
+            local nonce
+            nonce=$(curl -s -m 5 "$API_URL/v1/account/$did" 2>/dev/null | \
+                python3 -c "import sys,json; print(json.load(sys.stdin).get('nonce',0))" 2>/dev/null || echo "0")
+
+            local join_resp
+            join_resp=$(cd "$REPO_DIR" && npx tsx -e "
+const { createPrivateKey, sign } = require('node:crypto');
+const seed = Buffer.from('$identity_seed', 'hex');
+const privKey = createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420','hex'), seed]), format: 'der', type: 'pkcs8' });
+const ts = Date.now();
+const txData = { type: 'consensus_join', from: '$did', to: '$did', amount: '0', nonce: $nonce, timestamp: ts };
+const payload = JSON.stringify(txData);
+const sig = sign(null, Buffer.from(payload), privKey);
+const tx = { ...txData, signature: Array.from(sig) };
+const txBytes = Buffer.from(JSON.stringify(tx)).toString('base64');
+fetch('http://localhost:26657', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 'cj', method: 'broadcast_tx_commit', params: { tx: txBytes } }),
+    signal: AbortSignal.timeout(15000),
+}).then(r => r.json()).then(d => {
+    const r = d.result || {};
+    console.log(JSON.stringify({ code: r.tx_result?.code, height: r.height }));
+}).catch(e => console.log(JSON.stringify({ error: e.message })));
+" 2>/dev/null || echo '{"error":"script failed"}')
+
+            local join_code
+            join_code=$(echo "$join_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('code','?'))" 2>/dev/null || echo "?")
+
+            if [ "$join_code" = "0" ]; then
+                join_status="joined consensus set"
+                log "consensus_join submitted successfully"
+            else
+                join_status="consensus_join pending (needs self-stake first)"
+                log "consensus_join not yet possible. Validator needs stakedBalance > 0."
+                log "For Pioneer validators: stake will be provided during approval."
+            fi
+        fi
+    fi
+
     # ── Print Summary ────────────────────────────────────────────────
 
     echo ""
@@ -778,6 +847,7 @@ wait_and_report() {
     echo "  Chain ID:          $CHAIN_ID"
     echo "  DID:               ${did:-unknown (derive after sync)}"
     echo "  Registration:      $reg_status"
+    echo "  Consensus Set:     $join_status"
     echo "  CometBFT Address:  $val_address"
     echo "  Public Key (hex):  ${pubkey_hex:-unknown}"
     echo "  Node ID:           $node_id"
