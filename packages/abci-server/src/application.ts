@@ -965,6 +965,16 @@ async function handleFinalizeBlock(
 			continue;
 		}
 
+		// Block undelegate for locked delegations (Pioneer locks).
+		// Height-gated at 151000 for deterministic replay of older blocks.
+		if (height >= 151000 && tx.type === "undelegate" as TransactionType) {
+			if (state.delegations.isLocked(tx.from, tx.to, blockTimeMs)) {
+				const lock = state.delegations.getLock(tx.from, tx.to);
+				txResults.push({ code: 40, log: `delegation locked until ${new Date(lock?.lockedUntil ?? 0).toISOString().slice(0, 10)}` });
+				continue;
+			}
+		}
+
 		// Apply the transaction to working state.
 		// applyTransaction calls incrementNonce once for non-protocol txs.
 		applyTransaction(
@@ -1048,6 +1058,17 @@ async function handleFinalizeBlock(
 				}
 			} catch (err) {
 				log(`Redelegate registry update failed: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		}
+
+		// Handle undelegate: remove from DelegationRegistry.
+		// Height-gated at 151000 for deterministic replay.
+		if (height >= 151000 && tx.type === "undelegate" as TransactionType) {
+			try {
+				state.delegations.undelegate(tx.from, tx.to, tx.amount);
+				log(`Undelegate: ${tx.from.slice(0, 20)}... removed ${tx.amount / DECIMALS} ENSL from ${tx.to.slice(0, 20)}...`);
+			} catch (err) {
+				log(`Undelegate registry update failed: ${err instanceof Error ? err.message : String(err)}`);
 			}
 		}
 
