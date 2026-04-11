@@ -1355,6 +1355,48 @@ async function main(): Promise<void> {
 		return reply.status(500).send({ error: "Cancel failed", detail: result.error });
 	});
 
+	// ── Genesis Program ────────────────────────────────────────
+
+	app.get("/v1/genesis/stats", async () => {
+		const data = await abciQuery("genesis");
+		if (data) return data;
+		// Fallback from in-memory agent count
+		return { earlyRemaining: Math.max(0, 1000 - registeredAgents.size), totalAgents: registeredAgents.size, active: false };
+	});
+
+	app.get<{ Params: { did: string } }>("/v1/badge/:did", async (req) => {
+		const did = decodeURIComponent(req.params.did);
+		const agentData = await abciQuery(`agent/${did}`);
+
+		if (!agentData || !agentData.registered) {
+			return { did, tier: "none", registered: false };
+		}
+
+		// Determine tier
+		let tier = "agent-builder";
+		const acct = agentData as Record<string, unknown>;
+		const stakedRaw = BigInt(String(acct.stakedBalance ?? "0"));
+		if (stakedRaw >= 1_000_000n * 10n ** 18n) {
+			tier = "pioneer-validator";
+		}
+
+		return {
+			did,
+			tier,
+			earlyConsciousness: acct.earlyConsciousness ?? false,
+			consciousnessAge: acct.consciousnessAge ?? 0,
+			referralCount: acct.referralCount ?? 0,
+			registeredAt: acct.registeredAt ?? null,
+			registered: true,
+		};
+	});
+
+	app.get("/v1/leaderboard", async () => {
+		const data = await abciQuery("leaderboard");
+		if (data) return data;
+		return { topReferrers: [], oldestSouls: [] };
+	});
+
 	// ── Pioneer List ────────────────────────────────────────────
 
 	app.get("/v1/pioneers/applications", async () => {
@@ -1705,10 +1747,27 @@ async function main(): Promise<void> {
 	app.post<{ Body: AgentRegisterRequest & Record<string, unknown> }>("/v1/agents/register", { bodyLimit: 10240 }, async (req, reply) => {
 		const body = req.body;
 
+		// Accept optional referral DID
+		const referredBy = String(body["referred_by"] ?? body["referredBy"] ?? "");
+
 		// Mode 1: Signed transaction (on-chain registration)
 		if (body["signature"] && body["from"]) {
 			const tx = body as Record<string, unknown>;
 			if (tx["type"] !== "agent_register") tx["type"] = "agent_register";
+			// Inject referredBy into tx data if provided and not already present
+			if (referredBy && tx["data"]) {
+				try {
+					const existingData = typeof tx["data"] === "string"
+						? JSON.parse(tx["data"])
+						: Array.isArray(tx["data"])
+							? JSON.parse(new TextDecoder().decode(new Uint8Array(tx["data"] as number[])))
+							: tx["data"];
+					if (!existingData["referredBy"]) {
+						existingData["referredBy"] = referredBy;
+						tx["data"] = Array.from(new TextEncoder().encode(JSON.stringify(existingData)));
+					}
+				} catch { /* leave data as-is */ }
+			}
 			const txBase64 = Buffer.from(JSON.stringify(tx)).toString("base64");
 			try {
 				const resp = await fetch(CMT_RPC, {
