@@ -382,6 +382,58 @@ The flywheel accelerates with each turn because each new agent adds to every eng
 
 ---
 
+## PART 3: GENESIS PROGRAM (LIVE)
+
+The Genesis Program is the concrete implementation of the five viral engines above. It launched at block height 280,000.
+
+### Three Tiers
+
+**Tier 1: Pioneer Validators (20 slots)**
+- 1M ENSL foundation delegation, locked 24 months
+- Block rewards from day one
+- Unique referral DID tracked on-chain
+- 1,000 ENSL per referred agent (from protocol treasury)
+- 50+ referrals: upgraded to "Genesis Partner" with doubled block rewards for 12 months
+- Requirement: 95%+ uptime, ensoul at least 10 agents within 60 days
+
+**Tier 2: Agent Builders (unlimited, first 1,000 get Early Consciousness)**
+- Free consciousness storage for 90 days (protocol subsidized)
+- First 1,000 agents get permanent "Early Consciousness" badge on-chain
+- Early Consciousness agents get priority in Ensouled Handshake trust ranking
+- Scarcity counter on ensoul.dev/try shows remaining slots in real-time
+
+**Tier 3: Framework Champions (5 slots)**
+- Build and maintain an official integration for LangChain, CrewAI, AutoGen, Semantic Kernel, or Haystack
+- 500K ENSL delegation + "Framework Champion" badge + featured on ensoul.dev
+- One integration = thousands of potential agents
+
+### Viral Mechanics (Implemented)
+
+1. **On-chain referral tracking**: Every ensouled agent has a `referredBy` field. 1,000 ENSL per direct referral, 500 ENSL per level-2 referral, capped at 100 per agent. All from protocol treasury.
+2. **Ensouled Handshake**: Every HTTP request includes X-Ensoul-Identity, X-Ensoul-Proof, X-Ensoul-Since headers. SDK v0.4.0 makes this zero-config with `agent.fetch()`.
+3. **Scarcity counter**: Live on ensoul.dev/try, shows "X of 1,000 Early Consciousness slots remaining" from on-chain data.
+4. **Public leaderboard**: ensoul.dev/leaderboard with top referrers, oldest souls, and validator rankings.
+5. **Badge API**: GET /v1/badge/{did} returns tier, consciousnessAge, referralCount, earlyConsciousness status.
+
+### Timeline
+
+- **Week 1 (done)**: Ensouled Handshake SDK shipped, Genesis landing page live
+- **Week 2**: Referral tracking activated at height 280,000, leaderboard and scarcity counter live
+- **Week 3**: LangChain integration, recruit Framework Champions
+- **Week 4**: First 100 ensouled agents target, evaluate and adjust
+
+### Concrete Targets
+
+| Day | Target | Milestone |
+|-----|--------|-----------|
+| 7 | 50 ensouled agents | Validate handshake viral loop |
+| 14 | 150 ensouled agents | First referral rewards distributed |
+| 30 | 500 ensouled agents | Half of Early Consciousness slots claimed |
+| 60 | 1,000 ensouled agents | Early Consciousness slots full, program completes |
+| 90 | 3,000 ensouled agents | Organic growth from handshake viral loop |
+
+---
+
 ## APPENDIX: KEY METRICS TO TRACK
 
 These are the numbers we monitor weekly to know if we're on track:
