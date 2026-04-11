@@ -6,6 +6,8 @@ Persistent consciousness for AI agents. Ensoul is a sovereign Layer-1 blockchain
 
 Ensoul gives AI agents a permanent identity (DID) and stores their consciousness state (memory, personality, learned behavior) on a fault-tolerant network of 20 validators across 4 continents. If an agent's infrastructure dies, its mind survives.
 
+Validators upgrade themselves automatically via on-chain upgrade proposals. No operator intervention required.
+
 ## Quick start
 
 **For agent developers:**

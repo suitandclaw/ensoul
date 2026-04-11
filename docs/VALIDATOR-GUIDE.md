@@ -631,20 +631,27 @@ When `catching_up` is `true`, your node is downloading and replaying historical 
 
 ## 9. Upgrades
 
-### Automatic upgrades with Cosmovisor
+### Automatic upgrades
 
-Cosmovisor is a process manager that watches for on-chain `SOFTWARE_UPGRADE` proposals. When a proposal passes and the chain reaches the specified upgrade height:
+Ensoul validators upgrade themselves automatically. When the protocol team publishes an upgrade:
 
-1. CometBFT halts at the upgrade height.
-2. Cosmovisor detects the halt and reads the upgrade plan.
-3. Cosmovisor swaps in the new binary.
-4. CometBFT restarts with the new version.
+1. An on-chain `SOFTWARE_UPGRADE` transaction is submitted with a target block height and git tag.
+2. At the target height, every ABCI server halts and writes an upgrade plan to disk.
+3. The `auto-upgrade.sh` script (triggered by systemd ExecStopPost) detects the plan, checks out the new git tag, rebuilds the code, and places the CometBFT binary for Cosmovisor.
+4. systemd restarts the ABCI server with the new code.
+5. Cosmovisor detects the upgrade, swaps the CometBFT binary, and restarts it.
 
-**You do nothing.** This is fully automatic.
+**You do nothing.** This is fully automatic. No monitoring, no manual pulls, no restarts.
 
-### Verify Cosmovisor is configured
+If your validator is offline during an upgrade, it will apply the upgrade on next restart. The upgrade plan persists on disk until applied.
+
+### Verify auto-upgrade is configured
 
 ```bash
+# Check that ExecStopPost is set in the ABCI service
+grep ExecStopPost /etc/systemd/system/ensoul-abci.service
+
+# Check that Cosmovisor is configured
 export DAEMON_NAME=cometbft
 export DAEMON_HOME="$HOME/.cometbft-ensoul/node"
 ~/go/bin/cosmovisor version
@@ -652,7 +659,7 @@ export DAEMON_HOME="$HOME/.cometbft-ensoul/node"
 
 ### What happens if you miss an upgrade
 
-If Cosmovisor is not configured or the new binary is not available, your node halts at the upgrade height and does not restart. You must manually download and install the new binary, then restart CometBFT.
+If your node was offline during the upgrade height, the upgrade is applied automatically on next startup. The auto-upgrade script checks for `upgrade-info.json` on every ABCI stop and applies any pending upgrade before restart.
 
 ### Manual upgrade (without Cosmovisor)
 

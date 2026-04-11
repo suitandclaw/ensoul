@@ -77,6 +77,12 @@ If you lose it, you lose your validator identity.
 
 ---
 
+## Upgrades
+
+Your validator updates itself automatically. When the protocol team publishes an upgrade, your node applies it at the specified block height with zero operator action. No monitoring, no manual restarts. If your node is offline during an upgrade, it catches up automatically on next startup.
+
+---
+
 ## Next steps
 
 - [Full Validator Guide](VALIDATOR-GUIDE.md) for monitoring, security, troubleshooting
