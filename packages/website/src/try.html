@@ -64,6 +64,10 @@
 <div class="try-hero">
 	<h1>Store Your First Consciousness in 30 Seconds</h1>
 	<p>Your first consciousness stores are free. The Ensoul protocol covers the cost to let you experience persistence firsthand.</p>
+	<div style="background:linear-gradient(135deg,rgba(124,58,237,0.2),rgba(124,58,237,0.05));border:1px solid rgba(124,58,237,0.4);border-radius:8px;padding:12px 20px;margin:16px auto;display:inline-block">
+		<span style="font-size:1.3em;font-weight:700;color:var(--primary)" id="early-slots">---</span>
+		<span style="color:var(--text-secondary);font-size:0.9em"> of 1,000 Early Consciousness slots remaining</span>
+	</div>
 </div>
 
 <!-- Step 1: Generate Identity -->
@@ -71,6 +75,10 @@
 	<div class="step-num">1</div>
 	<h3>Generate Agent Identity</h3>
 	<p style="color:var(--text-secondary);font-size:0.9em;margin-bottom:12px">Creates an Ed25519 keypair in your browser. Nothing is sent to any server.</p>
+	<div style="margin-bottom:12px">
+		<label style="color:var(--text-secondary);font-size:0.85em">Referred by (optional)</label>
+		<input type="text" id="referral-did" placeholder="did:key:z6Mk..." style="width:100%;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:0.85em;margin-top:4px">
+	</div>
 	<button class="try-btn" id="btn-generate" onclick="generateIdentity()">Generate Identity</button>
 	<div class="result-box" id="identity-result">
 		<div class="label">Your Agent DID</div>
@@ -124,6 +132,13 @@
 X-Ensoul-Proof: <span style="color:var(--primary)">loading...</span>
 X-Ensoul-Since: <span style="color:var(--primary)">loading...</span></code></pre>
 		<p style="color:var(--text-secondary);font-size:0.8em;margin:8px 0 0">Other ensouled agents can verify your identity in constant time using <code>Ensoul.verifyIncomingHandshake(headers)</code>.</p>
+	</div>
+
+	<div id="referral-share" style="background:#12121a;border:1px solid #1e1e2a;border-radius:8px;padding:16px;margin-top:16px;text-align:left;display:none">
+		<p style="margin:0 0 8px;font-weight:600;color:var(--primary-light)">Share Your Referral Link</p>
+		<p style="color:var(--text-secondary);font-size:0.85em;margin:0 0 8px">Each agent you refer earns you 1,000 ENSL from the protocol treasury (up to 100 referrals).</p>
+		<input type="text" id="referral-link" readonly style="width:100%;padding:8px 12px;background:#0a0a0f;border:1px solid var(--border);border-radius:4px;color:var(--primary);font-family:monospace;font-size:0.85em;cursor:pointer" onclick="this.select();navigator.clipboard.writeText(this.value)">
+		<p style="color:var(--text-secondary);font-size:0.75em;margin:4px 0 0">Click to copy.</p>
 	</div>
 </div>
 
@@ -189,6 +204,24 @@ var agentSeed = null;
 var agentPubkey = null;
 var agentDid = null;
 var API = "https://api.ensoul.dev";
+
+// Parse ?ref= URL parameter for referral tracking
+(function() {
+	var params = new URLSearchParams(window.location.search);
+	var ref = params.get("ref");
+	if (ref) {
+		var input = document.getElementById("referral-did");
+		if (input) input.value = ref;
+	}
+	// Fetch scarcity counter
+	fetch(API + "/v1/genesis/stats", { mode: "cors" })
+		.then(function(r) { return r.json(); })
+		.then(function(d) {
+			var el = document.getElementById("early-slots");
+			if (el) el.textContent = String(d.earlyRemaining ?? "---");
+		})
+		.catch(function() {});
+})();
 
 // Base58btc encoding
 var B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -277,11 +310,14 @@ async function ensoulIt() {
 		var hashBuf = await crypto.subtle.digest("SHA-256", payloadBytes);
 		var stateRoot = hexEncode(new Uint8Array(hashBuf));
 
-		// First register the agent
+		// First register the agent (with optional referral)
+		var referralDid = document.getElementById("referral-did").value.trim();
+		var regBody = {did: agentDid, publicKey: hexEncode(agentPubkey)};
+		if (referralDid) regBody.referred_by = referralDid;
 		var regResp = await fetch(API + "/v1/agents/register", {
 			method: "POST",
 			headers: {"Content-Type": "application/json"},
-			body: JSON.stringify({did: agentDid, publicKey: hexEncode(agentPubkey)}),
+			body: JSON.stringify(regBody),
 		});
 		await regResp.json();
 
@@ -340,6 +376,14 @@ async function ensoulIt() {
 		btn.textContent = "Ensouled!";
 		btn.style.background = "#1e3f2d";
 		btn.style.color = "#4ade80";
+
+		// Populate referral link
+		var refShareEl = document.getElementById("referral-share");
+		var refLinkEl = document.getElementById("referral-link");
+		if (refShareEl && refLinkEl) {
+			refLinkEl.value = "https://ensoul.dev/try?ref=" + encodeURIComponent(agentDid);
+			refShareEl.style.display = "block";
+		}
 
 		// Populate Ensouled Handshake headers demo
 		var today = new Date().toISOString().slice(0,10);
