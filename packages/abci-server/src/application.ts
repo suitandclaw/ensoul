@@ -266,6 +266,14 @@ const SNAPSHOT_KEEP = 3;         // Keep last N snapshots
 const SNAPSHOT_FORMAT = 1;       // Snapshot format version
 const SNAPSHOT_CHUNK_SIZE = 1024 * 1024; // 1MB per chunk
 
+// -- Genesis Program Constants --
+
+const GENESIS_PROGRAM_HEIGHT = 280000;
+const REFERRAL_REWARD = 1000n * DECIMALS;      // 1000 ENSL per direct referral
+const REFERRAL_L2_REWARD = 500n * DECIMALS;     // 500 ENSL per indirect (level-2) referral
+const MAX_REFERRALS = 100;                       // cap per agent
+const EARLY_CONSCIOUSNESS_CAP = 1000;            // first 1000 agents get Early Consciousness badge
+
 // -- On-chain Agent Registry --
 
 interface OnChainAgent {
@@ -273,6 +281,10 @@ interface OnChainAgent {
 	publicKey: string;
 	registeredAt: number; // block height
 	metadata?: string;    // JSON metadata
+	// Genesis Program fields (active at height >= GENESIS_PROGRAM_HEIGHT)
+	referredBy?: string;         // DID of the agent that referred this one
+	referralCount: number;       // number of agents referred (capped at MAX_REFERRALS)
+	earlyConsciousness: boolean; // true if registered when total agents < EARLY_CONSCIOUSNESS_CAP
 }
 
 interface OnChainConsciousness {
@@ -859,9 +871,9 @@ async function handleFinalizeBlock(
 		if (tx.type === "agent_register" as TransactionType) {
 			if (height >= EMISSION_V2_HEIGHT) {
 				// v2: full validation with nonce tracking
-				let agentData: { publicKey?: string; metadata?: string } | null = null;
+				let agentData: { publicKey?: string; metadata?: string; referredBy?: string } | null = null;
 				try {
-					agentData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as { publicKey?: string; metadata?: string } : null;
+					agentData = tx.data ? JSON.parse(new TextDecoder().decode(tx.data)) as { publicKey?: string; metadata?: string; referredBy?: string } : null;
 				} catch {
 					txResults.push({ code: 34, log: "Invalid JSON in tx.data" });
 					continue;
@@ -878,11 +890,48 @@ async function handleFinalizeBlock(
 					txResults.push({ code: 21, log: "agent already registered" });
 					continue;
 				}
+
+				// Genesis Program: referral tracking and Early Consciousness badge
+				let validReferrer: string | undefined;
+				if (height >= GENESIS_PROGRAM_HEIGHT && agentData.referredBy) {
+					const referrer = state.agents.get(agentData.referredBy);
+					if (referrer && agentData.referredBy !== tx.from && (referrer.referralCount ?? 0) < MAX_REFERRALS) {
+						validReferrer = agentData.referredBy;
+						referrer.referralCount = (referrer.referralCount ?? 0) + 1;
+
+						// Credit referral rewards from protocol treasury
+						const treasuryBal = state.working.getBalance(PROTOCOL_TREASURY);
+						if (treasuryBal >= REFERRAL_REWARD) {
+							state.working.debit(PROTOCOL_TREASURY, REFERRAL_REWARD);
+							state.working.credit(agentData.referredBy, REFERRAL_REWARD);
+						}
+
+						// Level-2 referral: reward the referrer's referrer
+						if (referrer.referredBy) {
+							const l2Referrer = state.agents.get(referrer.referredBy);
+							if (l2Referrer && (l2Referrer.referralCount ?? 0) < MAX_REFERRALS) {
+								const treasuryBal2 = state.working.getBalance(PROTOCOL_TREASURY);
+								if (treasuryBal2 >= REFERRAL_L2_REWARD) {
+									state.working.debit(PROTOCOL_TREASURY, REFERRAL_L2_REWARD);
+									state.working.credit(referrer.referredBy, REFERRAL_L2_REWARD);
+								}
+							}
+						}
+					}
+				}
+
+				const isEarly = height >= GENESIS_PROGRAM_HEIGHT
+					? state.agents.size < EARLY_CONSCIOUSNESS_CAP
+					: false;
+
 				state.agents.set(tx.from, {
 					did: tx.from,
 					publicKey: agentData.publicKey,
 					registeredAt: height,
 					metadata: agentData.metadata,
+					referredBy: validReferrer,
+					referralCount: 0,
+					earlyConsciousness: isEarly,
 				});
 				state.working.incrementNonce(tx.from);
 			} else {
@@ -903,6 +952,8 @@ async function handleFinalizeBlock(
 					publicKey: agentData.publicKey,
 					registeredAt: height,
 					metadata: agentData.metadata,
+					referralCount: 0,
+					earlyConsciousness: false,
 				});
 			}
 			validTxCount++;
@@ -1086,6 +1137,16 @@ async function handleFinalizeBlock(
 			log(`FATAL tx error at height=${height} type=${tx.type} from=${tx.from.slice(0, 25)}...: ${msg}`);
 			txResults.push({ code: 99, log: `internal: ${msg}` });
 		}
+	}
+
+	// ── Genesis Program: one-time migration at activation height ──
+	if (height === GENESIS_PROGRAM_HEIGHT) {
+		log(`GENESIS PROGRAM ACTIVATED at height ${height}. Migrating ${state.agents.size} agents.`);
+		for (const agent of state.agents.values()) {
+			agent.referralCount = agent.referralCount ?? 0;
+			agent.earlyConsciousness = true; // all existing agents get Early Consciousness
+		}
+		log(`Genesis Program migration complete: ${state.agents.size} agents marked as Early Consciousness.`);
 	}
 
 	// Compute block emission (v1 or v2 depending on height)
@@ -1434,7 +1495,49 @@ function handleQuery(
 				stakedBalance: acct.stakedBalance.toString(),
 				delegatedBalance: acct.delegatedBalance.toString(),
 				nonce: acct.nonce,
+				referredBy: agent?.referredBy ?? null,
+				referralCount: agent?.referralCount ?? 0,
+				earlyConsciousness: agent?.earlyConsciousness ?? false,
 			};
+			break;
+		}
+		case "genesis": {
+			value = {
+				earlyRemaining: Math.max(0, EARLY_CONSCIOUSNESS_CAP - state.agents.size),
+				totalAgents: state.agents.size,
+				active: state.height >= GENESIS_PROGRAM_HEIGHT,
+				activationHeight: GENESIS_PROGRAM_HEIGHT,
+			};
+			break;
+		}
+		case "leaderboard": {
+			const agentArr = Array.from(state.agents.values());
+			// Top referrers
+			const topReferrers = agentArr
+				.filter(a => (a.referralCount ?? 0) > 0)
+				.sort((a, b) => (b.referralCount ?? 0) - (a.referralCount ?? 0))
+				.slice(0, 50)
+				.map(a => ({
+					did: a.did,
+					referralCount: a.referralCount ?? 0,
+					registeredAt: a.registeredAt,
+					earlyConsciousness: a.earlyConsciousness ?? false,
+				}));
+			// Oldest souls (by registration height, ascending = oldest first)
+			const oldestSouls = agentArr
+				.sort((a, b) => a.registeredAt - b.registeredAt)
+				.slice(0, 50)
+				.map(a => {
+					const cs = state.consciousness.get(a.did);
+					return {
+						did: a.did,
+						registeredAt: a.registeredAt,
+						consciousnessAge: state.height - a.registeredAt,
+						consciousnessVersion: cs?.version ?? 0,
+						earlyConsciousness: a.earlyConsciousness ?? false,
+					};
+				});
+			value = { topReferrers, oldestSouls };
 			break;
 		}
 		case "consciousness": {
