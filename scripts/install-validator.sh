@@ -403,7 +403,85 @@ setup_identity() {
         cd "$ENSOUL_DIR"
         npx tsx packages/node/src/cli/main.ts --import-seed "$SEED_ARG" --data-dir "$DATA_DIR" 2>&1 | tail -5
     else
-        log "Identity will be derived from CometBFT validator key."
+        log "Deriving Ensoul identity from CometBFT validator key..."
+
+        if [ ! -f "$CMT_HOME/config/priv_validator_key.json" ]; then
+            log "WARNING: No CometBFT validator key found. Cannot create identity."
+            return
+        fi
+
+        # Extract the Ed25519 seed (first 32 bytes of the 64-byte private key)
+        local seed_hex
+        seed_hex=$(python3 -c "
+import json, base64
+d = json.load(open('$CMT_HOME/config/priv_validator_key.json'))
+raw = base64.b64decode(d['priv_key']['value'])
+print(raw[:32].hex())
+" 2>/dev/null || echo "")
+
+        if [ -z "$seed_hex" ]; then
+            log "WARNING: Could not extract seed from validator key."
+            return
+        fi
+
+        # Derive the DID from the public key
+        local pubkey_b64
+        pubkey_b64=$(python3 -c "
+import json
+d = json.load(open('$CMT_HOME/config/priv_validator_key.json'))
+print(d['pub_key']['value'])
+" 2>/dev/null || echo "")
+
+        local pubkey_hex
+        pubkey_hex=$(echo "$pubkey_b64" | base64 -d 2>/dev/null | xxd -p -c 64 2>/dev/null || echo "")
+
+        local did=""
+        if [ -n "$pubkey_hex" ]; then
+            did=$(curl -s -m 5 "$API_URL/v1/verify-did?publicKey=$pubkey_hex" 2>/dev/null | \
+                python3 -c "import sys,json; print(json.load(sys.stdin)['did'])" 2>/dev/null || echo "")
+        fi
+
+        # If API lookup fails, derive DID locally using multicodec ed25519 prefix
+        if [ -z "$did" ] && [ -n "$pubkey_hex" ]; then
+            did=$(python3 -c "
+import base64, hashlib
+pubkey = bytes.fromhex('$pubkey_hex')
+# multicodec ed25519-pub prefix (0xed01) + raw pubkey
+mc = b'\\xed\\x01' + pubkey
+# base58btc encode with z prefix
+import struct
+alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+num = int.from_bytes(mc, 'big')
+result = ''
+while num > 0:
+    num, rem = divmod(num, 58)
+    result = alphabet[rem] + result
+for byte in mc:
+    if byte == 0:
+        result = '1' + result
+    else:
+        break
+print(f'did:key:z{result}')
+" 2>/dev/null || echo "")
+        fi
+
+        if [ -z "$did" ]; then
+            log "WARNING: Could not derive DID. Identity file not created."
+            return
+        fi
+
+        # Save identity file
+        mkdir -p "$DATA_DIR"
+        python3 -c "
+import json
+identity = {'seed': '$seed_hex', 'did': '$did'}
+with open('$DATA_DIR/identity.json', 'w') as f:
+    json.dump(identity, f, indent=2)
+" 2>/dev/null
+
+        chmod 600 "$DATA_DIR/identity.json"
+        log "Identity created: $did"
+        log "Saved to $DATA_DIR/identity.json"
     fi
 }
 
@@ -634,11 +712,19 @@ start_services() {
 
     if [ "$OS" = "ubuntu" ]; then
         sudo systemctl start ensoul-abci
-        log "Waiting for ABCI to start..."
-        sleep 5
+        log "Waiting for ABCI to start on port 26658..."
+        local abci_ready=false
+        for i in $(seq 1 15); do
+            if nc -z 127.0.0.1 26658 2>/dev/null; then
+                abci_ready=true
+                log "ABCI ready after $((i * 2))s."
+                break
+            fi
+            sleep 2
+        done
 
-        if ! nc -z 127.0.0.1 26658 2>/dev/null; then
-            log "WARNING: ABCI did not start on port 26658. Check $DATA_DIR/abci-server.log"
+        if [ "$abci_ready" = "false" ]; then
+            log "WARNING: ABCI did not start on port 26658 after 30s. Check $DATA_DIR/abci-server.log"
         fi
 
         sudo systemctl start ensoul-cometbft
@@ -655,7 +741,19 @@ start_services() {
 
         log "Starting ABCI server..."
         nohup bash -l -c "cd $ENSOUL_DIR && npx tsx packages/abci-server/src/index.ts --port 26658" >> "$DATA_DIR/abci-server.log" 2>&1 &
-        sleep 5
+        log "Waiting for ABCI to start on port 26658..."
+        local abci_ready_mac=false
+        for i in $(seq 1 15); do
+            if nc -z 127.0.0.1 26658 2>/dev/null; then
+                abci_ready_mac=true
+                log "ABCI ready after $((i * 2))s."
+                break
+            fi
+            sleep 2
+        done
+        if [ "$abci_ready_mac" = "false" ]; then
+            log "WARNING: ABCI did not start on port 26658 after 30s. Check $DATA_DIR/abci-server.log"
+        fi
 
         log "Starting CometBFT via Cosmovisor..."
         export DAEMON_NAME=cometbft
@@ -802,7 +900,7 @@ print(raw[:32].hex())
                 python3 -c "import sys,json; print(json.load(sys.stdin).get('nonce',0))" 2>/dev/null || echo "0")
 
             local join_resp
-            join_resp=$(cd "$REPO_DIR" && npx tsx -e "
+            join_resp=$(cd "$ENSOUL_DIR" && npx tsx -e "
 const { createPrivateKey, sign } = require('node:crypto');
 const seed = Buffer.from('$identity_seed', 'hex');
 const privKey = createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420','hex'), seed]), format: 'der', type: 'pkcs8' });
