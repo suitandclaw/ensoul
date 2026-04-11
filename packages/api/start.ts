@@ -1237,6 +1237,7 @@ async function main(): Promise<void> {
 					`Pioneer ${app_entry.name} approved.`,
 					`DID: ${did}`,
 					`100 ENSL sent for self-stake, 1M ENSL delegated (locked 24 months).`,
+					`Automatic upgrades included. No manual updates required.`,
 					``,
 					`Tell the Pioneer to run on their validator:`,
 					`  npx tsx packages/node/src/cli/main.ts wallet stake 100`,
