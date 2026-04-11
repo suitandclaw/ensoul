@@ -84,6 +84,23 @@ export interface HandshakeResult {
 	error?: string;
 }
 
+/** Headers added by the Ensouled Handshake to every outgoing request. */
+export interface HandshakeHeaders {
+	"X-Ensoul-Identity": string;
+	"X-Ensoul-Proof": string;
+	"X-Ensoul-Since": string;
+}
+
+/** Result of verifying incoming handshake headers. */
+export interface VerifyHeadersResult {
+	verified: boolean;
+	did?: string;
+	since?: string;
+	version?: number;
+	ageDays?: number;
+	reason?: string;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function hexToBytes(hex: string): Uint8Array {
@@ -103,6 +120,25 @@ function deriveDidFromPubkey(pubkey: Uint8Array): string {
 	while (num > 0n) { encoded = B58[Number(num % 58n)]! + encoded; num = num / 58n; }
 	for (const byte of mc) { if (byte === 0) encoded = "1" + encoded; else break; }
 	return `did:key:z${encoded}`;
+}
+
+/** Extract the raw Ed25519 public key bytes from a did:key DID. */
+function didToPublicKey(did: string): Uint8Array {
+	// did:key:z<base58-multicodec>
+	const encoded = did.replace("did:key:z", "");
+	const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+	let num = 0n;
+	for (const c of encoded) {
+		const idx = B58.indexOf(c);
+		if (idx < 0) throw new Error("invalid base58");
+		num = num * 58n + BigInt(idx);
+	}
+	// Convert bigint to bytes
+	const hex = num.toString(16).padStart(68, "0"); // 34 bytes = 2-byte header + 32-byte key
+	const bytes = hexToBytes(hex);
+	// Skip 2-byte multicodec header (0xed01)
+	if (bytes[0] !== 0xed || bytes[1] !== 0x01) throw new Error("not an Ed25519 DID");
+	return bytes.slice(2);
 }
 
 // ── Main SDK Class ──────────────────────────────────────────────────
@@ -305,6 +341,166 @@ export class Ensoul {
 			signal: AbortSignal.timeout(10000),
 		});
 		return (await resp.json()) as HandshakeResult;
+	}
+
+	// ── Ensouled Handshake (automatic headers) ────────────────
+
+	/** Cached handshake headers. Refreshed every 5 minutes. */
+	private cachedHeaders: HandshakeHeaders | null = null;
+	private cachedHeadersAt = 0;
+	private registeredSince = "";
+
+	/**
+	 * Get the Ensouled Handshake headers for outgoing requests.
+	 * These are cached for 5 minutes to avoid re-signing on every request.
+	 *
+	 * ```typescript
+	 * const headers = await agent.getHandshakeHeaders();
+	 * // { "X-Ensoul-Identity": "did:key:z6Mk...", "X-Ensoul-Proof": "sig:root:v:ts", "X-Ensoul-Since": "2026-03-20" }
+	 * ```
+	 */
+	async getHandshakeHeaders(): Promise<HandshakeHeaders> {
+		const now = Date.now();
+		if (this.cachedHeaders && now - this.cachedHeadersAt < 300_000) {
+			return this.cachedHeaders;
+		}
+
+		const proof = await this.createHandshakeProof();
+
+		if (!this.registeredSince) {
+			try {
+				const state = await this.getConsciousness();
+				if (state && state.storedAt > 0) {
+					// Approximate registration date from block height (6s blocks)
+					const msAgo = (Date.now() / 6000 - state.storedAt) * 6000;
+					this.registeredSince = new Date(Date.now() - msAgo).toISOString().slice(0, 10);
+				}
+			} catch { /* use empty */ }
+			if (!this.registeredSince) this.registeredSince = new Date().toISOString().slice(0, 10);
+		}
+
+		this.cachedHeaders = {
+			"X-Ensoul-Identity": this.did,
+			"X-Ensoul-Proof": proof,
+			"X-Ensoul-Since": this.registeredSince,
+		};
+		this.cachedHeadersAt = now;
+		return this.cachedHeaders;
+	}
+
+	/**
+	 * Fetch with automatic Ensouled Handshake headers.
+	 * Drop-in replacement for native fetch that proves your agent's identity.
+	 *
+	 * ```typescript
+	 * const resp = await agent.fetch("https://api.example.com/data", { method: "GET" });
+	 * ```
+	 */
+	async fetch(url: string | URL, init?: RequestInit): Promise<Response> {
+		const handshake = await this.getHandshakeHeaders();
+		const existingHeaders = new Headers(init?.headers);
+		existingHeaders.set("X-Ensoul-Identity", handshake["X-Ensoul-Identity"]);
+		existingHeaders.set("X-Ensoul-Proof", handshake["X-Ensoul-Proof"]);
+		existingHeaders.set("X-Ensoul-Since", handshake["X-Ensoul-Since"]);
+
+		return globalThis.fetch(url, { ...init, headers: existingHeaders });
+	}
+
+	/**
+	 * Verify incoming Ensouled Handshake headers from a request.
+	 * Works with any object that has a `get(name)` method (Express req.headers, fetch Headers, etc.)
+	 *
+	 * ```typescript
+	 * const result = await agent.verifyIncomingHandshake(req.headers);
+	 * if (result.verified) console.log(`Request from ${result.did}, ensouled for ${result.ageDays} days`);
+	 * ```
+	 */
+	static async verifyIncomingHandshake(
+		headers: Record<string, string | undefined> | { get(name: string): string | null },
+		config: EnsoulConfig = {},
+	): Promise<VerifyHeadersResult> {
+		const get = (name: string): string | undefined => {
+			if (typeof (headers as { get: unknown }).get === "function") {
+				return (headers as { get(n: string): string | null }).get(name) ?? undefined;
+			}
+			const h = headers as Record<string, string | undefined>;
+			return h[name] ?? h[name.toLowerCase()];
+		};
+
+		const identity = get("X-Ensoul-Identity") ?? get("x-ensoul-identity");
+		const proof = get("X-Ensoul-Proof") ?? get("x-ensoul-proof");
+		const since = get("X-Ensoul-Since") ?? get("x-ensoul-since");
+
+		if (!identity || !proof) {
+			return { verified: false, reason: "no handshake headers" };
+		}
+
+		// Parse proof: signature:stateRoot:version:timestamp
+		const parts = proof.split(":");
+		if (parts.length < 4) {
+			return { verified: false, reason: "malformed proof" };
+		}
+
+		const sigHex = parts[0]!;
+		const stateRoot = parts[1]!;
+		const version = parseInt(parts[2]!, 10);
+		const timestamp = parseInt(parts[3]!, 10);
+
+		// Check timestamp is recent (within 10 minutes)
+		if (Math.abs(Date.now() - timestamp) > 600_000) {
+			return { verified: false, reason: "proof expired (older than 10 minutes)" };
+		}
+
+		// Extract public key from DID
+		try {
+			const pubkeyBytes = didToPublicKey(identity);
+			const payload = `${stateRoot}:${version}:${timestamp}`;
+			const sigBytes = hexToBytes(sigHex);
+			const valid = await ed.verifyAsync(sigBytes, ENC.encode(payload), pubkeyBytes);
+
+			if (!valid) {
+				return { verified: false, reason: "invalid signature" };
+			}
+
+			const ageDays = since ? Math.floor((Date.now() - new Date(since).getTime()) / 86400000) : undefined;
+
+			return {
+				verified: true,
+				did: identity,
+				since,
+				version,
+				ageDays,
+			};
+		} catch {
+			return { verified: false, reason: "invalid DID or signature format" };
+		}
+	}
+
+	/**
+	 * Express/Connect middleware that verifies Ensouled Handshake headers.
+	 * Attaches `req.ensoul` with verification result. Does not block requests.
+	 *
+	 * ```typescript
+	 * import { Ensoul } from "@ensoul-network/sdk";
+	 * app.use(Ensoul.handshakeMiddleware());
+	 *
+	 * app.get("/api/data", (req, res) => {
+	 *   if (req.ensoul?.verified) {
+	 *     console.log(`Ensouled agent: ${req.ensoul.did}`);
+	 *   }
+	 * });
+	 * ```
+	 */
+	static handshakeMiddleware(options?: { logNonEnsouled?: boolean; config?: EnsoulConfig }) {
+		const opts = options ?? {};
+		return async (req: { headers: Record<string, string | undefined>; ensoul?: VerifyHeadersResult }, _res: unknown, next: () => void) => {
+			const result = await Ensoul.verifyIncomingHandshake(req.headers, opts.config);
+			req.ensoul = result;
+			if (!result.verified && opts.logNonEnsouled) {
+				try { console.warn("[ensoul] Incoming request from non-ensouled agent. Learn more: ensoul.dev/try"); } catch { /* browser env */ }
+			}
+			next();
+		};
 	}
 
 	// ── Token Operations ───────────────────────────────────────

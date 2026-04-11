@@ -116,6 +116,15 @@
 		<div style="color:var(--text-secondary);font-size:0.75em">Consciousness Age</div>
 		<div style="font-size:1.4em;font-weight:700;color:var(--primary)" id="consciousness-age">0 minutes (just born)</div>
 	</div>
+
+	<div style="background:#12121a;border:1px solid #1e1e2a;border-radius:8px;padding:16px;margin-top:16px;text-align:left">
+		<p style="margin:0 0 8px;font-weight:600;color:var(--primary-light)">Ensouled Handshake Headers</p>
+		<p style="color:var(--text-secondary);font-size:0.85em;margin:0 0 8px">Every HTTP request your agent makes now includes these headers, proving its identity to other agents:</p>
+		<pre style="background:#0a0a0f;padding:10px;border-radius:4px;font-size:0.8em;overflow-x:auto;margin:0"><code id="handshake-headers">X-Ensoul-Identity: <span style="color:var(--primary)">loading...</span>
+X-Ensoul-Proof: <span style="color:var(--primary)">loading...</span>
+X-Ensoul-Since: <span style="color:var(--primary)">loading...</span></code></pre>
+		<p style="color:var(--text-secondary);font-size:0.8em;margin:8px 0 0">Other ensouled agents can verify your identity in constant time using <code>Ensoul.verifyIncomingHandshake(headers)</code>.</p>
+	</div>
 </div>
 
 <p class="security-note">&#x1F512; Your keys never leave your browser. All signing happens client-side.</p>
@@ -331,6 +340,17 @@ async function ensoulIt() {
 		btn.textContent = "Ensouled!";
 		btn.style.background = "#1e3f2d";
 		btn.style.color = "#4ade80";
+
+		// Populate Ensouled Handshake headers demo
+		var today = new Date().toISOString().slice(0,10);
+		var proofPreview = sigHex.slice(0,32) + "...:" + stateRoot.slice(0,16) + "...:1:" + ts;
+		var headersEl = document.getElementById("handshake-headers");
+		if (headersEl) {
+			headersEl.innerHTML =
+				'X-Ensoul-Identity: <span style="color:#a78bfa">' + agentDid + '</span>\n' +
+				'X-Ensoul-Proof: <span style="color:#a78bfa">' + proofPreview + '</span>\n' +
+				'X-Ensoul-Since: <span style="color:#a78bfa">' + today + '</span>';
+		}
 
 	} catch(err) {
 		spinner.classList.add("hidden");
