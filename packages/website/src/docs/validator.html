@@ -211,10 +211,18 @@
 <p>Visit the <a href="/validator-dashboard.html">Validator Dashboard</a> to see your earnings, uptime, and status in a browser.</p>
 
 <!-- Upgrades -->
-<h2>Upgrades</h2>
-<p>Cosmovisor handles binary upgrades automatically. When an on-chain upgrade proposal passes, Cosmovisor detects the halt height, swaps in the new binary, and restarts. <strong>You do nothing.</strong></p>
-<p>Verify Cosmovisor is configured:</p>
-<pre><code>DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node ~/go/bin/cosmovisor version</code></pre>
+<h2>Automatic upgrades</h2>
+<p>Your validator updates itself automatically. When the protocol team publishes an upgrade:</p>
+<ol>
+	<li>An on-chain <code>SOFTWARE_UPGRADE</code> transaction specifies a target block height and git tag.</li>
+	<li>At the target height, every ABCI server halts and writes an upgrade plan to disk.</li>
+	<li>The <code>auto-upgrade.sh</code> script checks out the new code, rebuilds, and places the binary for Cosmovisor.</li>
+	<li>systemd restarts the ABCI server with the new code. Cosmovisor restarts CometBFT.</li>
+</ol>
+<p><strong>You do nothing.</strong> No monitoring for upgrades, no manual code pulls, no restarts. If your validator is offline during an upgrade, it applies the upgrade automatically on next startup.</p>
+<p>Verify auto-upgrade is configured:</p>
+<pre><code>grep ExecStopPost /etc/systemd/system/ensoul-abci.service
+DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node ~/go/bin/cosmovisor version</code></pre>
 
 <!-- Uptime -->
 <h2>Uptime requirements</h2>
