@@ -222,13 +222,15 @@ export class Ensoul {
 	 *
 	 * ```typescript
 	 * await agent.register();
+	 * // With referral (earns the referrer 1000 ENSL):
+	 * await agent.register({ referredBy: "did:key:z6Mk..." });
 	 * ```
 	 */
-	async register(): Promise<{ registered: boolean; onChain: boolean; error?: string }> {
+	async register(options?: { referredBy?: string }): Promise<{ registered: boolean; onChain: boolean; error?: string }> {
 		await this.refreshNonce();
-		const tx = await this.signTransaction("agent_register", this.did, "0", {
-			publicKey: this.identity.publicKey,
-		});
+		const data: Record<string, unknown> = { publicKey: this.identity.publicKey };
+		if (options?.referredBy) data.referredBy = options.referredBy;
+		const tx = await this.signTransaction("agent_register", this.did, "0", data);
 		const result = await this.broadcast(tx);
 		return { registered: result.applied, onChain: result.applied, error: result.error };
 	}
