@@ -521,20 +521,25 @@ install_systemd_services() {
     local USER_NAME
     USER_NAME=$(whoami)
 
-    # ABCI server service
+    # ABCI server service (with auto-upgrade support)
     sudo tee /etc/systemd/system/ensoul-abci.service > /dev/null << ABCI_EOF
 [Unit]
 Description=Ensoul ABCI Server
 After=network.target
 
 [Service]
+TimeoutStopSec=30
+KillMode=mixed
 Type=simple
 User=$USER_NAME
 WorkingDirectory=$ENSOUL_DIR
 Environment=PATH=$NODE_BIN_DIR:/usr/local/go/bin:$HOME/go/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=$HOME
 Environment=NVM_DIR=$NVM_DIR_RESOLVED
+Environment=ENSOUL_REPO=$ENSOUL_DIR
+Environment=DAEMON_HOME=$CMT_HOME
 ExecStart=$NODE_BIN_DIR/npx tsx packages/abci-server/src/index.ts --port 26658
+ExecStopPost=$ENSOUL_DIR/scripts/auto-upgrade.sh
 Restart=always
 RestartSec=5
 StandardOutput=append:$DATA_DIR/abci-server.log
@@ -966,6 +971,10 @@ fetch('http://localhost:26657', {
     echo "    Validator key:  $CMT_HOME/config/priv_validator_key.json"
     echo "    Node key:       $CMT_HOME/config/node_key.json"
     echo "    BACK THESE UP!  They cannot be recovered if lost."
+    echo ""
+    echo "  Automatic upgrades: enabled."
+    echo "    Your validator will update itself when protocol upgrades"
+    echo "    are released. No manual intervention required."
     echo ""
     if [ "$reg_status" = "registered" ]; then
         echo "  Your validator is registered and syncing."

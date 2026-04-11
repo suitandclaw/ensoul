@@ -34,10 +34,11 @@ peer-to-peer node network. Token: $ENSL. Domain: ensoul.dev
 14. NEVER kill cloudflared or any process matching 'cloudflared'. The tunnel serves all public URLs. If it dies, explorer.ensoul.dev, status.ensoul.dev, api.ensoul.dev, and ensoul.dev all go dark. On Minis, the tunnel serves v1/v2/v3.ensoul.dev.
 15. NEVER touch SSH configuration on any machine. NEVER run systemctl restart ssh, systemctl reload ssh, systemctl start ssh, kill -HUP on sshd, or any command that affects the SSH daemon. NEVER edit sshd_config. NEVER enable UFW. SSH hardening is done manually by JD, never by Claude Code. This rule has zero exceptions.
 16. Every code fix must be verified against the BUILT output, not just source. After any TypeScript change: (a) Run pnpm build for the affected package if it has a dist/ directory (compiled packages: abci-server, ledger, node, explorer, identity, and others). (b) Grep the dist/ directory to confirm the change is present. (c) Restart the affected process. (d) Verify the process is running the new code by checking logs for a startup timestamp. Packages that run via tsx directly (monitor, telegram-bot, api, research-agents) have no build step but still require process restart and log verification. Never report a fix as complete until all steps are done.
-17. The monitor (packages/monitor/start.ts) runs on MBP ONLY. Never start the monitor on Minis or cloud validators. Only one monitor instance should exist across the entire network. Multiple instances cause duplicate alerts. The Minis run CometBFT validators and the start script, nothing else. The VPS runs ABCI, CometBFT, and the Telegram bot, nothing else.
+17. The monitor (packages/monitor/start.ts) runs on the Ashburn VPS (178.156.199.91) ONLY. Never start the monitor on MBP, Minis, or other cloud validators. Only one monitor instance should exist across the entire network. Multiple instances cause duplicate alerts. The Minis run CometBFT validators and the start script, nothing else. The Ashburn VPS runs ABCI, CometBFT, Telegram bot, explorer, API, and monitor.
 18. Every ABCI change must be tested on the local single-node testnet BEFORE any production deployment. Produce 100 blocks, verify appHash consistency, verify no crashes. No exceptions.
 19. ABCI upgrades must NEVER restart ABCI while CometBFT is connected. The correct order is always: stop CometBFT first, stop ABCI, start ABCI, wait 3 seconds, start CometBFT. On systemd validators, use systemctl stop/start in order. Never pkill while systemd is managing the service. If consensus WAL becomes corrupted, delete ~/.cometbft-ensoul/node/data/cs.wal/ and restart CometBFT.
 20. After any CometBFT restart, verify the validator has peers and is participating in consensus before moving to the next validator: curl localhost:26657/net_info must show peers > 0, curl localhost:26657/consensus_state must show advancing rounds. Do NOT proceed to the next validator until confirmed.
+21. All key backups must use Shamir's Secret Sharing (2-of-3 threshold). Never store plain-text private keys on removable media. Each physical backup drive holds one share (~/ensoul-shares/drive-1, drive-2, drive-3). Any two drives reconstruct all keys via the included reconstruct.sh script. The split uses ssss (brew install ssss) with hex-encoded chunks. To reconstruct: ./reconstruct.sh /path/to/drive-a /path/to/drive-b ./output-dir
 
 ## Standard Operating Procedures
 
@@ -69,6 +70,14 @@ These procedures are MANDATORY. Read them before executing any related task.
 - NEVER wipe ABCI state to force replay. The new code must handle existing state.
 - Height-gate ALL new state changes (new validation, new registry updates, new power calculations) to a future block height so replay of old blocks produces identical hashes.
 
+### SOP 3b: Automatic Protocol Upgrades
+- For consensus-breaking changes, use the on-chain upgrade system instead of manual rolling updates.
+- Flow: (1) Push code changes to a git tag (e.g., v1.5.0). (2) Submit the upgrade via API: POST /v1/admin/upgrade with name, height (target block), and tag. (3) At the target height, every ABCI halts, writes upgrade-info.json, and exits. (4) scripts/auto-upgrade.sh runs via ExecStopPost, checks out the tag, rebuilds, and places the CometBFT binary for Cosmovisor. (5) systemd restarts ABCI, Cosmovisor restarts CometBFT with the upgrade binary.
+- The upgrade info field format: {"tag": "v1.5.0"} (auto-upgrade.sh reads this).
+- To cancel a scheduled upgrade before the target height: POST /v1/admin/cancel-upgrade with name.
+- Validators that are offline during the upgrade will apply it on next restart (upgrade-info.json persists).
+- ALWAYS test upgrades on a local testnet first (SOP 3 still applies for testing).
+
 ### SOP 4: Validator Key Management
 - ALWAYS restore existing keys from ~/ensoul-key-vault/ instead of generating new ones.
 - NEVER create new validator identities when old ones exist with staked ENSL.
@@ -98,10 +107,10 @@ These procedures are MANDATORY. Read them before executing any related task.
 - The chain is the database. Agent registrations, consciousness stores, and all state live on-chain, replicated by CometBFT consensus.
 - Disk files (registered-agents.json, consciousness-store.json) are caches, not sources of truth.
 - All new agents and consciousness stores must be submitted as on-chain transactions.
-- Binary upgrades go through Cosmovisor via on-chain SOFTWARE_UPGRADE proposals.
-- Code updates go through scripts/update-all-validators.sh (rolling update with health checks).
+- Protocol upgrades are automatic. The admin submits an on-chain SOFTWARE_UPGRADE transaction via POST /v1/admin/upgrade with name, target height, and git tag. At the target height, every ABCI halts, scripts/auto-upgrade.sh pulls the new code, rebuilds, and systemd restarts the services. No validator operator action required.
+- Manual rolling updates (for non-consensus changes) go through scripts/update-all-validators.sh.
 - Both social agents (X and Moltbook) are disabled via ~/.ensoul/agents-disabled and ~/.ensoul/x-agent-disabled. Do not re-enable without explicit instruction.
-- Explorer, monitor, and API run via launchd on MBP (dev.ensoul.explorer, dev.ensoul.monitor, dev.ensoul.api). They auto-restart on crash. Do not create launchd agents for ABCI or CometBFT.
+- Explorer, API, and monitor run on the Ashburn VPS (178.156.199.91) as systemd services (ensoul-explorer, ensoul-api, ensoul-monitor) with auto-restart. Caddy reverse proxy handles SSL via Let's Encrypt for explorer.ensoul.dev, api.ensoul.dev, and status.ensoul.dev. The MBP launchd plists for these services are no longer active.
 
 ## Future: Protocol Governance
 

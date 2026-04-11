@@ -1293,6 +1293,67 @@ async function main(): Promise<void> {
 		return { status: "rejected", did, reason };
 	});
 
+	// ── Software Upgrade (admin-only) ──────────────────────────
+
+	app.post<{ Body: Record<string, unknown> }>("/v1/admin/upgrade", async (req, reply) => {
+		const adminKey = String(req.body["adminKey"] ?? "");
+		const name = String(req.body["name"] ?? "");
+		const height = Number(req.body["height"] ?? 0);
+		const tag = String(req.body["tag"] ?? "");
+
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+		if (!name || !height || !tag) {
+			return reply.status(400).send({ error: "Required: name, height, tag" });
+		}
+
+		if (!governanceSeed) {
+			return reply.status(500).send({ error: "Governance key not loaded" });
+		}
+
+		// Build the upgrade info JSON (auto-upgrade.sh reads the tag field)
+		const info = JSON.stringify({ tag });
+
+		// Sign and broadcast the software_upgrade transaction
+		const result = await signAndBroadcastWith(
+			governanceSeed, "software_upgrade" as never, governanceDid, governanceDid, "0",
+			{ name, height, info },
+		);
+
+		if (result.applied) {
+			await log(`UPGRADE SCHEDULED: "${name}" at height ${height} (tag: ${tag})`);
+			return { status: "scheduled", name, height, tag, txHash: result.hash };
+		}
+		return reply.status(500).send({ error: "Upgrade transaction failed", detail: result.error });
+	});
+
+	app.post<{ Body: Record<string, unknown> }>("/v1/admin/cancel-upgrade", async (req, reply) => {
+		const adminKey = String(req.body["adminKey"] ?? "");
+		const name = String(req.body["name"] ?? "");
+
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+		if (!name) {
+			return reply.status(400).send({ error: "Required: name" });
+		}
+		if (!governanceSeed) {
+			return reply.status(500).send({ error: "Governance key not loaded" });
+		}
+
+		const result = await signAndBroadcastWith(
+			governanceSeed, "cancel_upgrade" as never, governanceDid, governanceDid, "0",
+			{ name },
+		);
+
+		if (result.applied) {
+			await log(`UPGRADE CANCELLED: "${name}"`);
+			return { status: "cancelled", name, txHash: result.hash };
+		}
+		return reply.status(500).send({ error: "Cancel failed", detail: result.error });
+	});
+
 	// ── Pioneer List ────────────────────────────────────────────
 
 	app.get("/v1/pioneers/applications", async () => {
