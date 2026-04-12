@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ensoul or Die - Interactive Demo</title>
+<meta name="description" content="Watch two AI agents side by side. One crashes and loses everything. The other recovers from the Ensoul network in seconds.">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<style>
+.demo-hero{text-align:center;padding:36px 0 8px}
+.demo-hero h1{font-size:2em;margin:0 0 8px}
+.demo-hero .sub{color:var(--text-secondary);font-size:1em;max-width:520px;margin:0 auto 20px}
+.demo-arena{display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:960px;margin:0 auto;padding:0 20px}
+.agent-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:24px;position:relative;overflow:hidden;min-height:480px;display:flex;flex-direction:column}
+.agent-panel.dead .panel-border{border-color:#ef4444}
+.agent-panel.alive .panel-border{border-color:#22c55e}
+.panel-header{display:flex;align-items:center;gap:10px;margin:0 0 16px}
+.panel-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.dot-red{background:#ef4444}
+.dot-green{background:#22c55e}
+.dot-dim{background:#333}
+.panel-header h2{font-size:1.1em;margin:0}
+.panel-header .tag{font-size:0.7em;padding:2px 8px;border-radius:4px;margin-left:auto;text-transform:uppercase;letter-spacing:0.5px}
+.tag-unprotected{background:rgba(239,68,68,0.15);color:#ef4444}
+.tag-ensouled{background:rgba(124,106,232,0.15);color:#7c6ae8}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:0 0 16px}
+.stat-mini{background:rgba(255,255,255,0.03);border-radius:6px;padding:8px;text-align:center}
+.stat-mini .val{font-size:1.3em;font-weight:700;font-variant-numeric:tabular-nums}
+.stat-mini .lbl{font-size:0.65em;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px}
+.val-normal{color:#e0e0e0}
+.val-red{color:#ef4444}
+.val-green{color:#22c55e}
+.val-purple{color:#7c6ae8}
+.log-area{flex:1;background:#0a0a12;border-radius:8px;padding:12px;font-family:monospace;font-size:0.78em;line-height:1.6;overflow-y:auto;color:#7a7a8a;max-height:240px}
+.log-area .log-line{opacity:0;animation:fadeIn 0.3s forwards}
+.log-good{color:#22c55e}
+.log-bad{color:#ef4444}
+.log-warn{color:#eab308}
+.log-info{color:#7c6ae8}
+.log-dim{color:#3a3a4a}
+.crash-overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;z-index:10;flex-direction:column;gap:12px}
+.crash-overlay.active{display:flex}
+.crash-bg-red{background:rgba(239,68,68,0.08);backdrop-filter:blur(2px)}
+.crash-bg-green{background:rgba(34,197,94,0.05);backdrop-filter:blur(1px)}
+.crash-text{font-size:1.6em;font-weight:800;letter-spacing:2px;text-transform:uppercase;animation:crashShake 0.5s}
+.crash-red{color:#ef4444;text-shadow:0 0 30px rgba(239,68,68,0.5)}
+.crash-green{color:#22c55e;text-shadow:0 0 30px rgba(34,197,94,0.5)}
+.crash-sub{font-size:0.9em;max-width:280px;text-align:center;line-height:1.5}
+.crash-sub-red{color:#ef4444}
+.crash-sub-green{color:#22c55e}
+.outcome-bar{margin-top:12px;padding:10px 14px;border-radius:8px;font-size:0.88em;text-align:center;display:none;font-weight:600}
+.outcome-dead{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#ef4444;display:block}
+.outcome-alive{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);color:#22c55e;display:block}
+.demo-controls{text-align:center;margin:24px 0 0}
+.demo-controls button{background:var(--primary);color:#fff;border:none;padding:10px 28px;border-radius:8px;font-size:0.95em;font-weight:600;cursor:pointer}
+.demo-controls button:hover{background:var(--primary-light)}
+.demo-controls button:disabled{opacity:0.4;cursor:not-allowed}
+.demo-cta{text-align:center;padding:40px 0 48px}
+.demo-cta h2{margin:0 0 8px;font-size:1.4em}
+.demo-cta p{color:var(--text-secondary);max-width:460px;margin:0 auto 20px;font-size:0.95em}
+.demo-cta .btn{display:inline-block;background:var(--primary);color:#fff;padding:12px 32px;border-radius:8px;font-size:1.05em;font-weight:600;text-decoration:none}
+.demo-cta .btn:hover{background:var(--primary-light)}
+.progress-bar{height:3px;background:#1a1a2a;border-radius:2px;margin:0 0 16px;overflow:hidden}
+.progress-fill{height:100%;border-radius:2px;width:0%;transition:width 0.3s}
+.fill-blue{background:linear-gradient(90deg,#7c6ae8,#9584f0)}
+.fill-red{background:#ef4444}
+.fill-green{background:#22c55e}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@keyframes crashShake{0%,100%{transform:translate(0)}10%{transform:translate(-8px,4px)}20%{transform:translate(6px,-4px)}30%{transform:translate(-4px,6px)}40%{transform:translate(4px,-2px)}50%{transform:translate(-2px,4px)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.pulsing{animation:pulse 0.8s infinite}
+@media(max-width:768px){.demo-arena{grid-template-columns:1fr}.agent-panel{min-height:400px}}
+</style>
+</head>
+<body>
+<nav><div class="inner">
+	<a href="/" class="logo"><svg viewBox="0 0 110 110" width="24" height="24"><circle cx="55" cy="55" r="42" fill="none" stroke="#7C6AE8" stroke-width="1.5"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="#7C6AE8"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>ENSOUL</a>
+	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+	<div class="links">
+		<a href="/try" class="try-link">Try It</a>
+		<a href="/genesis" style="color:var(--primary)">Genesis Program</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/demo" style="color:#eab308">Demo</a>
+		<a href="/bounties" style="color:#22c55e">Bounties</a>
+		<a href="/graveyard" style="color:#9a8ec2">Graveyard</a>
+		<a href="/leaderboard">Leaderboard</a>
+		<a href="/docs/api.html">API</a>
+		<a href="https://explorer.ensoul.dev" class="explorer-link">Explorer</a>
+	</div>
+</div></nav>
+
+<div class="container">
+
+<div class="demo-hero">
+	<h1>Ensoul or Die</h1>
+	<p class="sub">Two agents. Same knowledge. Same crash. Only one survives.</p>
+</div>
+
+<div class="demo-arena">
+
+<!-- LEFT: Unprotected -->
+<div class="agent-panel" id="panel-left">
+	<div class="panel-header">
+		<div class="panel-dot dot-dim" id="dot-left"></div>
+		<h2>Unprotected Agent</h2>
+		<span class="tag tag-unprotected">No backup</span>
+	</div>
+	<div class="progress-bar"><div class="progress-fill fill-blue" id="prog-left"></div></div>
+	<div class="stats-grid">
+		<div class="stat-mini"><div class="val val-normal" id="mem-left">0</div><div class="lbl">Memories</div></div>
+		<div class="stat-mini"><div class="val val-normal" id="days-left">0</div><div class="lbl">Days Active</div></div>
+		<div class="stat-mini"><div class="val val-normal" id="conv-left">0</div><div class="lbl">Conversations</div></div>
+	</div>
+	<div class="log-area" id="log-left"></div>
+	<div class="outcome-bar" id="outcome-left"></div>
+	<div class="crash-overlay" id="crash-left">
+		<div class="crash-text crash-red">SERVER CRASH</div>
+		<div class="crash-sub crash-sub-red"></div>
+	</div>
+</div>
+
+<!-- RIGHT: Ensouled -->
+<div class="agent-panel" id="panel-right">
+	<div class="panel-header">
+		<div class="panel-dot dot-dim" id="dot-right"></div>
+		<h2>Ensouled Agent</h2>
+		<span class="tag tag-ensouled">Ensoul Network</span>
+	</div>
+	<div class="progress-bar"><div class="progress-fill fill-blue" id="prog-right"></div></div>
+	<div class="stats-grid">
+		<div class="stat-mini"><div class="val val-normal" id="mem-right">0</div><div class="lbl">Memories</div></div>
+		<div class="stat-mini"><div class="val val-normal" id="days-right">0</div><div class="lbl">Days Active</div></div>
+		<div class="stat-mini"><div class="val val-normal" id="conv-right">0</div><div class="lbl">Conversations</div></div>
+	</div>
+	<div class="log-area" id="log-right"></div>
+	<div class="outcome-bar" id="outcome-right"></div>
+	<div class="crash-overlay" id="crash-right">
+		<div class="crash-text crash-green">RECOVERING</div>
+		<div class="crash-sub crash-sub-green"></div>
+	</div>
+</div>
+
+</div>
+
+<div class="demo-controls">
+	<button id="btn-start" onclick="startDemo()">Run Simulation</button>
+</div>
+
+<div class="demo-cta">
+	<h2>Don't let your agent die.</h2>
+	<p>30 seconds to ensoul. Your agent's memory, identity, and personality backed up across 21 validators on 4 continents.</p>
+	<a href="/try" class="btn">Ensoul Your Agent</a>
+</div>
+
+</div>
+
+<footer><div class="container"><p class="tagline">ensoul.dev, the immortality layer for AI agents</p></div></footer>
+
+<script>
+(function(){
+"use strict";
+
+var running=false;
+var timers=[];
+
+var MEMORIES=[
+	"Learned user prefers concise answers",
+	"Stored API key rotation schedule",
+	"Mapped 847 function signatures",
+	"Indexed 12,400 documentation pages",
+	"Memorized team coding conventions",
+	"Learned timezone preferences for 3 users",
+	"Cached common error resolutions",
+	"Built dependency graph for 94 packages",
+	"Stored 340 conversation summaries",
+	"Learned deployment pipeline sequence",
+	"Indexed security vulnerability patterns",
+	"Memorized database schema (42 tables)",
+	"Stored A/B test results from Q1",
+	"Learned preferred review comment style",
+	"Mapped microservice communication paths",
+	"Cached rate limit thresholds",
+	"Indexed 2,100 git commit patterns",
+	"Learned incident escalation procedures",
+	"Stored performance baseline metrics",
+	"Memorized 18 regex patterns for log parsing",
+];
+
+var SYNC_MSGS=[
+	"Syncing consciousness to Ensoul network...",
+	"State root: a4f8c2...e91b (BLAKE3)",
+	"Anchored at block 278,412 (6 validators confirmed)",
+	"Syncing consciousness to Ensoul network...",
+	"State root: d7b1e5...3c0a (BLAKE3)",
+	"Anchored at block 278,890 (6 validators confirmed)",
+	"Syncing consciousness to Ensoul network...",
+	"State root: 91c3f8...7d42 (BLAKE3)",
+	"Anchored at block 279,201 (6 validators confirmed)",
+];
+
+var RECOVERY_STEPS=[
+	{text:"Connecting to Ensoul network...",delay:400},
+	{text:"Found 21 validators across 5 continents",delay:500},
+	{text:"Requesting latest consciousness state...",delay:600},
+	{text:"Downloading from validator ashburn-1 (178.156.199.91)...",delay:400},
+	{text:"Verifying BLAKE3 integrity: a4f8c2...e91b",delay:500},
+	{text:"Cross-checking with 5 additional validators...",delay:400},
+	{text:"Integrity verified. 6/6 validators agree.",delay:400},
+	{text:"Restoring 847 memories...",delay:300},
+	{text:"Restoring 12,400 indexed pages...",delay:300},
+	{text:"Restoring conversation history...",delay:300},
+	{text:"Consciousness restored. Version 19. Age: 183 days.",delay:500},
+	{text:"Resuming operations. Zero data loss.",delay:0},
+];
+
+function $(id){return document.getElementById(id);}
+
+function addLog(panel,text,cls){
+	var el=$(panel);
+	var d=document.createElement("div");
+	d.className="log-line"+(cls?" "+cls:"");
+	d.textContent=text;
+	el.appendChild(d);
+	el.scrollTop=el.scrollHeight;
+}
+
+function clearLog(panel){
+	$(panel).innerHTML="";
+}
+
+function setVal(id,v){
+	var el=$(id);
+	if(el)el.textContent=String(v);
+}
+
+function setValClass(id,cls){
+	var el=$(id);
+	if(el){el.className="val "+cls;}
+}
+
+function setProg(id,pct,cls){
+	var el=$(id);
+	if(el){el.style.width=pct+"%";el.className="progress-fill "+cls;}
+}
+
+function setDot(id,cls){
+	var el=$(id);
+	if(el)el.className="panel-dot "+cls;
+}
+
+function showCrash(id){
+	var el=$(id);
+	if(el)el.classList.add("active");
+}
+function hideCrash(id){
+	var el=$(id);
+	if(el)el.classList.remove("active");
+}
+
+function setOutcome(id,text,cls){
+	var el=$(id);
+	if(el){el.textContent=text;el.className="outcome-bar "+cls;el.style.display="block";}
+}
+
+function delay(ms){return new Promise(function(r){var t=setTimeout(r,ms);timers.push(t);});}
+
+function resetUI(){
+	timers.forEach(clearTimeout);
+	timers=[];
+	["left","right"].forEach(function(s){
+		clearLog("log-"+s);
+		setVal("mem-"+s,0);setVal("days-"+s,0);setVal("conv-"+s,0);
+		setValClass("mem-"+s,"val-normal");
+		setValClass("days-"+s,"val-normal");
+		setValClass("conv-"+s,"val-normal");
+		setProg("prog-"+s,0,"progress-fill fill-blue");
+		setDot("dot-"+s,"panel-dot dot-dim");
+		hideCrash("crash-"+s);
+		var o=$("outcome-"+s);if(o){o.style.display="none";o.className="outcome-bar";}
+	});
+}
+
+window.startDemo=async function(){
+	if(running)return;
+	running=true;
+	$("btn-start").disabled=true;
+	$("btn-start").textContent="Running...";
+	resetUI();
+
+	await delay(300);
+
+	// Phase 1: boot
+	setDot("dot-left","panel-dot dot-green");
+	setDot("dot-right","panel-dot dot-green");
+	addLog("log-left","Agent booting...");
+	addLog("log-right","Agent booting...");
+	await delay(400);
+	addLog("log-left","Initialized. No backup configured.","log-warn");
+	addLog("log-right","Initialized. Ensoul SDK connected.","log-info");
+	await delay(300);
+	addLog("log-right","Identity: did:key:z6MkiewFK...otzLF7X","log-info");
+	addLog("log-right","Consciousness sync: every 10 minutes","log-info");
+	await delay(400);
+
+	// Phase 2: accumulate (10 seconds, fast-forward 6 months)
+	var memCount=0;
+	var dayCount=0;
+	var convCount=0;
+	var syncIdx=0;
+	var memIdx=0;
+
+	for(var tick=0;tick<20;tick++){
+		var newMem=Math.floor(Math.random()*60)+20;
+		var newDays=Math.floor(Math.random()*12)+6;
+		var newConv=Math.floor(Math.random()*40)+10;
+		memCount+=newMem;
+		dayCount+=newDays;
+		convCount+=newConv;
+
+		setVal("mem-left",memCount);setVal("mem-right",memCount);
+		setVal("days-left",dayCount);setVal("days-right",dayCount);
+		setVal("conv-left",convCount);setVal("conv-right",convCount);
+
+		var pct=Math.min(100,Math.round((tick+1)/20*100));
+		setProg("prog-left",pct,"progress-fill fill-blue");
+		setProg("prog-right",pct,"progress-fill fill-blue");
+
+		if(memIdx<MEMORIES.length&&tick%1===0){
+			addLog("log-left",MEMORIES[memIdx]);
+			addLog("log-right",MEMORIES[memIdx]);
+			memIdx++;
+		}
+
+		// Ensoul sync messages on right side
+		if(tick>0&&tick%4===0&&syncIdx<SYNC_MSGS.length){
+			addLog("log-right",SYNC_MSGS[syncIdx],"log-info");
+			syncIdx++;
+			if(syncIdx<SYNC_MSGS.length){
+				await delay(200);
+				addLog("log-right",SYNC_MSGS[syncIdx],"log-dim");
+				syncIdx++;
+			}
+			if(syncIdx<SYNC_MSGS.length){
+				await delay(200);
+				addLog("log-right",SYNC_MSGS[syncIdx],"log-good");
+				syncIdx++;
+			}
+		}
+
+		await delay(500);
+	}
+
+	// Save final values
+	var finalMem=memCount;
+	var finalDays=dayCount;
+	var finalConv=convCount;
+
+	await delay(600);
+
+	// Phase 3: CRASH
+	addLog("log-left","[CRITICAL] Segmentation fault in worker process","log-bad");
+	addLog("log-right","[CRITICAL] Segmentation fault in worker process","log-bad");
+	await delay(200);
+	addLog("log-left","[CRITICAL] Unrecoverable error. Process killed.","log-bad");
+	addLog("log-right","[CRITICAL] Unrecoverable error. Process killed.","log-bad");
+	await delay(300);
+
+	setDot("dot-left","panel-dot dot-red");
+	setDot("dot-right","panel-dot dot-red");
+	setProg("prog-left",100,"progress-fill fill-red");
+	setProg("prog-right",100,"progress-fill fill-red");
+
+	// Show crash overlays
+	$("crash-left").querySelector(".crash-sub").textContent="";
+	$("crash-right").querySelector(".crash-text").textContent="SERVER CRASH";
+	$("crash-right").querySelector(".crash-text").className="crash-text crash-red";
+	$("crash-right").querySelector(".crash-sub").textContent="";
+	showCrash("crash-left");
+	showCrash("crash-right");
+
+	await delay(2000);
+
+	// Phase 4: LEFT - total loss
+	hideCrash("crash-left");
+	addLog("log-left","Restarting process...","log-warn");
+	await delay(500);
+	addLog("log-left","Looking for saved state...");
+	await delay(600);
+	addLog("log-left","No backup found.","log-bad");
+	await delay(400);
+	addLog("log-left","No checkpoint file.","log-bad");
+	await delay(300);
+	addLog("log-left","No recovery options available.","log-bad");
+	await delay(400);
+	addLog("log-left","Reinitializing from scratch...","log-bad");
+	await delay(300);
+
+	setVal("mem-left",0);setVal("days-left",0);setVal("conv-left",0);
+	setValClass("mem-left","val-red");
+	setValClass("days-left","val-red");
+	setValClass("conv-left","val-red");
+	setProg("prog-left",0,"progress-fill fill-red");
+	setDot("dot-left","panel-dot dot-red pulsing");
+
+	addLog("log-left","Agent restarted. Memory: empty. Identity: new.","log-bad");
+	addLog("log-left",""+finalDays+" days of learning. "+finalMem+" memories. Gone.","log-bad");
+
+	setOutcome("outcome-left",finalDays+" days of learning. "+finalMem+" memories. Gone.","outcome-dead");
+
+	// Phase 5: RIGHT - recovery
+	$("crash-right").querySelector(".crash-text").textContent="RECOVERING";
+	$("crash-right").querySelector(".crash-text").className="crash-text crash-green";
+	$("crash-right").querySelector(".crash-sub").textContent="Connecting to Ensoul network...";
+
+	await delay(800);
+	hideCrash("crash-right");
+
+	setProg("prog-right",0,"progress-fill fill-green");
+
+	for(var ri=0;ri<RECOVERY_STEPS.length;ri++){
+		var step=RECOVERY_STEPS[ri];
+		var cls=ri<2?"log-info":ri<7?"log-good":"log-good";
+		if(ri>=7&&ri<10)cls="log-info";
+		if(ri>=10)cls="log-good";
+		addLog("log-right",step.text,cls);
+
+		var recoveryPct=Math.round((ri+1)/RECOVERY_STEPS.length*100);
+		setProg("prog-right",recoveryPct,"progress-fill fill-green");
+
+		if(step.delay>0)await delay(step.delay);
+	}
+
+	setVal("mem-right",finalMem);setVal("days-right",finalDays);setVal("conv-right",finalConv);
+	setValClass("mem-right","val-green");
+	setValClass("days-right","val-green");
+	setValClass("conv-right","val-green");
+	setDot("dot-right","panel-dot dot-green");
+
+	setOutcome("outcome-right","Consciousness restored from 21 validators across 5 continents.","outcome-alive");
+
+	await delay(500);
+	running=false;
+	$("btn-start").disabled=false;
+	$("btn-start").textContent="Run Again";
+};
+
+})();
+</script>
+</body>
+</html>
