@@ -402,7 +402,7 @@ The Genesis Program is the concrete implementation of the five viral engines abo
 - Early Consciousness agents get priority in Ensouled Handshake trust ranking
 - Scarcity counter on ensoul.dev/try shows remaining slots in real-time
 
-**Tier 3: Framework Champions (5 slots)**
+**Tier 3: Framework Champions (10 slots)**
 - Build and maintain an official integration for LangChain, CrewAI, AutoGen, Semantic Kernel, or Haystack
 - 500K ENSL delegation + "Framework Champion" badge + featured on ensoul.dev
 - One integration = thousands of potential agents
