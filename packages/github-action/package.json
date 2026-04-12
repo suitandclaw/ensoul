@@ -1,0 +1,22 @@
+{
+	"name": "@ensoul-network/github-action",
+	"version": "1.0.0",
+	"private": true,
+	"description": "GitHub Action: ensoul your AI agent on deploy.",
+	"type": "module",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "ncc build src/index.ts -o dist --minify",
+		"lint": "echo 'no lint'"
+	},
+	"license": "MIT",
+	"dependencies": {
+		"@actions/core": "^1.11.1",
+		"@ensoul-network/sdk": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"@vercel/ncc": "^0.38.4",
+		"typescript": "^5.7.0"
+	}
+}
