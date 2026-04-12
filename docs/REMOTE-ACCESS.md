@@ -5,19 +5,26 @@
 All Ensoul machines are connected via Tailscale for secure P2P
 communication. CometBFT consensus traffic flows over Tailscale.
 
-| Machine | Tailscale IP | User | Role |
-|---|---|---|---|
-| MBP | 100.67.81.90 | suitandclaw | Validator V0 (operator) |
-| Mini 1 (hamsteronduty) | 100.86.108.114 | hamsteronduty | Validator V5 (operator) |
-| Mini 2 (megaphonehq) | 100.117.84.28 | megaphonehq | Validator V15 (operator) |
-| Mini 3 (snitchreport) | 100.127.140.26 | snitchreport | Validator V25 (operator) |
-| VPS (Hetzner) | 100.72.212.104 | root | Cloud validator |
+| Machine | Tailscale IP | LAN IP | User | Role |
+|---|---|---|---|---|
+| MBP | 100.67.81.90 | - | suitandclaw | Validator V0 (operator) |
+| Mini 1 (hamsteronduty) | 100.86.108.114 | 192.168.1.147 | hamsteronduty | Validator V5 (operator) |
+| Mini 2 (megaphonehq) | 100.117.84.28 | 192.168.1.148 | megaphonehq | Validator V15 (operator) |
+| Mini 3 (snitchreport) | 100.127.140.26 | 192.168.1.149 | snitchreport | Validator V25 (operator) |
+| VPS (Hetzner) | 100.72.212.104 | - | root | Cloud validator |
 
 ## SSH Access from MBP
 
 SSH config is at `~/.ssh/config`. Passwordless key-based auth.
+Use LAN IPs when on the local network (faster), Tailscale IPs when remote.
 
 ```bash
+# LAN (faster from home network)
+ssh hamsteronduty@192.168.1.147   # mini1
+ssh megaphonehq@192.168.1.148     # mini2
+ssh snitchreport@192.168.1.149    # mini3
+
+# Tailscale (works from anywhere)
 ssh mini1     # hamsteronduty@100.86.108.114
 ssh mini2     # megaphonehq@100.117.84.28
 ssh mini3     # snitchreport@100.127.140.26
@@ -31,9 +38,12 @@ Single command:
 ssh mini1 'curl -s http://localhost:26657/status'
 ```
 
-With PATH setup (needed for node/go/pnpm):
+With PATH setup (needed for node/npx/go/pnpm, since non-login SSH
+does not load shell profile and /opt/homebrew/bin is missing):
 ```bash
 ssh mini1 'bash -l -c "cd ~/ensoul && pnpm build"'
+# or inline:
+ssh hamsteronduty@192.168.1.147 'export PATH=/opt/homebrew/bin:$PATH; cd ~/ensoul && npx tsx ...'
 ```
 
 ## Rolling Updates
