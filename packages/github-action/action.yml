@@ -1,0 +1,41 @@
+name: "Ensoul Agent"
+description: "Ensoul your AI agent on deploy. Registers identity and stores consciousness on the Ensoul network."
+author: "suitandclaw"
+branding:
+  icon: "shield"
+  color: "purple"
+
+inputs:
+  consciousness:
+    description: "Text describing the agent's purpose, knowledge, or state. Stored as a BLAKE3 hash on-chain."
+    required: true
+  seed:
+    description: "64-char hex seed for an existing identity. If omitted, generates a new Ed25519 keypair. Store as a GitHub secret for subsequent runs."
+    required: false
+  api_url:
+    description: "Ensoul API URL."
+    required: false
+    default: "https://api.ensoul.dev"
+  referrer:
+    description: "DID of the referring agent. Earns 1,000 ENSL referral reward from the protocol treasury."
+    required: false
+
+outputs:
+  did:
+    description: "The agent's decentralized identifier (did:key:z6Mk...)"
+  seed:
+    description: "The agent's Ed25519 seed (hex). Save as a GitHub secret for future runs."
+  block_height:
+    description: "Block height where consciousness was anchored."
+  state_root:
+    description: "BLAKE3 hash of the consciousness payload."
+  version:
+    description: "Consciousness version number."
+  consciousness_age:
+    description: "Days since the agent was first ensouled."
+  registered:
+    description: "Whether the agent is registered on-chain (true/false)."
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
