@@ -403,9 +403,15 @@ The Genesis Program is the concrete implementation of the five viral engines abo
 - Scarcity counter on ensoul.dev/try shows remaining slots in real-time
 
 **Tier 3: Framework Champions (10 slots)**
-- Build and maintain an official integration for LangChain, CrewAI, AutoGen, Semantic Kernel, Haystack, LlamaIndex, Phidata, Swarm, DSPy, or Eliza
-- 500K ENSL delegation + "Framework Champion" badge + featured on ensoul.dev
-- One integration = thousands of potential agents
+- Build and maintain an official Ensoul integration for LangChain, CrewAI, AutoGen, Semantic Kernel, Haystack, LlamaIndex, Phidata, Swarm, DSPy, or Eliza
+- 500K ENSL delegation total, vested: 100K upfront + 400K vesting monthly over 12 months
+- "Framework Champion" badge + featured on ensoul.dev homepage and docs
+- Qualification to unlock the 100K upfront: integration published on the framework's official plugin/package registry AND at least 5 agents ensouled through it
+- Vesting continues monthly only if the integration remains published and maintained
+- Integration must include Ensouled Handshake (X-Ensoul headers) enabled by default
+- Must maintain compatibility with latest framework version within 14 days of framework releases. Vesting pauses if compatibility breaks and resumes when fixed.
+- Delegation clawback if integration is removed from the official registry or abandoned
+- The champion builds the bridge. The framework's entire user base walks across it.
 
 ### Viral Mechanics (Implemented)
 
