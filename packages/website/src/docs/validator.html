@@ -233,6 +233,72 @@ DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node ~/go/bin/cosmovisor ver
 </ul>
 
 <!-- Full Guide -->
+<h2>Linux/Ubuntu one-command install</h2>
+<p>For Linux/Ubuntu validators, the fastest path is the one-command installer. It handles Go, Node.js, pnpm, CometBFT, Cosmovisor, genesis download, key generation, and auto-start:</p>
+<pre><code>curl -sSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash</code></pre>
+
+<h2 id="pioneer">Pioneer Validator Program</h2>
+<p>19 of 20 slots remaining. Hand-selected operators only.</p>
+
+<h3>What you get</h3>
+<ul>
+	<li>1,000,000 ENSL foundation delegation, locked 24 months</li>
+	<li>Block rewards liquid from day one</li>
+	<li>Unique referral DID tracked on-chain</li>
+	<li>1,000 ENSL per referred agent (from protocol treasury)</li>
+	<li>50+ referrals: upgraded to "Genesis Partner" with doubled block rewards for 12 months</li>
+</ul>
+
+<h3>Requirements</h3>
+<ul>
+	<li>95%+ uptime</li>
+	<li>Ensoul at least 10 agents within 60 days</li>
+	<li>$5/month minimum VPS (Ubuntu 22+)</li>
+</ul>
+
+<h3>How to apply</h3>
+<ol>
+	<li>Install your validator:
+		<pre><code>curl -sSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash</code></pre>
+	</li>
+	<li>Submit your application:
+		<pre><code>curl -s -X POST https://api.ensoul.dev/v1/pioneers/apply \
+  -H "Content-Type: application/json" \
+  -d '{"did":"YOUR_DID","name":"your-name","contact":"your-contact-info"}'</code></pre>
+	</li>
+	<li>Wait for approval. Pioneer slots are reviewed individually.</li>
+	<li>On approval you receive 100 ENSL (for self-stake) and a 1M ENSL locked delegation.</li>
+	<li>Activate:
+		<pre><code>ensoul-node wallet stake 100 && ensoul-node wallet consensus-join</code></pre>
+	</li>
+</ol>
+
+<h2 id="framework-champion">Framework Champion Program</h2>
+<p>10 slots. Build the bridge, the framework's users walk across it.</p>
+
+<h3>What you get</h3>
+<ul>
+	<li>500K ENSL delegation total: 100K upfront + 400K vesting monthly over 12 months</li>
+	<li>"Framework Champion" badge + featured on ensoul.dev</li>
+	<li>Target frameworks: LangChain, CrewAI, AutoGen, Semantic Kernel, Haystack, LlamaIndex, Phidata, Swarm, DSPy, Eliza</li>
+</ul>
+
+<h3>Qualification</h3>
+<ul>
+	<li>Integration published on the framework's official plugin/package registry</li>
+	<li>At least 5 agents ensouled through the integration</li>
+	<li>Ensouled Handshake (X-Ensoul headers) enabled by default</li>
+</ul>
+
+<h3>Ongoing requirements</h3>
+<ul>
+	<li>Maintain compatibility with latest framework version within 14 days of releases</li>
+	<li>Vesting pauses if compatibility breaks, resumes when fixed</li>
+	<li>Delegation clawback if integration removed from registry or abandoned</li>
+</ul>
+
+<p>Apply: open a discussion at <a href="https://github.com/suitandclaw/ensoul/discussions">github.com/suitandclaw/ensoul/discussions</a> with your framework, your plan, and your timeline.</p>
+
 <h2>Full documentation</h2>
 <p>For security best practices, troubleshooting, sentry node architecture, state sync, and detailed emission economics, see the <a href="https://github.com/suitandclaw/ensoul/blob/main/docs/VALIDATOR-GUIDE.md">complete Validator Guide</a> on GitHub.</p>
 
