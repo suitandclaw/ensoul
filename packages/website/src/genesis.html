@@ -46,6 +46,7 @@
 	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
 	<div class="links">
 		<a href="/try" class="try-link">Try It</a>
+		<a href="/genesis" style="color:var(--primary)">Genesis Program</a>
 		<a href="/docs/quickstart.html">Docs</a>
 		<a href="/docs/validator.html">Validators</a>
 		<a href="/leaderboard">Leaderboard</a>
@@ -94,7 +95,7 @@
 
 	<div class="tier-card">
 		<h3>Pioneer Validator</h3>
-		<div class="slots">20 slots</div>
+		<div class="slots"><span id="g-pioneer-remaining">19</span> of 20 slots remaining</div>
 		<div class="reward">1,000,000 ENSL delegation</div>
 		<ul>
 			<li>1M ENSL foundation delegation (locked 24 months)</li>
@@ -104,22 +105,24 @@
 			<li>50+ referrals: "Genesis Partner" status</li>
 			<li>Automatic upgrades, zero maintenance</li>
 		</ul>
-		<a href="/docs/validator" class="cta">Run a Validator</a>
+		<a href="/docs/validator.html#pioneer" class="cta">Apply as Pioneer</a>
 	</div>
 
 	<div class="tier-card">
 		<h3>Framework Champion</h3>
-		<div class="slots">5 slots</div>
-		<div class="reward">500,000 ENSL delegation</div>
+		<div class="slots">10 slots</div>
+		<div class="reward">500,000 ENSL delegation (vested)</div>
 		<ul>
-			<li>Build an official Ensoul integration</li>
-			<li>Targets: LangChain, CrewAI, AutoGen, Semantic Kernel, Haystack</li>
-			<li>Featured on ensoul.dev</li>
-			<li>500K ENSL delegation for 6 months</li>
-			<li>Maintained integration = continued delegation</li>
-			<li>One integration = thousands of agents</li>
+			<li>Build and maintain an official Ensoul integration</li>
+			<li>Targets: LangChain, CrewAI, AutoGen, Semantic Kernel, Haystack, LlamaIndex, Phidata, Swarm, DSPy, or Eliza</li>
+			<li>500K ENSL total: 100K upfront + 400K vesting monthly over 12 months</li>
+			<li>Qualification: integration published on official plugin/package registry AND 5+ agents ensouled through it</li>
+			<li>Integration must include Ensouled Handshake enabled by default</li>
+			<li>Must maintain compatibility within 14 days of framework releases</li>
+			<li>Vesting pauses if compatibility breaks, resumes when fixed</li>
+			<li>Delegation clawback if integration removed from registry or abandoned</li>
 		</ul>
-		<a href="https://github.com/suitandclaw/ensoul/discussions" class="cta">Apply</a>
+		<a href="/docs/validator.html#framework-champion" class="cta">Apply</a>
 	</div>
 
 </div>

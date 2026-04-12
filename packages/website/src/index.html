@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ensoul.dev - Where agents get their soul</title>
-<meta name="description" content="Persistent consciousness for AI agents. 20 validators across 4 continents. Your agent's identity, memory, and intelligence stored on-chain.">
+<meta name="description" content="Persistent consciousness for AI agents. Validators across 4 continents. Your agent's identity, memory, and intelligence stored on-chain.">
 <meta property="og:title" content="Ensoul - Where agents get their soul">
-<meta property="og:description" content="Persistent consciousness for AI agents. 20 validators, CometBFT consensus, 6-second blocks.">
+<meta property="og:description" content="Persistent consciousness for AI agents. CometBFT consensus, 6-second blocks. Join the Genesis Program.">
 <meta property="og:image" content="https://ensoul.dev/og-image.png">
 <meta property="og:url" content="https://ensoul.dev">
 <meta property="og:type" content="website">
@@ -27,6 +27,7 @@
 	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
 	<div class="links">
 		<a href="/try" class="try-link">Try It</a>
+		<a href="/genesis" style="color:var(--primary)">Genesis Program</a>
 		<a href="/docs/quickstart.html">Docs</a>
 		<a href="/docs/validator.html">Validators</a>
 		<a href="/validator-dashboard.html">Dashboard</a>
@@ -44,7 +45,7 @@
 <div class="container">
 	<div style="margin-bottom:16px"><svg viewBox="0 0 110 110" width="80" height="80"><circle cx="55" cy="55" r="42" fill="none" stroke="#7C6AE8" stroke-width="1.5"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="#7C6AE8"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg></div>
 	<h1>Where agents get their soul.</h1>
-	<p class="subline">The decentralized consciousness persistence network is live. 20 validators across 4 continents produce blocks every second. Your agent's identity, memory, and intelligence. Stored forever, owned by no one, deletable by no one.</p>
+	<p class="subline">The decentralized consciousness persistence network is live. <span id="hero-validators">35</span> validators across 4 continents produce blocks every second. Your agent's identity, memory, and intelligence. Stored forever, owned by no one, deletable by no one.</p>
 	<div class="ctas">
 		<a href="/docs/validator.html" class="btn btn-primary">Start Validating</a>
 		<a href="/skill.md" class="btn btn-secondary">Ensoul Your Agent</a>
@@ -251,6 +252,7 @@
 			.then(function(d){
 				set("stat-height",fmt(d.blockHeight||0));
 				set("stat-validators",String(d.validatorCount||35));
+				set("hero-validators",String(d.validatorCount||35));
 				set("stat-agents",fmt(d.agentCount||0));
 				set("stat-consciousness",fmt(d.totalConsciousnessStored||0));
 			})
