@@ -124,13 +124,44 @@ check_url() {
 # ── Main ─────────────────────────────────────────────────────────────
 
 main() {
-    # Check all validators via Tailscale RPC
-    local mbp_h mini1_h mini2_h mini3_h vps_h
-    mbp_h=$(check_validator "MBP" "http://localhost:26657")
-    mini1_h=$(check_validator "Mini1" "http://100.86.108.114:26657")
-    mini2_h=$(check_validator "Mini2" "http://100.117.84.28:26657")
-    mini3_h=$(check_validator "Mini3" "http://100.127.140.26:26657")
-    vps_h=$(check_validator "VPS" "http://100.72.212.104:26657")
+    # Load all validators from configs/validators.json
+    local config_file
+    config_file="$(cd "$(dirname "$0")/.." && pwd)/configs/validators.json"
+
+    local mbp_h=""
+
+    if [ -f "$config_file" ]; then
+        # Read each validator's moniker and RPC URL from the config
+        while IFS='|' read -r moniker rpc_url; do
+            local h
+            h=$(check_validator "$moniker" "$rpc_url")
+            if [ "$moniker" = "ensoul-mbp" ]; then
+                mbp_h="$h"
+            fi
+        done < <(python3 -c "
+import json
+with open('$config_file') as f:
+    validators = json.load(f)['validators']
+for v in validators:
+    ssh = v.get('ssh', '')
+    ip = v.get('tailscaleIp', v.get('publicIp', ''))
+    port = v.get('rpcPort', 26657)
+    if ssh == 'localhost':
+        url = 'http://localhost:{}'.format(port)
+    elif v.get('tailscaleIp'):
+        url = 'http://{}:{}'.format(v['tailscaleIp'], port)
+    else:
+        url = 'http://{}:{}'.format(v['publicIp'], port)
+    print('{}|{}'.format(v['moniker'], url))
+" 2>/dev/null)
+    else
+        # Fallback if config not found
+        mbp_h=$(check_validator "ensoul-mbp" "http://localhost:26657")
+        check_validator "ensoul-mini1" "http://100.86.108.114:26657"
+        check_validator "ensoul-mini2" "http://100.117.84.28:26657"
+        check_validator "ensoul-mini3" "http://100.127.140.26:26657"
+        check_validator "ensoul-ashburn1" "http://100.72.212.104:26657"
+    fi
 
     # Check public URLs
     check_url "explorer.ensoul.dev" "https://explorer.ensoul.dev"
