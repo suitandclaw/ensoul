@@ -47,7 +47,7 @@
 	/* Spacing */
 	--sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
 	--sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
-	--sp-9: 96px; --sp-10: 128px; --sp-11: 160px;
+	--sp-9: 80px;
 
 	/* Radius */
 	--radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
@@ -84,9 +84,9 @@ h2 { font-size: 2.25rem; font-weight: 700; }
 h3 { font-size: 1.25rem; font-weight: 600; }
 
 a { color: var(--accent); text-decoration: none; transition: color var(--dur) var(--ease); }
-a:hover { color: var(--text-1); }
+a:hover { color: var(--text-1); text-decoration: underline; text-underline-offset: 3px; }
 
-p { max-width: 680px; }
+p { max-width: 800px; }
 
 /* ── Code ──────────────────────────────────────────────── */
 code, pre { font-family: var(--font-mono); }
@@ -146,7 +146,7 @@ pre code { background: none; padding: 0; font-size: inherit; }
 /* ── Layout ────────────────────────────────────────────── */
 .container { max-width: 1080px; margin: 0 auto; padding: 0 var(--sp-5); }
 
-.section { padding: var(--sp-11) 0; }
+.section { padding: var(--sp-9) 0; }
 
 .divider { height: 1px; background: var(--border); }
 
@@ -154,7 +154,7 @@ pre code { background: none; padding: 0; font-size: inherit; }
 .nav {
 	position: sticky;
 	top: 0;
-	z-index: 100;
+	z-index: 1000;
 	background: rgba(9, 9, 11, 0.8);
 	backdrop-filter: blur(12px);
 	-webkit-backdrop-filter: blur(12px);
@@ -278,14 +278,16 @@ pre code { background: none; padding: 0; font-size: inherit; }
 	background: var(--accent);
 	color: #fff;
 }
-.btn-primary:hover { background: var(--accent-hover); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); color: #fff; transform: scale(1.02); }
+.btn-primary:active { transform: scale(0.98); }
 
 .btn-ghost {
 	background: transparent;
 	color: var(--text-2);
 	border: 1px solid var(--border-hover);
 }
-.btn-ghost:hover { background: var(--surface); color: var(--text-1); border-color: rgba(255,255,255,0.12); }
+.btn-ghost:hover { background: var(--surface); color: var(--text-1); border-color: rgba(255,255,255,0.12); transform: scale(1.02); }
+.btn-ghost:active { transform: scale(0.98); }
 
 .btn-lg { padding: 14px 28px; font-size: 0.9375rem; }
 
@@ -343,20 +345,26 @@ pre code { background: none; padding: 0; font-size: inherit; }
 .sh h2 { margin-bottom: var(--sp-3); }
 
 /* ── Scroll reveal ─────────────────────────────────────── */
-.reveal {
-	opacity: 0.3;
-	transform: translateY(8px);
-	transition: opacity 400ms var(--ease), transform 400ms var(--ease);
+.fade-in {
+	opacity: 0;
+	transform: translateY(20px);
+	transition: opacity 600ms ease-out, transform 600ms ease-out;
 }
-.reveal.vis { opacity: 1; transform: translateY(0); }
-.stagger > .reveal:nth-child(1) { transition-delay: 0ms; }
-.stagger > .reveal:nth-child(2) { transition-delay: 60ms; }
-.stagger > .reveal:nth-child(3) { transition-delay: 120ms; }
-.stagger > .reveal:nth-child(4) { transition-delay: 180ms; }
+.fade-in.visible {
+	opacity: 1;
+	transform: translateY(0);
+}
+.stagger > .fade-in:nth-child(1) { transition-delay: 0ms; }
+.stagger > .fade-in:nth-child(2) { transition-delay: 100ms; }
+.stagger > .fade-in:nth-child(3) { transition-delay: 200ms; }
+.stagger > .fade-in:nth-child(4) { transition-delay: 300ms; }
+.stagger > .fade-in:nth-child(5) { transition-delay: 400ms; }
+.stagger > .fade-in:nth-child(6) { transition-delay: 500ms; }
+.stagger > .fade-in:nth-child(7) { transition-delay: 600ms; }
 
 /* ── Grids ─────────────────────────────────────────────── */
-.grid-2 { display: grid; grid-template-columns: repeat(2,1fr); gap: var(--sp-5); }
-.grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: var(--sp-5); }
+.grid-2 { display: grid; grid-template-columns: repeat(2,1fr); gap: var(--sp-4); }
+.grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: var(--sp-4); }
 @media (max-width: 768px) { .grid-2,.grid-3 { grid-template-columns: 1fr; } }
 
 /* ── Footer ────────────────────────────────────────────── */
@@ -383,11 +391,11 @@ pre code { background: none; padding: 0; font-size: inherit; }
 @media (max-width: 768px) {
 	h1 { font-size: 2.5rem; }
 	h2 { font-size: 1.75rem; }
-	.section { padding: var(--sp-9) 0; }
+	.section { padding: var(--sp-8) 0; }
 }
 @media (max-width: 480px) {
 	h1 { font-size: 2rem; }
 	h2 { font-size: 1.5rem; }
-	.section { padding: var(--sp-8) 0; }
+	.section { padding: var(--sp-7) 0; }
 	.container { padding: 0 var(--sp-4); }
 }
