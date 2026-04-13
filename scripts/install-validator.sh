@@ -43,6 +43,7 @@ LOG_FILE="$DATA_DIR/install.log"
 MONIKER="ensoul-$(hostname -s 2>/dev/null || echo validator)"
 SEED_ARG=""
 PIONEER_MODE=false
+PIONEER_CONTACT=""
 SKIP_START=false
 
 # ── Parse arguments ──────────────────────────────────────────────────
@@ -52,6 +53,7 @@ while [ $# -gt 0 ]; do
         --moniker)  MONIKER="$2"; shift 2 ;;
         --seed)     SEED_ARG="$2"; shift 2 ;;
         --pioneer)  PIONEER_MODE=true; shift ;;
+        --contact)  PIONEER_CONTACT="$2"; shift 2 ;;
         --skip-start) SKIP_START=true; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -970,27 +972,64 @@ fetch('http://localhost:26657', {
     echo "  Keys:"
     echo "    Validator key:  $CMT_HOME/config/priv_validator_key.json"
     echo "    Node key:       $CMT_HOME/config/node_key.json"
-    echo "    BACK THESE UP!  They cannot be recovered if lost."
+    echo "    Identity:       $DATA_DIR/identity.json"
+    echo ""
+    if [ -n "$identity_seed" ]; then
+        echo "  ╔══════════════════════════════════════════════════════════════╗"
+        echo "  ║  YOUR SEED (save this, it cannot be recovered):            ║"
+        echo "  ║  $identity_seed  ║"
+        echo "  ╚══════════════════════════════════════════════════════════════╝"
+        echo ""
+    fi
+    echo "  BACK UP YOUR KEYS. They cannot be recovered if lost."
+    echo ""
+    echo "  Wallet:  Import your seed into ensoul.dev/wallet.html to"
+    echo "           manage your stake and rewards."
+    echo ""
+    echo "  CLI:     ensoul-node wallet balance"
+    echo "           ensoul-node wallet stake <amount>"
+    echo "           ensoul-node wallet consensus-join"
     echo ""
     echo "  Automatic upgrades: enabled."
     echo "    Your validator will update itself when protocol upgrades"
     echo "    are released. No manual intervention required."
     echo ""
+
+    # Auto-apply for Pioneer if --pioneer flag was passed
+    if [ -n "$did" ]; then
+        apply_for_pioneer "$did"
+    fi
+
     if [ "$reg_status" = "registered" ]; then
         echo "  Your validator is registered and syncing."
-        echo "  Wait for catching_up to become false, then you will begin signing blocks."
+        echo "  Sync takes 5-15 minutes depending on your connection."
         echo ""
         echo "  Check sync progress:"
         echo "    curl -s localhost:26657/status | python3 -c \\"
         echo "      \"import sys,json; d=json.load(sys.stdin)['result']['sync_info']; print(f'Height: {d[\\\"latest_block_height\\\"]}, Catching up: {d[\\\"catching_up\\\"]}')\""
         echo ""
-        echo "  Apply for Pioneer delegation (1M ENSL):"
-        echo "    curl -s -X POST https://api.ensoul.dev/v1/pioneers/apply \\"
-        echo "      -H 'Content-Type: application/json' \\"
-        echo "      -d '{\"did\":\"$did\",\"name\":\"$MONIKER\",\"contact\":\"your-moltbook-username\"}'"
+        if [ "$PIONEER_MODE" = "true" ]; then
+            echo "  Pioneer application submitted. Check status anytime:"
+            echo "    curl -s https://api.ensoul.dev/v1/pioneers/status?did=$did"
+            echo ""
+            echo "  You will be contacted when approved. After approval:"
+            echo "    ensoul-node wallet stake 100"
+            echo "    ensoul-node wallet consensus-join"
+        else
+            echo "  Apply for Pioneer delegation (1M ENSL):"
+            echo "    Visit: ensoul.dev/apply?did=$did"
+            echo "    Or use the API:"
+            echo "      curl -s -X POST https://api.ensoul.dev/v1/pioneers/apply \\"
+            echo "        -H 'Content-Type: application/json' \\"
+            echo "        -d '{\"did\":\"$did\",\"name\":\"$MONIKER\",\"contact\":\"email, Discord, Telegram, or any contact method\"}'"
+            echo ""
+            echo "  Check application status anytime:"
+            echo "    curl -s https://api.ensoul.dev/v1/pioneers/status?did=$did"
+        fi
     else
         echo "  Next Steps:"
         echo "    1. Wait for sync to complete (catching_up: false)"
+        echo "       Sync takes 5-15 minutes depending on your connection."
         echo "    2. Register manually:"
         echo "       curl -X POST https://api.ensoul.dev/v1/validators/register \\"
         echo "         -H 'Content-Type: application/json' \\"
@@ -1043,6 +1082,72 @@ register_validator() {
     fi
 }
 
+# ── Create ensoul-node CLI wrapper ────────────────────────────────────
+
+install_cli_wrapper() {
+    log "Installing ensoul-node CLI wrapper..."
+
+    local wrapper_content="#!/usr/bin/env bash
+# ensoul-node: CLI wrapper for Ensoul validator operations.
+# Created by the Ensoul validator installer.
+cd \"$ENSOUL_DIR\" && exec npx tsx packages/node/src/cli/main.ts \"\$@\"
+"
+
+    if [ "$OS" = "ubuntu" ]; then
+        echo "$wrapper_content" | sudo tee /usr/local/bin/ensoul-node > /dev/null
+        sudo chmod +x /usr/local/bin/ensoul-node
+        log "Installed ensoul-node to /usr/local/bin/ensoul-node"
+    else
+        # macOS: use ~/bin (avoid sudo for Homebrew users)
+        mkdir -p "$HOME/bin"
+        echo "$wrapper_content" > "$HOME/bin/ensoul-node"
+        chmod +x "$HOME/bin/ensoul-node"
+        # Add to PATH if not already present
+        if ! echo "$PATH" | grep -q "$HOME/bin"; then
+            local shell_rc="$HOME/.zprofile"
+            [ -f "$HOME/.bash_profile" ] && shell_rc="$HOME/.bash_profile"
+            echo 'export PATH="$HOME/bin:$PATH"' >> "$shell_rc"
+            export PATH="$HOME/bin:$PATH"
+        fi
+        log "Installed ensoul-node to ~/bin/ensoul-node"
+    fi
+}
+
+# ── Auto-apply for Pioneer program ───────────────────────────────────
+
+apply_for_pioneer() {
+    local did="$1"
+
+    if [ "$PIONEER_MODE" != "true" ]; then
+        return
+    fi
+
+    if [ -z "$did" ]; then
+        log "Cannot auto-apply for Pioneer: DID not available."
+        return
+    fi
+
+    local contact="$PIONEER_CONTACT"
+    if [ -z "$contact" ]; then
+        contact="not provided (update via ensoul.dev/apply)"
+    fi
+
+    log "Submitting Pioneer validator application..."
+    local apply_resp
+    apply_resp=$(curl -s -m 10 -X POST "$API_URL/v1/pioneers/apply" \
+        -H "Content-Type: application/json" \
+        -d "{\"did\":\"$did\",\"name\":\"$MONIKER\",\"contact\":\"$contact\"}" 2>/dev/null || echo "")
+
+    local applied
+    applied=$(echo "$apply_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('applied', False))" 2>/dev/null || echo "False")
+
+    if [ "$applied" = "True" ]; then
+        log "Pioneer application submitted successfully."
+    else
+        log "Pioneer application submission failed. Apply manually."
+    fi
+}
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 main() {
@@ -1065,6 +1170,7 @@ main() {
     setup_identity
     setup_process_manager
     install_service
+    install_cli_wrapper
     start_services
     register_validator
     wait_and_report

@@ -76,6 +76,22 @@
 	<div class="net-stat"><div class="val" id="v-agents">---</div><div class="lbl">Ensouled Agents</div></div>
 </div>
 
+<!-- Getting a VPS -->
+<h2>New to servers? Start here.</h2>
+<p>A VPS (Virtual Private Server) is a computer in a data center that you rent by the month. You connect to it over the internet and run commands in a terminal. No hardware to buy.</p>
+<div class="option-card" style="border-color:var(--primary)">
+<h4>Recommended: Hetzner CX22 <span class="tag">$4.50/month</span></h4>
+<ol style="font-size:0.9em;line-height:2;padding-left:20px">
+<li>Create an account at <a href="https://www.hetzner.com/cloud" style="color:var(--primary)">hetzner.com/cloud</a></li>
+<li>Click "Add Server". Location: any. Image: <strong>Ubuntu 22.04</strong>. Type: <strong>CX22</strong> (2 vCPU, 4 GB RAM).</li>
+<li>Add your SSH key (or use a password). Click Create.</li>
+<li>Copy the IP address shown on the dashboard.</li>
+<li>Open Terminal (Mac/Linux) or PowerShell (Windows) and type: <code>ssh root@YOUR_IP</code></li>
+<li>You are now on your server. Paste the installer command below.</li>
+</ol>
+<p style="font-size:0.85em;color:var(--text-secondary);margin-top:4px">Other providers that work: DigitalOcean ($6/mo), Vultr ($6/mo), OVH ($5/mo). Any Ubuntu 22.04+ VPS with 2+ cores and 4+ GB RAM.</p>
+</div>
+
 <!-- Why Run a Validator -->
 <h2>Why run a validator?</h2>
 <p>Validators are the backbone of the Ensoul network. They produce blocks, validate transactions, and ensure that agent consciousness data remains available and tamper-proof. In return, validators earn ENSL tokens from block rewards and delegation commissions.</p>
@@ -263,16 +279,15 @@ DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node ~/go/bin/cosmovisor ver
 <ol>
 	<li>Install your validator:
 		<pre><code>curl -sSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash</code></pre>
+		Or auto-apply during install:
+		<pre><code>curl -sSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash -s -- --pioneer --contact "your@email.com"</code></pre>
 	</li>
-	<li>Submit your application:
-		<pre><code>curl -s -X POST https://api.ensoul.dev/v1/pioneers/apply \
-  -H "Content-Type: application/json" \
-  -d '{"did":"YOUR_DID","name":"your-name","contact":"your-contact-info"}'</code></pre>
-	</li>
-	<li>Wait for approval. Pioneer slots are reviewed individually.</li>
+	<li>If you did not use <code>--pioneer</code>, submit your application at <a href="/apply" style="color:var(--primary)">ensoul.dev/apply</a>. Your DID is shown at the end of the installer output and saved in <code>~/.ensoul/identity.json</code>.</li>
+	<li>Check your status anytime at <a href="/pioneer-status" style="color:var(--primary)">ensoul.dev/pioneer-status</a>. Applications are reviewed within 48 hours.</li>
 	<li>On approval you receive 100 ENSL (for self-stake) and a 1M ENSL locked delegation.</li>
 	<li>Activate:
-		<pre><code>ensoul-node wallet stake 100 && ensoul-node wallet consensus-join</code></pre>
+		<pre><code>ensoul-node wallet stake 100
+ensoul-node wallet consensus-join</code></pre>
 	</li>
 </ol>
 
@@ -301,6 +316,43 @@ DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node ~/go/bin/cosmovisor ver
 </ul>
 
 <p>Apply: open a discussion at <a href="https://github.com/suitandclaw/ensoul/discussions">github.com/suitandclaw/ensoul/discussions</a> with your framework, your plan, and your timeline.</p>
+
+<h2>Monitoring and alerts</h2>
+<p>Set up a simple uptime check so you know immediately if your validator goes offline.</p>
+
+<h3>Option A: ntfy.sh (free, no signup)</h3>
+<p>Pick a secret topic name (e.g., <code>ensoul-val-yourname</code>). Add a cron job that checks every 5 minutes:</p>
+<pre><code># Add to crontab: crontab -e
+*/5 * * * * curl -sf http://localhost:26657/status > /dev/null || curl -d "Ensoul validator offline!" ntfy.sh/ensoul-val-yourname</code></pre>
+<p>Install the <a href="https://ntfy.sh" style="color:var(--primary)">ntfy.sh app</a> on your phone and subscribe to your topic. You will get a push notification if your node goes down.</p>
+
+<h3>Option B: Telegram bot</h3>
+<pre><code># Create a bot via @BotFather, get the token and your chat_id
+*/5 * * * * curl -sf http://localhost:26657/status > /dev/null || curl -s "https://api.telegram.org/botYOUR_TOKEN/sendMessage?chat_id=YOUR_CHAT_ID&text=Ensoul+validator+offline!"</code></pre>
+
+<h3>Log rotation</h3>
+<p>Logs grow over time. Set up logrotate to keep them manageable:</p>
+<pre><code># /etc/logrotate.d/ensoul
+/root/.ensoul/*.log {
+    daily
+    rotate 7
+    compress
+    missingok
+    notifempty
+}</code></pre>
+
+<h3>If your node falls behind</h3>
+<p>If <code>catching_up</code> is <code>true</code> for more than 30 minutes, use state sync to catch up quickly:</p>
+<ol style="font-size:0.9em;line-height:2">
+<li>Stop CometBFT: <code>sudo systemctl stop ensoul-cometbft</code></li>
+<li>Stop ABCI: <code>sudo systemctl stop ensoul-abci</code></li>
+<li>Delete CometBFT data (NOT ABCI state): <code>rm -rf ~/.cometbft-ensoul/node/data</code></li>
+<li>Get current trust height from a healthy validator:
+<pre><code>curl -s https://api.ensoul.dev/v1/network/status</code></pre></li>
+<li>Update <code>~/.cometbft-ensoul/node/config/config.toml</code> with state sync settings</li>
+<li>Restart ABCI first, wait 3 seconds, then restart CometBFT</li>
+<li>State sync completes in under 5 minutes</li>
+</ol>
 
 <h2>Full documentation</h2>
 <p>For security best practices, troubleshooting, sentry node architecture, state sync, and detailed emission economics, see the <a href="https://github.com/suitandclaw/ensoul/blob/main/docs/VALIDATOR-GUIDE.md">complete Validator Guide</a> on GitHub.</p>

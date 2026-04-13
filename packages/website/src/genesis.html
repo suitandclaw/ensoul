@@ -107,8 +107,10 @@
 			<li>1,000 ENSL per referred agent</li>
 			<li>50+ referrals: "Genesis Partner" status</li>
 			<li>Automatic upgrades, zero maintenance</li>
+		<li>Estimated earnings: <strong><span id="g-pioneer-daily">---</span> ENSL/day</strong></li>
 		</ul>
-		<a href="/docs/validator.html#pioneer" class="cta">Apply as Pioneer</a>
+		<a href="/apply" class="cta">Apply as Pioneer</a>
+		<div style="text-align:center;margin-top:8px"><a href="/pioneer-status" style="color:var(--text-secondary);font-size:0.8em">Check application status</a></div>
 	</div>
 
 	<div class="tier-card">
@@ -172,7 +174,16 @@
 		.catch(function(){});
 	fetch(API+"/v1/network/status",{mode:"cors"})
 		.then(function(r){return r.json()})
-		.then(function(d){set("g-validators",String(d.validatorCount??0));set("g-height",fmt(d.blockHeight??0));})
+		.then(function(d){
+			set("g-validators",String(d.validatorCount??0));
+			set("g-height",fmt(d.blockHeight??0));
+			// Pioneer earnings estimate: ~19 ENSL/block, ~14400 blocks/day
+			// Pioneer with 1M delegation earns proportional to their share of total stake
+			var valCount=d.validatorCount||21;
+			var dailyEmission=273000; // ~273K ENSL/day in Year 1
+			var perValidator=Math.round(dailyEmission/valCount);
+			set("g-pioneer-daily",fmt(perValidator));
+		})
 		.catch(function(){});
 })();
 </script>

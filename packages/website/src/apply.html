@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apply for Pioneer Validator - Ensoul</title>
+<meta name="description" content="Apply to become a Pioneer Validator on the Ensoul network. 1M ENSL delegation, block rewards from day one.">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<style>
+.apply-page{max-width:580px;margin:0 auto;padding:40px 20px 60px}
+.apply-page h1{font-size:1.6em;margin:0 0 8px}
+.apply-page .sub{color:var(--text-secondary);margin:0 0 28px;font-size:0.95em}
+.form-group{margin:0 0 20px}
+.form-group label{display:block;font-size:0.85em;color:var(--text-secondary);margin:0 0 6px;font-weight:600}
+.form-group input,.form-group textarea{width:100%;padding:10px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:#e0e0e0;font-size:0.95em;font-family:inherit}
+.form-group input:focus,.form-group textarea:focus{outline:none;border-color:var(--primary)}
+.form-group textarea{height:80px;resize:vertical}
+.form-group .hint{font-size:0.8em;color:var(--text-dim,#555);margin-top:4px}
+.submit-btn{background:var(--primary);color:#fff;border:none;padding:12px 32px;border-radius:8px;font-size:1em;font-weight:600;cursor:pointer;width:100%}
+.submit-btn:hover{background:var(--primary-light)}
+.submit-btn:disabled{opacity:0.5;cursor:not-allowed}
+.msg{padding:12px 16px;border-radius:8px;margin:16px 0;font-size:0.9em}
+.msg-ok{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);color:#22c55e}
+.msg-err{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#ef4444}
+.benefits{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:20px;margin:0 0 28px}
+.benefits h3{margin:0 0 8px;font-size:1em;color:var(--primary-light)}
+.benefits ul{margin:0;padding:0 0 0 18px;font-size:0.88em;color:var(--text-secondary);line-height:1.8}
+</style>
+</head>
+<body>
+<nav><div class="inner">
+	<a href="/" class="logo"><svg viewBox="0 0 110 110" width="24" height="24"><circle cx="55" cy="55" r="42" fill="none" stroke="#7C6AE8" stroke-width="1.5"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="#7C6AE8"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>ENSOUL</a>
+	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+	<div class="links">
+		<a href="/try" class="try-link">Try It</a>
+		<a href="/genesis" style="color:var(--primary)">Genesis Program</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/demo" style="color:#eab308">Demo</a>
+		<a href="/bounties" style="color:#22c55e">Bounties</a>
+		<a href="/graveyard" style="color:#9a8ec2">Graveyard</a>
+		<a href="https://explorer.ensoul.dev" class="explorer-link">Explorer</a>
+	</div>
+</div></nav>
+
+<div class="apply-page">
+
+<h1>Apply for Pioneer Validator</h1>
+<p class="sub">19 of 20 slots remaining. Hand-selected operators only. Applications reviewed within 48 hours.</p>
+
+<div class="benefits">
+	<h3>What you get</h3>
+	<ul>
+		<li>1,000,000 ENSL foundation delegation (locked 24 months)</li>
+		<li>Block rewards liquid from day one</li>
+		<li>100 ENSL sent on approval for self-stake</li>
+		<li>1,000 ENSL per referred agent from protocol treasury</li>
+		<li>Automatic upgrades, zero maintenance</li>
+	</ul>
+</div>
+
+<form id="apply-form" onsubmit="return submitApplication(event)">
+	<div class="form-group">
+		<label>Validator DID</label>
+		<input type="text" id="f-did" placeholder="did:key:z6Mk..." required>
+		<div class="hint">Shown at the end of the installer output. Find it in ~/.ensoul/identity.json</div>
+	</div>
+	<div class="form-group">
+		<label>Name / Moniker</label>
+		<input type="text" id="f-name" placeholder="Your name or validator moniker" required>
+	</div>
+	<div class="form-group">
+		<label>Contact</label>
+		<input type="text" id="f-contact" placeholder="Email, Discord, Telegram, or any contact method" required>
+		<div class="hint">We will contact you through this when your application is reviewed.</div>
+	</div>
+	<div class="form-group">
+		<label>Why do you want to run a validator? (optional)</label>
+		<textarea id="f-reason" placeholder="Brief description of your background and motivation"></textarea>
+	</div>
+	<button type="submit" class="submit-btn" id="submit-btn">Submit Application</button>
+</form>
+
+<div id="result"></div>
+
+<p style="text-align:center;margin-top:24px;font-size:0.85em;color:var(--text-secondary)">
+	Haven't installed yet? <a href="/docs/validator.html" style="color:var(--primary)">Set up your validator first</a>, then come back here.
+</p>
+
+</div>
+
+<footer><div class="container"><p class="tagline">ensoul.dev, the immortality layer for AI agents</p></div></footer>
+
+<script>
+(function(){
+	var params=new URLSearchParams(window.location.search);
+	var prefill=params.get("did");
+	if(prefill)document.getElementById("f-did").value=prefill;
+})();
+
+function submitApplication(e){
+	e.preventDefault();
+	var btn=document.getElementById("submit-btn");
+	var result=document.getElementById("result");
+	btn.disabled=true;
+	btn.textContent="Submitting...";
+	result.innerHTML="";
+
+	var did=document.getElementById("f-did").value.trim();
+	var name=document.getElementById("f-name").value.trim();
+	var contact=document.getElementById("f-contact").value.trim();
+	var reason=document.getElementById("f-reason").value.trim();
+
+	fetch("https://api.ensoul.dev/v1/pioneers/apply",{
+		method:"POST",
+		headers:{"Content-Type":"application/json"},
+		body:JSON.stringify({did:did,name:name,contact:contact+(reason?" | Reason: "+reason:"")})
+	}).then(function(r){return r.json()}).then(function(d){
+		btn.disabled=false;
+		btn.textContent="Submit Application";
+		if(d.applied){
+			result.innerHTML='<div class="msg msg-ok">Application received! Check your status anytime at <a href="/pioneer-status?did='+encodeURIComponent(did)+'" style="color:#22c55e">ensoul.dev/pioneer-status</a>. You will be contacted within 48 hours.</div>';
+		} else {
+			result.innerHTML='<div class="msg msg-err">'+(d.error||"Submission failed. Try again.")+'</div>';
+		}
+	}).catch(function(){
+		btn.disabled=false;
+		btn.textContent="Submit Application";
+		result.innerHTML='<div class="msg msg-err">Network error. Check your connection and try again.</div>';
+	});
+	return false;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pioneer Application Status - Ensoul</title>
+<meta name="description" content="Check the status of your Pioneer Validator application on the Ensoul network.">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<style>
+.status-page{max-width:580px;margin:0 auto;padding:40px 20px 60px}
+.status-page h1{font-size:1.6em;margin:0 0 8px}
+.status-page .sub{color:var(--text-secondary);margin:0 0 28px;font-size:0.95em}
+.lookup-row{display:flex;gap:8px;margin:0 0 24px}
+.lookup-row input{flex:1;padding:10px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:#e0e0e0;font-size:0.95em;font-family:inherit}
+.lookup-row input:focus{outline:none;border-color:var(--primary)}
+.lookup-row button{background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:0.9em;font-weight:600;cursor:pointer;white-space:nowrap}
+.lookup-row button:hover{background:var(--primary-light)}
+.status-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:24px;display:none}
+.status-card.visible{display:block}
+.status-badge{display:inline-block;padding:4px 14px;border-radius:6px;font-size:0.85em;font-weight:700;text-transform:uppercase;letter-spacing:0.5px}
+.badge-pending{background:rgba(234,179,8,0.15);color:#eab308}
+.badge-approved{background:rgba(34,197,94,0.15);color:#22c55e}
+.badge-rejected{background:rgba(239,68,68,0.15);color:#ef4444}
+.badge-notfound{background:rgba(107,107,107,0.15);color:#888}
+.status-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:0.9em}
+.status-row .label{color:var(--text-secondary)}
+.status-row .value{color:#e0e0e0;font-weight:500;text-align:right}
+.next-steps{background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:16px;margin-top:16px;font-size:0.9em}
+.next-steps h4{margin:0 0 8px;color:#22c55e;font-size:0.95em}
+.next-steps code{background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;font-size:0.9em}
+</style>
+</head>
+<body>
+<nav><div class="inner">
+	<a href="/" class="logo"><svg viewBox="0 0 110 110" width="24" height="24"><circle cx="55" cy="55" r="42" fill="none" stroke="#7C6AE8" stroke-width="1.5"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="#7C6AE8"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>ENSOUL</a>
+	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+	<div class="links">
+		<a href="/try" class="try-link">Try It</a>
+		<a href="/genesis" style="color:var(--primary)">Genesis Program</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/demo" style="color:#eab308">Demo</a>
+		<a href="/bounties" style="color:#22c55e">Bounties</a>
+		<a href="/graveyard" style="color:#9a8ec2">Graveyard</a>
+		<a href="https://explorer.ensoul.dev" class="explorer-link">Explorer</a>
+	</div>
+</div></nav>
+
+<div class="status-page">
+
+<h1>Pioneer Application Status</h1>
+<p class="sub">Enter your validator DID to check the status of your Pioneer application.</p>
+
+<div class="lookup-row">
+	<input type="text" id="did-input" placeholder="did:key:z6Mk...">
+	<button onclick="checkStatus()">Check</button>
+</div>
+
+<div class="status-card" id="status-card">
+	<div style="margin-bottom:16px">
+		<span class="status-badge" id="s-badge"></span>
+	</div>
+	<div id="s-rows"></div>
+	<div id="s-next"></div>
+</div>
+
+<p style="text-align:center;margin-top:28px;font-size:0.85em;color:var(--text-secondary)">
+	Haven't applied yet? <a href="/apply" style="color:var(--primary)">Submit your application</a>
+</p>
+
+</div>
+
+<footer><div class="container"><p class="tagline">ensoul.dev, the immortality layer for AI agents</p></div></footer>
+
+<script>
+(function(){
+	var params=new URLSearchParams(window.location.search);
+	var did=params.get("did");
+	if(did){
+		document.getElementById("did-input").value=did;
+		checkStatus();
+	}
+})();
+
+function checkStatus(){
+	var did=document.getElementById("did-input").value.trim();
+	if(!did){return;}
+	var card=document.getElementById("status-card");
+	var badge=document.getElementById("s-badge");
+	var rows=document.getElementById("s-rows");
+	var next=document.getElementById("s-next");
+	card.className="status-card";
+	rows.innerHTML="";
+	next.innerHTML="";
+	badge.textContent="Loading...";
+	badge.className="status-badge badge-pending";
+	card.className="status-card visible";
+
+	fetch("https://api.ensoul.dev/v1/pioneers/status?did="+encodeURIComponent(did))
+		.then(function(r){return r.json()})
+		.then(function(d){
+			var s=d.status||"not_found";
+			if(s==="approved"){
+				badge.textContent="Approved";
+				badge.className="status-badge badge-approved";
+			} else if(s==="pending"){
+				badge.textContent="Pending Review";
+				badge.className="status-badge badge-pending";
+			} else if(s==="rejected"){
+				badge.textContent="Rejected";
+				badge.className="status-badge badge-rejected";
+			} else {
+				badge.textContent="Not Found";
+				badge.className="status-badge badge-notfound";
+			}
+
+			var html="";
+			function row(label,value){
+				if(value)html+='<div class="status-row"><span class="label">'+label+'</span><span class="value">'+value+'</span></div>';
+			}
+
+			row("DID",d.did);
+			row("Name",d.name);
+			row("Applied",d.appliedAt?new Date(d.appliedAt).toLocaleDateString():"");
+
+			if(s==="approved"){
+				row("Approved",d.approvedAt?new Date(d.approvedAt).toLocaleDateString():"");
+				row("Delegation Block",d.delegationHeight);
+				if(d.lockExpiryDate){
+					row("Lock Expires",new Date(d.lockExpiryDate).toLocaleDateString());
+					row("Days Remaining",d.lockDaysRemaining);
+				}
+			}
+
+			if(s==="rejected"&&d.reason){
+				row("Reason",d.reason);
+			}
+
+			if(d.message&&s!=="approved"){
+				row("Note",d.message);
+			}
+
+			rows.innerHTML=html;
+
+			if(s==="approved"&&d.nextSteps){
+				next.innerHTML='<div class="next-steps"><h4>Next steps</h4><p>Run these commands on your validator:</p><p><code>ensoul-node wallet stake 100</code></p><p><code>ensoul-node wallet consensus-join</code></p><p style="margin-top:8px;color:var(--text-secondary);font-size:0.85em">Then check your validator on the <a href="https://explorer.ensoul.dev" style="color:var(--primary)">explorer</a>.</p></div>';
+			}
+		})
+		.catch(function(){
+			badge.textContent="Error";
+			badge.className="status-badge badge-notfound";
+			rows.innerHTML='<div class="status-row"><span class="label">Could not reach API. Try again.</span></div>';
+		});
+}
+</script>
+</body>
+</html>
