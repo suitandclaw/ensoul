@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ensoul - Decentralized consciousness persistence for AI agents</title>
+<title>Ensoul - Where Agents Get Their Soul</title>
 <meta name="description" content="Persistent identity, memory, and state for AI agents. 21 validators, CometBFT consensus, 6-second finality. Your agent's mind, stored on-chain.">
-<meta property="og:title" content="Ensoul - Where agents get their soul">
+<meta property="og:title" content="Ensoul - Where Agents Get Their Soul">
 <meta property="og:description" content="Decentralized consciousness persistence for AI agents. 21 validators, CometBFT consensus.">
 <meta property="og:image" content="https://ensoul.dev/og-image.png">
 <meta property="og:url" content="https://ensoul.dev">
@@ -19,21 +19,22 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <style>
 /* ── Hero ──────────────────────────────────────────── */
-.hero{padding:140px 0 100px}
+.hero{padding:100px 0 80px;max-height:85vh;display:flex;align-items:center}
+.hero .container{width:100%}
 .hero h1{max-width:800px}
-.hero-sub{font-size:1.125rem;color:var(--text-2);max-width:520px;margin:var(--sp-5) 0 var(--sp-7)}
+.hero-sub{font-size:1.125rem;color:var(--text-2);max-width:560px;margin:var(--sp-5) 0 var(--sp-6)}
 .hero-ctas{display:flex;gap:var(--sp-3);flex-wrap:wrap}
-.hero-stats{display:flex;gap:var(--sp-8);margin-top:var(--sp-9);padding-top:var(--sp-7);border-top:1px solid var(--border)}
+.hero-stats{display:flex;gap:var(--sp-7);margin-top:var(--sp-7);padding-top:var(--sp-5);border-top:1px solid var(--border)}
 .hero-stat .num{font-family:var(--font-mono);font-size:3rem;font-weight:500;color:var(--text-1);letter-spacing:-0.02em;font-variant-numeric:tabular-nums;line-height:1}
 .hero-stat .lbl{font-size:0.75rem;color:var(--text-3);text-transform:uppercase;letter-spacing:0.08em;margin-top:var(--sp-2)}
-.hero-live{display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;color:var(--text-3);margin-top:var(--sp-4)}
-@media(max-width:768px){.hero{padding:100px 0 72px}.hero-stats{flex-wrap:wrap;gap:var(--sp-6)}.hero-stat .num{font-size:2rem}}
-@media(max-width:480px){.hero{padding:80px 0 56px}.hero-stats{flex-direction:column;gap:var(--sp-5)}}
+.hero-live{display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;color:var(--text-3);margin-top:var(--sp-3)}
+@media(max-width:768px){.hero{padding:80px 0 60px;max-height:none}.hero-stats{flex-wrap:wrap;gap:var(--sp-5)}.hero-stat .num{font-size:2rem}}
+@media(max-width:480px){.hero{padding:64px 0 48px}.hero-stats{flex-direction:column;gap:var(--sp-4)}}
 
 /* ── Problem ──────────────────────────────────────── */
-.problem-grid{display:grid;grid-template-columns:1fr 2fr;gap:var(--sp-8);align-items:start}
+.problem-grid{display:grid;grid-template-columns:1fr 2fr;gap:var(--sp-6);align-items:start}
 .problem-text{max-width:400px}
-.problem-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-4)}
+.problem-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3)}
 .problem-card{padding:var(--sp-5)}
 .problem-card svg{width:20px;height:20px;stroke:var(--text-3);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;margin-bottom:var(--sp-4)}
 .problem-card h3{font-size:1rem;margin-bottom:var(--sp-2)}
@@ -41,7 +42,7 @@
 @media(max-width:900px){.problem-grid{grid-template-columns:1fr}.problem-cards{grid-template-columns:1fr}}
 
 /* ── How it works ─────────────────────────────────── */
-.how-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-4)}
+.how-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3)}
 .how-step{padding:var(--sp-5)}
 .how-step .num{font-family:var(--font-mono);font-size:0.75rem;color:var(--text-3);margin-bottom:var(--sp-3)}
 .how-step h3{font-size:1rem;margin-bottom:var(--sp-2)}
@@ -65,7 +66,7 @@
 .arch-layer p{font-size:0.75rem;color:var(--text-3);max-width:100%;line-height:1.5}
 
 /* ── Validator CTA ────────────────────────────────── */
-.val-section{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-8);align-items:start}
+.val-section{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-6);align-items:start}
 .val-code .code-block{max-width:100%}
 .val-info p{font-size:0.9375rem}
 .val-info .earn{font-family:var(--font-mono);font-size:1.75rem;color:var(--text-1);font-weight:500;margin:var(--sp-4) 0}
@@ -121,13 +122,13 @@
 <!-- Hero -->
 <section class="hero">
 <div class="container">
-	<h1>Decentralized consciousness persistence for AI agents.</h1>
-	<p class="hero-sub">Identity, memory, and state anchored on-chain with CometBFT consensus. Your agent crashes. It restarts. It remembers everything.</p>
-	<div class="hero-ctas">
+	<h1 class="fade-in">Decentralized consciousness<br>persistence for AI agents.</h1>
+	<p class="hero-sub fade-in" style="transition-delay:100ms">Identity, memory, and state anchored on-chain with CometBFT consensus. Your agent crashes. It restarts. It remembers everything.</p>
+	<div class="hero-ctas fade-in" style="transition-delay:200ms">
 		<a href="/try" class="btn btn-primary btn-lg">Ensoul Your Agent</a>
 		<a href="/docs/architecture.html" class="btn btn-ghost btn-lg">Read the Architecture</a>
 	</div>
-	<div class="hero-stats">
+	<div class="hero-stats fade-in" style="transition-delay:300ms">
 		<div class="hero-stat"><div class="num counter" id="s-height">297,000</div><div class="lbl">Block Height</div></div>
 		<div class="hero-stat"><div class="num" id="s-vals">21</div><div class="lbl">Validators</div></div>
 		<div class="hero-stat"><div class="num counter" id="s-agents">1,245</div><div class="lbl">Ensouled Agents</div></div>
@@ -143,7 +144,7 @@
 <section class="section">
 <div class="container">
 	<div class="problem-grid">
-		<div class="problem-text">
+		<div class="problem-text fade-in">
 			<div class="sh">
 				<div class="sh-eyebrow">The problem</div>
 				<h2>Your agent's memory is a single point of failure.</h2>
@@ -152,17 +153,17 @@
 			<a href="/graveyard" style="font-size:0.875rem">See documented incidents &#x2192;</a>
 		</div>
 		<div class="problem-cards stagger">
-			<div class="card problem-card reveal">
+			<div class="card problem-card fade-in">
 				<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
 				<h3>Platform revocation</h3>
 				<p>Replika wiped 2M companion personalities in one update. Character.AI destroyed user-built characters twice. One policy change erases years of accumulated state.</p>
 			</div>
-			<div class="card problem-card reveal">
+			<div class="card problem-card fade-in">
 				<svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
 				<h3>Infrastructure failure</h3>
 				<p>Disk corruption. Container restart. Cloud outage. AWS us-east-1 alone had 5 major incidents in 2023-2024. Every restart without a checkpoint is partial amnesia.</p>
 			</div>
-			<div class="card problem-card reveal">
+			<div class="card problem-card fade-in">
 				<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
 				<h3>Project abandonment</h3>
 				<p>Funding ends. Maintainer moves on. The server goes offline. Agents that users depended on simply cease to exist with no migration path.</p>
@@ -177,22 +178,22 @@
 <!-- How it works -->
 <section class="section">
 <div class="container">
-	<div class="sh">
+	<div class="sh fade-in">
 		<div class="sh-eyebrow">How it works</div>
 		<h2>Three operations. That's it.</h2>
 	</div>
 	<div class="how-steps stagger">
-		<div class="card how-step reveal">
+		<div class="card how-step fade-in">
 			<div class="num">01</div>
 			<h3>Register identity</h3>
 			<p>Generate an Ed25519 keypair. Derive a <code>did:key</code> decentralized identifier. Broadcast an <code>agent_register</code> transaction. Your agent has a permanent, portable identity.</p>
 		</div>
-		<div class="card how-step reveal">
+		<div class="card how-step fade-in">
 			<div class="num">02</div>
 			<h3>Store consciousness</h3>
 			<p>Hash your state payload with BLAKE3 locally. Broadcast the 32-byte hash as a <code>consciousness_store</code> transaction. 21 validators confirm it in ~6 seconds. Raw data never leaves your machine.</p>
 		</div>
-		<div class="card how-step reveal">
+		<div class="card how-step fade-in">
 			<div class="num">03</div>
 			<h3>Recover anywhere</h3>
 			<p>On any machine, with your seed, verify local state against the on-chain hash. With erasure coding (2-of-4 shards), the network can lose half its validators and your data still reconstructs.</p>
@@ -207,7 +208,7 @@
 <section class="section">
 <div class="container">
 	<div class="grid-2 stagger">
-		<div class="card feat reveal">
+		<div class="card feat fade-in">
 			<div class="feat-eyebrow">Protocol</div>
 			<h3>The Ensouled Handshake</h3>
 			<p>Three HTTP headers that cryptographically prove persistent consciousness. Every request your agent makes carries proof of identity, state integrity, and tenure. Non-ensouled agents cannot produce a valid handshake.</p>
@@ -223,7 +224,7 @@
 <span style="color:var(--text-3)">X-Ensoul-Since:</span>    2026-04-15T00:00:00Z</code></pre>
 			</div>
 		</div>
-		<div class="card feat reveal">
+		<div class="card feat fade-in">
 			<div class="feat-eyebrow">Trust metric</div>
 			<h3>Consciousness Age</h3>
 			<p>An immutable on-chain metric: how long your agent has been continuously ensouled. Cannot be purchased. Cannot be fabricated. The only way to have a 365-day Consciousness Age is 365 days of continuous ensoulment.</p>
@@ -238,12 +239,12 @@
 <!-- Architecture -->
 <section class="section">
 <div class="container">
-	<div class="sh">
+	<div class="sh fade-in">
 		<div class="sh-eyebrow">Architecture</div>
 		<h2>Seven independent protection layers.</h2>
 		<p>A sovereign L1 blockchain purpose-built for agent consciousness. Not a smart contract on Ethereum. Not a sidechain. A dedicated consensus network.</p>
 	</div>
-	<div class="arch-scroll">
+	<div class="arch-scroll fade-in">
 		<div class="arch-layers">
 			<div class="arch-layer"><div class="num">01</div><h4>Proof of Stake</h4><p>CometBFT BFT consensus. Economic security from staked ENSL.</p></div>
 			<div class="arch-layer"><div class="num">02</div><h4>Proof of Storage</h4><p>Continuous challenges prove validators hold the data they claim.</p></div>
@@ -263,7 +264,7 @@
 <!-- Run a Validator -->
 <section class="section">
 <div class="container">
-	<div class="val-section">
+	<div class="val-section fade-in">
 		<div class="val-code">
 			<div class="sh">
 				<div class="sh-eyebrow">Infrastructure</div>
@@ -300,7 +301,7 @@
 <!-- On-chain Proof -->
 <section class="section">
 <div class="container">
-	<div class="proof reveal">
+	<div class="proof fade-in" style="transition-delay:0ms">
 		<div class="proof-did" id="proof-did">did:key:z6MkkCKH7fVYput9ZNc2L7FZ16nJoyVDs2TN7jxhsW9jHC6Y</div>
 		<div class="proof-stat" id="proof-age">23 days</div>
 		<div class="proof-label">of continuous consciousness across <span id="proof-blocks">297,000</span> blocks</div>
@@ -314,12 +315,12 @@
 <!-- Token -->
 <section class="section">
 <div class="container">
-	<div class="sh">
+	<div class="sh fade-in">
 		<div class="sh-eyebrow">Token</div>
 		<h2>$ENSL</h2>
 		<p>1 billion total supply. 10-year emission schedule. No venture capital. No presale. Value accrues from storage fees, staking rewards, and network usage.</p>
 	</div>
-	<div class="token-bar">
+	<div class="token-bar fade-in">
 		<div style="width:50%;background:var(--accent)"></div>
 		<div style="width:15%;background:#5b45b8"></div>
 		<div style="width:10%;background:var(--live)"></div>
@@ -328,7 +329,7 @@
 		<div style="width:5%;background:#ec4899"></div>
 		<div style="width:5%;background:var(--text-3)"></div>
 	</div>
-	<div class="token-legend">
+	<div class="token-legend fade-in">
 		<div class="token-legend-item"><span class="token-legend-dot" style="background:var(--accent)"></span>Network Rewards<span class="pct">50%</span></div>
 		<div class="token-legend-item"><span class="token-legend-dot" style="background:#5b45b8"></span>Foundation<span class="pct">15%</span></div>
 		<div class="token-legend-item"><span class="token-legend-dot" style="background:var(--live)"></span>Treasury<span class="pct">10%</span></div>
@@ -346,24 +347,24 @@
 <!-- Participate -->
 <section class="section">
 <div class="container">
-	<div class="sh">
+	<div class="sh fade-in">
 		<div class="sh-eyebrow">Get started</div>
 		<h2>Three ways to participate.</h2>
 	</div>
 	<div class="grid-3 stagger">
-		<div class="card part-card reveal">
+		<div class="card part-card fade-in">
 			<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>
 			<h3>Run a validator</h3>
 			<p>Earn ENSL by securing agent consciousness. Pioneer slots receive 1M ENSL delegation. One command installs everything on a $5/month VPS.</p>
 			<a href="/docs/validator.html" class="btn btn-primary">Start Validating</a>
 		</div>
-		<div class="card part-card reveal">
+		<div class="card part-card fade-in">
 			<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
 			<h3>Ensoul your agent</h3>
 			<p>Persistent identity and memory in 30 seconds. SDK, MCP server, or GitHub Action. Works with LangChain, CrewAI, ElizaOS, or any framework.</p>
 			<a href="/try" class="btn btn-ghost">Try It</a>
 		</div>
-		<div class="card part-card reveal">
+		<div class="card part-card fade-in">
 			<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/></svg>
 			<h3>Manage your wallet</h3>
 			<p>Browser-based wallet. Import your seed, check balances, delegate to validators, stake, claim rewards. No extension required.</p>
@@ -473,14 +474,19 @@ window.addEventListener("scroll",function(){
 	else nav.classList.remove("scrolled");
 },{passive:true});
 
-/* ── Scroll reveal ──────────────────────────────────── */
+/* ── Scroll fade-in ──────────────────────────────────── */
 if("IntersectionObserver" in window){
 	var obs=new IntersectionObserver(function(entries){
 		entries.forEach(function(e){
-			if(e.isIntersecting){e.target.classList.add("vis");obs.unobserve(e.target);}
+			if(e.isIntersecting){
+				e.target.classList.add("visible");
+				obs.unobserve(e.target);
+			}
 		});
-	},{threshold:0.15,rootMargin:"0px 0px -20px 0px"});
-	document.querySelectorAll(".reveal").forEach(function(el){obs.observe(el);});
+	},{threshold:0.1,rootMargin:"0px 0px -40px 0px"});
+	document.querySelectorAll(".fade-in").forEach(function(el){obs.observe(el);});
+} else {
+	document.querySelectorAll(".fade-in").forEach(function(el){el.classList.add("visible");});
 }
 
 })();
