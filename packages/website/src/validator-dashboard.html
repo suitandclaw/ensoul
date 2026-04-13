@@ -196,6 +196,9 @@ function renderDashboard(){
       html+='<div class="v-stat"><div class="val">'+(s.blocks?s.blocks.total:"--")+'</div><div class="lbl">Blocks Produced</div><div class="ctx">'+(s.blocks?s.blocks.last24h:"--")+' in last 24h</div></div>';
       html+='<div class="v-stat"><div class="val">'+(s.delegators?s.delegators.count:"--")+'</div><div class="lbl">Delegators</div><div class="ctx">'+(s.delegators?s.delegators.totalDelegated:"--")+' delegated</div></div>';
       html+='</div>';
+
+      // Pioneer status check
+      html+='<div id="pioneer-status-'+i+'" style="margin-top:12px"></div>';
     } else {
       html+='<div class="status-msg" style="color:#888">Loading stats...</div>';
     }
@@ -211,6 +214,23 @@ function renderDashboard(){
   html+='<div class="share-url">Shareable link: <a href="'+shareUrl+'">'+shareUrl+'</a></div>';
 
   app.innerHTML=html;
+
+  // Check Pioneer status for each validator
+  validators.forEach(function(v,i){
+    var container=document.getElementById("pioneer-status-"+i);
+    if(!container)return;
+    fetch(API+"/v1/pioneers/status?did="+encodeURIComponent(v.did))
+      .then(function(r){return r.json()})
+      .then(function(d){
+        if(d.status==="approved"){
+          var daysLeft=d.lockDaysRemaining||0;
+          var expiry=d.lockExpiryDate?new Date(d.lockExpiryDate).toLocaleDateString():"unknown";
+          container.innerHTML='<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:12px;font-size:0.85em"><span style="color:#22c55e;font-weight:700">Pioneer Validator</span> | Delegation locked until '+expiry+' ('+daysLeft+' days remaining)</div>';
+        } else if(d.status==="pending"){
+          container.innerHTML='<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.2);border-radius:8px;padding:12px;font-size:0.85em"><span style="color:#eab308;font-weight:700">Pioneer Application Pending</span> | Submitted '+new Date(d.appliedAt).toLocaleDateString()+'</div>';
+        }
+      }).catch(function(){});
+  });
 }
 
 function fmt(n){if(n>=1e9)return(n/1e9).toFixed(1)+"B";if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1e3)return(n/1e3).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,",");return String(Math.floor(n))}

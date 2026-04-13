@@ -665,7 +665,8 @@ async function refreshDelegations(){
       var shortDid=del.validator?del.validator.slice(0,16)+"..."+del.validator.slice(-6):"?";
       var amtEnsl=(Number(BigInt(del.amount||"0")/BigInt("1000000000000000000"))).toLocaleString();
       var locked=del.lockedUntil&&del.lockedUntil>Date.now();
-      var lockLabel=locked?"Locked until "+new Date(del.lockedUntil).toLocaleDateString():"Unlocked";
+      var daysLeft=locked?Math.ceil((del.lockedUntil-Date.now())/86400000):0;
+      var lockLabel=locked?"Locked until "+new Date(del.lockedUntil).toLocaleDateString()+" ("+daysLeft+" days remaining)":"Unlocked";
       var catBadge=del.category==="pioneer"?'<span style="background:#d97706;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;margin-left:4px">Pioneer</span>'
         :del.category==="genesis-partners"?'<span style="background:#7C6AE8;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;margin-left:4px">Genesis</span>'
         :del.category==="foundation"?'<span style="background:#6b7280;color:#fff;font-size:0.65em;padding:1px 6px;border-radius:3px;margin-left:4px">Foundation</span>':"";

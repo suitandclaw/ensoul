@@ -1164,6 +1164,49 @@ async function main(): Promise<void> {
 		return { applied: true, message: "Application received. You will be contacted within 48 hours.", did, name };
 	});
 
+	// ── Pioneer Status (public) ─────────────────────────────────
+
+	app.get<{ Querystring: Record<string, string> }>("/v1/pioneers/status", async (req, reply) => {
+		const did = String(req.query["did"] ?? "");
+		if (!did) {
+			return reply.status(400).send({ error: "Required query parameter: did" });
+		}
+
+		const entry = pioneerApps.find((a) => a.did === did);
+		if (!entry) {
+			return { status: "not_found", did, message: "No application found for this DID." };
+		}
+
+		const result: Record<string, unknown> = {
+			status: entry.status,
+			did: entry.did,
+			name: entry.name,
+			appliedAt: entry.appliedAt,
+		};
+
+		if (entry.status === "approved") {
+			result["approvedAt"] = entry.approvedAt;
+			result["delegationHeight"] = entry.delegationHeight;
+			result["delegationHash"] = entry.delegationHash;
+			result["lockedUntil"] = entry.lockedUntil;
+			result["lockExpiryDate"] = entry.lockedUntil ? new Date(entry.lockedUntil).toISOString() : null;
+			const daysRemaining = entry.lockedUntil ? Math.max(0, Math.ceil((entry.lockedUntil - Date.now()) / 86400000)) : 0;
+			result["lockDaysRemaining"] = daysRemaining;
+			result["nextSteps"] = [
+				"Run on your validator:",
+				"  ensoul-node wallet stake 100",
+				"  ensoul-node wallet consensus-join",
+			];
+		} else if (entry.status === "rejected") {
+			result["rejectedAt"] = entry.rejectedAt;
+			result["reason"] = entry.rejectionReason;
+		} else {
+			result["message"] = "Application is pending review. You will be contacted within 48 hours.";
+		}
+
+		return result;
+	});
+
 	// ── Pioneer Approve ─────────────────────────────────────────
 
 	app.post<{ Body: Record<string, unknown> }>("/v1/admin/pioneer-approve", async (req, reply) => {
