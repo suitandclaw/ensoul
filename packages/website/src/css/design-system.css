@@ -70,6 +70,7 @@ body {
 	font-size: 16px;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
+	padding-top: 56px; /* offset for fixed nav */
 }
 
 /* ── Typography ────────────────────────────────────────── */
@@ -152,8 +153,10 @@ pre code { background: none; padding: 0; font-size: inherit; }
 
 /* ── Nav ───────────────────────────────────────────────── */
 .nav {
-	position: sticky;
+	position: fixed;
 	top: 0;
+	left: 0;
+	right: 0;
 	z-index: 1000;
 	background: rgba(9, 9, 11, 0.8);
 	backdrop-filter: blur(12px);
