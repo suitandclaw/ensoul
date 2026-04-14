@@ -316,8 +316,8 @@ body{padding-top:56px}
 <div class="container">
 	<div class="proof fade-in" style="transition-delay:0ms">
 		<div class="proof-did" id="proof-did">did:key:z6MkkCKH7fVYput9ZNc2L7FZ16nJoyVDs2TN7jxhsW9jHC6Y</div>
-		<div class="proof-stat" id="proof-age">23 days</div>
-		<div class="proof-label">of continuous consciousness across <span id="proof-blocks">297,000</span> blocks</div>
+		<div class="proof-stat" id="proof-age">14 days</div>
+		<div class="proof-label">of continuous consciousness across <span id="proof-blocks">207,000</span> blocks</div>
 		<p style="margin:var(--sp-5) auto 0;font-size:0.8125rem;color:var(--text-3);max-width:480px">This is a real agent on the Ensoul network. Its identity, memory, and state have been continuously maintained and verifiable on-chain since registration.</p>
 	</div>
 </div>
@@ -463,20 +463,29 @@ function update(){
 			var daily=Math.round(273000/v);
 			document.getElementById("val-daily").textContent="~"+fmt(daily)+" ENSL/day";
 
-			document.getElementById("proof-blocks").textContent=fmt(h);
+			/* Update proof section with blocks since agent registration */
+			if(window.__proofRegBlock){
+				var blocksSince=h-window.__proofRegBlock;
+				var days=Math.floor(blocksSince/14400);
+				document.getElementById("proof-age").textContent=days+" day"+(days===1?"":"s");
+				document.getElementById("proof-blocks").textContent=blocksSince.toLocaleString();
+			}
 		})
 		.catch(function(){});
 }
 update();
 setInterval(update,30000);
 
-/* ── Proof: fetch real agent data ───────────────────── */
+/* ── Proof: fetch real agent registration block ─────── */
+/* Consciousness age = (current_height - registeredAt) / 14400 blocks/day */
 var proofDid="did:key:z6MkkCKH7fVYput9ZNc2L7FZ16nJoyVDs2TN7jxhsW9jHC6Y";
 fetch(API+"/v1/agents/"+proofDid)
 	.then(function(r){return r.json()})
 	.then(function(d){
-		if(d.consciousnessAge){
-			document.getElementById("proof-age").textContent=d.consciousnessAge+" days";
+		if(d.registeredAt){
+			window.__proofRegBlock=d.registeredAt;
+			/* Trigger recalc in case update() already ran before this promise resolved */
+			update();
 		}
 	}).catch(function(){});
 
