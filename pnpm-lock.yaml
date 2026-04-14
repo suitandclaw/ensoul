@@ -401,6 +401,25 @@ importers:
         specifier: ^2.0.1
         version: 2.0.1
 
+  packages/resurrection-agent:
+    dependencies:
+      '@ensoul-network/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
+      twitter-api-v2:
+        specifier: ^1.18.2
+        version: 1.29.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/sdk:
     dependencies:
       '@noble/ed25519':
