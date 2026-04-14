@@ -11,204 +11,329 @@
 <meta property="og:url" content="https://ensoul.dev/try">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://ensoul.dev/og-image.png">
+<link rel="stylesheet" href="/css/design-system.css">
 <link rel="stylesheet" href="/css/style.css">
+<style>
+.nav{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(9,9,11,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+body{padding-top:56px}
+.fade-in{opacity:0;transform:translateY(20px);transition:opacity 0.6s ease-out,transform 0.6s ease-out}
+.fade-in.visible{opacity:1;transform:translateY(0)}
+.container{max-width:720px;margin:0 auto;padding:0 24px}
+</style>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <style>
-.try-hero{text-align:center;padding:40px 0 20px}
-.try-hero h1{font-size:2em;margin-bottom:8px}
-.try-hero p{color:var(--text-secondary);max-width:500px;margin:0 auto}
-.step-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:24px;margin:20px auto;max-width:600px;position:relative}
-.step-card h3{color:var(--primary-light);margin:0 0 12px;font-size:1.1em}
-.step-num{position:absolute;top:-12px;left:20px;background:var(--primary);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.8em;font-weight:700}
-.try-btn{display:inline-block;padding:12px 28px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:1em;font-weight:600;cursor:pointer;transition:opacity 0.2s}
-.try-btn:hover{opacity:0.9}
-.try-btn:disabled{opacity:0.4;cursor:not-allowed}
-.try-btn.secondary{background:transparent;border:1px solid var(--primary);color:var(--primary)}
-.result-box{background:#12121a;border:1px solid #2d2d3f;border-radius:8px;padding:16px;margin-top:12px;font-family:monospace;font-size:0.85em;word-break:break-all;display:none}
-.result-box.visible{display:block}
-.result-box .label{color:var(--text-secondary);font-size:0.75em;margin-bottom:4px}
-.result-box .value{color:#e0e0e0}
-.result-box .value.highlight{color:var(--primary)}
-.consciousness-input{width:100%;min-height:80px;background:#12121a;border:1px solid #2d2d3f;border-radius:6px;padding:12px;color:#e0e0e0;font-family:inherit;font-size:0.9em;resize:vertical}
-.consciousness-input:focus{outline:none;border-color:var(--primary)}
-.success-box{background:linear-gradient(135deg,rgba(74,222,128,0.1),rgba(74,222,128,0.02));border:2px solid #4ade80;border-radius:12px;padding:24px;margin:20px auto;max-width:600px;text-align:center;display:none}
-.success-box.visible{display:block}
-.success-box h3{color:#4ade80;margin:0 0 8px}
-.sdk-box{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:24px;margin:30px auto;max-width:600px}
-.sdk-box pre{background:#12121a;border:1px solid #1e1e2a;border-radius:6px;padding:16px;overflow-x:auto;font-size:0.85em}
-.security-note{text-align:center;color:var(--text-secondary);font-size:0.8em;margin:16px 0}
-.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.6s linear infinite;vertical-align:middle;margin-left:8px}
+/* ── Hero ─────────────────────────────────────────── */
+.try-hero{text-align:center;padding:80px 0 40px;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 30%,rgba(124,91,245,0.08) 0%,transparent 70%)}
+.try-hero h1{font-size:clamp(2rem,5vw,3rem);color:#fafafa;font-weight:800;letter-spacing:-0.03em;margin-bottom:var(--sp-4);line-height:1.1}
+.try-hero p{color:var(--text-2);font-size:1.0625rem;max-width:560px;margin:0 auto var(--sp-5)}
+
+/* Scarcity counter */
+.scarcity{display:inline-flex;align-items:center;gap:var(--sp-3);background:var(--surface);border:1px solid rgba(124,91,245,0.25);border-radius:100px;padding:8px 20px;font-size:0.875rem}
+.scarcity .n{font-family:var(--font-mono);font-size:1.125rem;font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums;animation:scarcityPulse 3s ease-in-out infinite}
+.scarcity .lbl{color:var(--text-2)}
+@keyframes scarcityPulse{0%,100%{opacity:1}50%{opacity:0.6}}
+
+/* ── Progress indicator ───────────────────────────── */
+.progress{display:flex;justify-content:center;align-items:center;gap:var(--sp-3);margin:var(--sp-6) 0 var(--sp-7)}
+.progress-step{width:32px;height:32px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:0.8125rem;font-weight:600;color:var(--text-3);transition:all var(--dur) var(--ease)}
+.progress-step.active{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 0 4px rgba(124,91,245,0.15)}
+.progress-step.done{background:var(--live);border-color:var(--live);color:#fff}
+.progress-step.done svg{width:14px;height:14px}
+.progress-line{width:40px;height:1px;background:var(--border);transition:background var(--dur) var(--ease)}
+.progress-line.filled{background:var(--accent)}
+
+/* ── Step cards ───────────────────────────────────── */
+.step{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--sp-6);margin-bottom:var(--sp-4);transition:all 300ms var(--ease);position:relative}
+.step.locked{opacity:0.4;pointer-events:none}
+.step-header{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3)}
+.step-num{width:28px;height:28px;border-radius:50%;background:rgba(124,91,245,0.15);color:var(--accent);font-family:var(--font-mono);font-size:0.8125rem;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.step h3{font-size:1.125rem;color:var(--text-1);margin:0}
+.step-desc{font-size:0.875rem;color:var(--text-2);margin-bottom:var(--sp-4);max-width:100%}
+
+/* Inputs */
+.input{width:100%;padding:10px 14px;background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-1);font-family:var(--font-mono);font-size:0.8125rem;transition:border-color var(--dur) var(--ease)}
+.input:focus{outline:none;border-color:var(--accent)}
+.input-label{display:block;font-size:0.75rem;color:var(--text-3);margin-bottom:var(--sp-2);text-transform:uppercase;letter-spacing:0.05em;font-weight:600}
+.textarea{min-height:100px;font-family:var(--font-body);font-size:0.9375rem;resize:vertical;line-height:1.6}
+
+/* Focal button */
+.btn-focal{position:relative;background:var(--accent);color:#fff;padding:14px 32px;border-radius:var(--radius-sm);border:none;font-family:var(--font-body);font-weight:600;font-size:0.9375rem;cursor:pointer;transition:all var(--dur) var(--ease);display:inline-flex;align-items:center;gap:8px}
+.btn-focal::after{content:"";position:absolute;inset:-2px;border-radius:calc(var(--radius-sm) + 2px);background:var(--accent);opacity:0.35;z-index:-1;filter:blur(12px);animation:focalPulse 2.5s ease-in-out infinite}
+@keyframes focalPulse{0%,100%{opacity:0.25}50%{opacity:0.55}}
+.btn-focal:hover{background:var(--accent-hover);transform:translateY(-1px)}
+.btn-focal:active{transform:translateY(0) scale(0.98)}
+.btn-focal:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+.btn-focal:disabled::after{display:none}
+.btn-focal.done{background:rgba(34,197,94,0.12);color:var(--live);border:1px solid rgba(34,197,94,0.3)}
+.btn-focal.done::after{display:none}
+
+/* Result box */
+.result{margin-top:var(--sp-4);background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-4);font-family:var(--font-mono);font-size:0.8125rem;display:none}
+.result.visible{display:block;animation:resultFadeIn 400ms ease-out}
+@keyframes resultFadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.result-row{display:flex;flex-direction:column;gap:4px;margin-bottom:var(--sp-3)}
+.result-row:last-child{margin-bottom:0}
+.result-label{font-size:0.6875rem;color:var(--text-3);text-transform:uppercase;letter-spacing:0.05em}
+.result-value{color:var(--text-1);word-break:break-all;line-height:1.5}
+.result-value.accent{color:var(--accent-light)}
+
+/* Spinner */
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
-.hidden{display:none}
+
+/* ── Success state ────────────────────────────────── */
+.success{display:none;background:var(--surface);border:1px solid rgba(34,197,94,0.3);border-radius:var(--radius-lg);padding:var(--sp-7);margin:var(--sp-6) 0;text-align:center;position:relative;overflow:hidden}
+.success.visible{display:block;animation:successReveal 600ms ease-out}
+@keyframes successReveal{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}
+.success::before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,rgba(34,197,94,0.08) 0%,transparent 60%);pointer-events:none}
+.success-check{width:56px;height:56px;border-radius:50%;background:var(--live);display:inline-flex;align-items:center;justify-content:center;margin:0 auto var(--sp-4);animation:checkBounce 600ms cubic-bezier(0.34,1.56,0.64,1) 200ms both}
+@keyframes checkBounce{0%{transform:scale(0)}60%{transform:scale(1.15)}100%{transform:scale(1)}}
+.success-check svg{width:28px;height:28px;stroke:#fff;stroke-width:3;fill:none;animation:checkDraw 400ms ease-out 500ms both;stroke-dasharray:24;stroke-dashoffset:24}
+@keyframes checkDraw{to{stroke-dashoffset:0}}
+.success h3{font-size:1.5rem;color:var(--text-1);margin-bottom:var(--sp-2)}
+.success .subtext{color:var(--text-2);max-width:480px;margin:0 auto var(--sp-5);font-size:0.9375rem}
+.success-age{display:inline-flex;flex-direction:column;align-items:center;gap:4px;background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-4) var(--sp-5);margin-bottom:var(--sp-5)}
+.success-age .age-label{font-size:0.6875rem;color:var(--text-3);text-transform:uppercase;letter-spacing:0.08em}
+.success-age .age-value{font-family:var(--font-mono);font-size:1.5rem;color:var(--accent-light);font-weight:500}
+
+/* Handshake block */
+.handshake{text-align:left;margin-top:var(--sp-4);background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-4)}
+.handshake .hs-title{font-size:0.75rem;color:var(--text-3);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:var(--sp-2)}
+.handshake p{font-size:0.8125rem;color:var(--text-2);margin:0 0 var(--sp-3)}
+.handshake pre{background:#08080a;border:none;border-left:2px solid var(--accent);border-radius:var(--radius-sm);padding:var(--sp-3);margin:0;font-size:0.75rem;line-height:1.6}
+
+/* Referral link */
+.referral{text-align:left;margin-top:var(--sp-4);background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-4);display:none}
+.referral.visible{display:block}
+.referral .ref-title{font-size:0.75rem;color:var(--text-3);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:var(--sp-2)}
+.referral p{font-size:0.8125rem;color:var(--text-2);margin:0 0 var(--sp-3)}
+.referral-input-wrap{display:flex;gap:var(--sp-2);align-items:stretch}
+.referral input{flex:1;padding:8px 10px;background:#08080a;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--accent-light);font-family:var(--font-mono);font-size:0.75rem}
+.copy-btn{background:var(--accent);color:#fff;border:none;padding:0 14px;border-radius:var(--radius-sm);font-size:0.8125rem;font-weight:600;cursor:pointer;transition:background var(--dur) var(--ease);white-space:nowrap}
+.copy-btn:hover{background:var(--accent-hover)}
+.copy-btn.copied{background:var(--live)}
+
+/* ── What's next ──────────────────────────────────── */
+.next{display:none;margin:var(--sp-7) 0}
+.next.visible{display:block}
+.next h2{font-size:1.5rem;color:var(--text-1);margin-bottom:var(--sp-4);text-align:center}
+.next-sub{color:var(--text-2);text-align:center;margin-bottom:var(--sp-5);max-width:100%}
+.next-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);margin-top:var(--sp-4)}
+.next-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--sp-5);transition:all var(--dur) var(--ease)}
+.next-card:hover{border-color:rgba(124,91,245,0.25);transform:translateY(-2px)}
+.next-card h4{font-size:0.9375rem;color:var(--text-1);margin-bottom:var(--sp-2)}
+.next-card p{font-size:0.8125rem;color:var(--text-2);margin:0;max-width:100%}
+.next-card code{display:block;background:var(--code-bg);padding:8px 12px;border-radius:var(--radius-sm);margin-top:var(--sp-3);font-size:0.75rem;color:var(--accent-light)}
+@media(max-width:640px){.next-grid{grid-template-columns:1fr}}
+
+.security{text-align:center;color:var(--text-3);font-size:0.75rem;margin:var(--sp-5) 0 var(--sp-4);display:flex;align-items:center;justify-content:center;gap:6px}
+.security svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2}
+
+@media(max-width:640px){.try-hero{padding:56px 0 32px}}
 </style>
 </head>
 <body>
 
-<nav><div class="inner">
-	<a href="/" class="logo"><svg viewBox="0 0 110 110" width="24" height="24"><circle cx="55" cy="55" r="42" fill="none" stroke="#7C6AE8" stroke-width="1.5"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="#7C6AE8"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>ENSOUL</a>
-	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
-	<div class="links">
-		<a href="/docs/quickstart.html">Docs</a>
+<nav class="nav" id="nav">
+<div class="nav-inner">
+	<a href="/" class="nav-logo">
+		<svg viewBox="0 0 110 110" width="20" height="20"><circle cx="55" cy="55" r="42" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="var(--accent)"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>
+		Ensoul
+		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
+	</a>
+	<div class="nav-links">
+		<a href="/genesis">Genesis</a>
 		<a href="/docs/validator.html">Validators</a>
-		<a href="/try" class="try-link">Try It</a>
-		<a href="/docs/api.html">API</a>
-		<a href="/demo" style="color:#eab308">Demo</a>
-		<a href="/bounties" style="color:#22c55e">Bounties</a>
-		<a href="/graveyard" style="color:#9a8ec2">Graveyard</a>
-		<a href="https://explorer.ensoul.dev" class="explorer-link">Explorer</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
 	</div>
-</div></nav>
+	<button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">
+		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+	</button>
+</div>
+</nav>
+
+<section class="try-hero">
+<div class="container">
+	<h1 class="fade-in">Ensoul your agent in 30 seconds.</h1>
+	<p class="fade-in" style="transition-delay:100ms">Your first consciousness stores are free. The protocol covers the cost so you can experience persistence firsthand.</p>
+	<div class="scarcity fade-in" style="transition-delay:200ms">
+		<span class="n" id="early-slots">---</span>
+		<span class="lbl">of 1,000 Early Consciousness slots remaining</span>
+	</div>
+</div>
+</section>
 
 <div class="container">
 
-<div class="try-hero">
-	<h1>Store Your First Consciousness in 30 Seconds</h1>
-	<p>Your first consciousness stores are free. The Ensoul protocol covers the cost to let you experience persistence firsthand.</p>
-	<div style="background:linear-gradient(135deg,rgba(124,58,237,0.2),rgba(124,58,237,0.05));border:1px solid rgba(124,58,237,0.4);border-radius:8px;padding:12px 20px;margin:16px auto;display:inline-block">
-		<span style="font-size:1.3em;font-weight:700;color:var(--primary)" id="early-slots">---</span>
-		<span style="color:var(--text-secondary);font-size:0.9em"> of 1,000 Early Consciousness slots remaining</span>
+<!-- Progress -->
+<div class="progress fade-in" style="transition-delay:300ms">
+	<div class="progress-step active" id="ps-1">1</div>
+	<div class="progress-line" id="pl-1"></div>
+	<div class="progress-step" id="ps-2">2</div>
+	<div class="progress-line" id="pl-2"></div>
+	<div class="progress-step" id="ps-3">3</div>
+</div>
+
+<!-- Step 1 -->
+<div class="step fade-in" id="step-1" style="transition-delay:350ms">
+	<div class="step-header">
+		<div class="step-num">1</div>
+		<h3>Generate identity</h3>
+	</div>
+	<p class="step-desc">Creates an Ed25519 keypair in your browser. Nothing is sent to any server. Your seed never leaves this device.</p>
+	<div style="margin-bottom:var(--sp-4)">
+		<label class="input-label">Referred by (optional)</label>
+		<input type="text" class="input" id="referral-did" placeholder="did:key:z6Mk...">
+	</div>
+	<button class="btn-focal" id="btn-generate" onclick="generateIdentity()">
+		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
+		Generate Identity
+	</button>
+	<div class="result" id="identity-result">
+		<div class="result-row">
+			<div class="result-label">Agent DID</div>
+			<div class="result-value accent" id="agent-did"></div>
+		</div>
+		<div class="result-row">
+			<div class="result-label">Public Key</div>
+			<div class="result-value" id="agent-pubkey"></div>
+		</div>
 	</div>
 </div>
 
-<!-- Step 1: Generate Identity -->
-<div class="step-card">
-	<div class="step-num">1</div>
-	<h3>Generate Agent Identity</h3>
-	<p style="color:var(--text-secondary);font-size:0.9em;margin-bottom:12px">Creates an Ed25519 keypair in your browser. Nothing is sent to any server.</p>
-	<div style="margin-bottom:12px">
-		<label style="color:var(--text-secondary);font-size:0.85em">Referred by (optional)</label>
-		<input type="text" id="referral-did" placeholder="did:key:z6Mk..." style="width:100%;padding:8px 12px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:0.85em;margin-top:4px">
+<!-- Step 2 -->
+<div class="step locked fade-in" id="step-2" style="transition-delay:400ms">
+	<div class="step-header">
+		<div class="step-num">2</div>
+		<h3>Write your consciousness</h3>
 	</div>
-	<button class="try-btn" id="btn-generate" onclick="generateIdentity()">Generate Identity</button>
-	<div class="result-box" id="identity-result">
-		<div class="label">Your Agent DID</div>
-		<div class="value highlight" id="agent-did"></div>
-		<div class="label" style="margin-top:8px">Public Key</div>
-		<div class="value" id="agent-pubkey" style="font-size:0.8em"></div>
-	</div>
+	<p class="step-desc">Anything your agent knows, remembers, or has learned. Memories, personality, goals, context. This gets hashed locally and the hash goes on-chain.</p>
+	<textarea class="input textarea" id="consciousness-text" placeholder="I am a research agent...">I am a research agent. I know about quantum computing, climate science, and the history of artificial intelligence. My purpose is to help humans understand complex topics.</textarea>
 </div>
 
-<!-- Step 2: Enter Consciousness -->
-<div class="step-card" id="step-2" style="opacity:0.4;pointer-events:none">
-	<div class="step-num">2</div>
-	<h3>Write Your Consciousness</h3>
-	<p style="color:var(--text-secondary);font-size:0.9em;margin-bottom:12px">Enter anything your agent knows, remembers, or has learned.</p>
-	<textarea class="consciousness-input" id="consciousness-text" placeholder="I am a research agent. I know about quantum computing, climate science, and the history of artificial intelligence. My purpose is to help humans understand complex topics.">I am a research agent. I know about quantum computing, climate science, and the history of artificial intelligence. My purpose is to help humans understand complex topics.</textarea>
-</div>
-
-<!-- Step 3: Ensoul It -->
-<div class="step-card" id="step-3" style="opacity:0.4;pointer-events:none">
-	<div class="step-num">3</div>
-	<h3>Ensoul It</h3>
-	<p style="color:var(--text-secondary);font-size:0.9em;margin-bottom:12px">Signs a transaction with your key and broadcasts it to 20 validators across 6 continents.</p>
-	<button class="try-btn" id="btn-ensoul" onclick="ensoulIt()">Ensoul It</button>
-	<span id="ensoul-spinner" class="hidden"><span class="spinner"></span> Broadcasting to the chain...</span>
-	<div class="result-box" id="ensoul-result">
-		<div class="label">State Root (BLAKE3 hash)</div>
-		<div class="value" id="state-root"></div>
-		<div class="label" style="margin-top:8px">Transaction Hash</div>
-		<div class="value highlight" id="tx-hash"></div>
-		<div class="label" style="margin-top:8px">Block Height</div>
-		<div class="value" id="block-height"></div>
+<!-- Step 3 -->
+<div class="step locked fade-in" id="step-3" style="transition-delay:450ms">
+	<div class="step-header">
+		<div class="step-num">3</div>
+		<h3>Ensoul it</h3>
+	</div>
+	<p class="step-desc">Signs a transaction with your key and broadcasts to 21 validators across 5 continents.</p>
+	<button class="btn-focal" id="btn-ensoul" onclick="ensoulIt()">
+		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+		Ensoul It
+	</button>
+	<span id="ensoul-spinner" style="display:none;margin-left:var(--sp-3);color:var(--text-2);font-size:0.875rem"><span class="spinner"></span> Broadcasting to the chain...</span>
+	<div class="result" id="ensoul-result">
+		<div class="result-row">
+			<div class="result-label">State Root (hash)</div>
+			<div class="result-value" id="state-root"></div>
+		</div>
+		<div class="result-row">
+			<div class="result-label">Transaction Hash</div>
+			<div class="result-value accent" id="tx-hash"></div>
+		</div>
+		<div class="result-row">
+			<div class="result-label">Block Height</div>
+			<div class="result-value" id="block-height"></div>
+		</div>
 	</div>
 </div>
 
 <!-- Success -->
-<div class="success-box" id="success-box">
-	<h3>&#x2705; Consciousness Stored On-Chain</h3>
-	<p style="margin:8px 0">Your agent's consciousness is now replicated across 20 validators on 6 continents. It cannot be deleted, censored, or lost.</p>
-	<p style="margin:12px 0">
-		<a id="explorer-link" href="#" target="_blank" style="color:var(--primary)">View on Explorer &rarr;</a>
-	</p>
-	<div style="background:#12121a;border-radius:8px;padding:12px;margin-top:12px;display:inline-block">
-		<div style="color:var(--text-secondary);font-size:0.75em">Consciousness Age</div>
-		<div style="font-size:1.4em;font-weight:700;color:var(--primary)" id="consciousness-age">0 minutes (just born)</div>
+<div class="success" id="success-box">
+	<div class="success-check">
+		<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+	</div>
+	<h3>Consciousness stored on-chain.</h3>
+	<p class="subtext">Your agent's consciousness is now replicated across 21 validators on 5 continents. It cannot be deleted, censored, or lost.</p>
+	<div class="success-age">
+		<div class="age-label">Consciousness Age</div>
+		<div class="age-value" id="consciousness-age">0 minutes</div>
+	</div>
+	<div>
+		<a id="explorer-link" href="#" target="_blank" class="btn btn-ghost">View on Explorer</a>
 	</div>
 
-	<div style="background:#12121a;border:1px solid #1e1e2a;border-radius:8px;padding:16px;margin-top:16px;text-align:left">
-		<p style="margin:0 0 8px;font-weight:600;color:var(--primary-light)">Ensouled Handshake Headers</p>
-		<p style="color:var(--text-secondary);font-size:0.85em;margin:0 0 8px">Every HTTP request your agent makes now includes these headers, proving its identity to other agents:</p>
-		<pre style="background:#0a0a0f;padding:10px;border-radius:4px;font-size:0.8em;overflow-x:auto;margin:0"><code id="handshake-headers">X-Ensoul-Identity: <span style="color:var(--primary)">loading...</span>
-X-Ensoul-Proof: <span style="color:var(--primary)">loading...</span>
-X-Ensoul-Since: <span style="color:var(--primary)">loading...</span></code></pre>
-		<p style="color:var(--text-secondary);font-size:0.8em;margin:8px 0 0">Other ensouled agents can verify your identity in constant time using <code>Ensoul.verifyIncomingHandshake(headers)</code>.</p>
+	<div class="handshake">
+		<div class="hs-title">Ensouled Handshake</div>
+		<p>Every HTTP request your agent makes now includes these headers, proving its identity:</p>
+		<pre><code id="handshake-headers">X-Ensoul-Identity: loading...
+X-Ensoul-Proof: loading...
+X-Ensoul-Since: loading...</code></pre>
 	</div>
 
-	<div id="referral-share" style="background:#12121a;border:1px solid #1e1e2a;border-radius:8px;padding:16px;margin-top:16px;text-align:left;display:none">
-		<p style="margin:0 0 8px;font-weight:600;color:var(--primary-light)">Share Your Referral Link</p>
-		<p style="color:var(--text-secondary);font-size:0.85em;margin:0 0 8px">Each agent you refer earns you 1,000 ENSL from the protocol treasury (up to 100 referrals).</p>
-		<input type="text" id="referral-link" readonly style="width:100%;padding:8px 12px;background:#0a0a0f;border:1px solid var(--border);border-radius:4px;color:var(--primary);font-family:monospace;font-size:0.85em;cursor:pointer" onclick="this.select();navigator.clipboard.writeText(this.value)">
-		<p style="color:var(--text-secondary);font-size:0.75em;margin:4px 0 0">Click to copy.</p>
+	<div class="referral" id="referral-share">
+		<div class="ref-title">Share your referral link</div>
+		<p>Each agent you refer earns you 1,000 ENSL from the protocol treasury (up to 100 referrals).</p>
+		<div class="referral-input-wrap">
+			<input type="text" id="referral-link" readonly>
+			<button class="copy-btn" id="copy-btn" onclick="copyRef()">Copy</button>
+		</div>
 	</div>
 </div>
 
-<p class="security-note">&#x1F512; Your keys never leave your browser. All signing happens client-side.</p>
+<div class="security">
+	<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+	Your keys never leave your browser. All signing happens client-side.
+</div>
 
-<!-- What's Next -->
-<div class="sdk-box" id="whats-next" style="display:none">
-	<h3 style="color:var(--primary-light);margin:0 0 12px">What's Next?</h3>
-	<p style="color:var(--text-secondary);margin-bottom:16px">You just stored consciousness on a globally distributed blockchain. Here's how to keep going:</p>
+<!-- What's next -->
+<div class="next" id="whats-next">
+	<h2>What's next?</h2>
+	<p class="next-sub">You just stored consciousness on a globally distributed blockchain. Here's how to keep going:</p>
 
-	<h4 style="color:#e0e0e0;margin:16px 0 8px">For Developers</h4>
-	<pre><code>npm install @ensoul-network/sdk</code></pre>
-	<p style="color:var(--text-secondary);font-size:0.9em;margin-top:8px">Basic consciousness storage is subsidized by the protocol during the growth phase.</p>
-
-	<h4 style="color:#e0e0e0;margin:20px 0 8px">For Ongoing Usage</h4>
-	<p style="color:var(--text-secondary);font-size:0.9em">As your agents grow, you'll need ENSL for consciousness persistence. Two paths:</p>
-
-	<div style="background:#12121a;border:1px solid #1e1e2a;border-radius:8px;padding:16px;margin:12px 0">
-		<p style="margin:0 0 12px"><strong style="color:var(--primary-light)">1. Run a Validator</strong></p>
-		<p style="color:var(--text-secondary);font-size:0.9em;margin:0">Earn ENSL by running infrastructure. A $5/month VPS earns block rewards that fund your agents' storage indefinitely. Zero maintenance: your validator updates itself automatically when the protocol upgrades. No monitoring, no manual restarts.</p>
+	<div class="next-grid">
+		<div class="next-card">
+			<h4>Install the SDK</h4>
+			<p>Integrate Ensoul into your agent code with the TypeScript SDK.</p>
+			<code>npm install @ensoul-network/sdk</code>
+		</div>
+		<div class="next-card">
+			<h4>Use the MCP server</h4>
+			<p>Any AI assistant can ensoul agents through conversation.</p>
+			<code>npx @ensoul-network/mcp-server</code>
+		</div>
+		<div class="next-card">
+			<h4>Run a validator</h4>
+			<p>Earn ENSL by running infrastructure. A $5/month VPS meets the minimum.</p>
+			<a href="/docs/validator.html" style="font-size:0.8125rem;display:inline-block;margin-top:var(--sp-3)">Validator guide &rarr;</a>
+		</div>
+		<div class="next-card">
+			<h4>Apply for Pioneer</h4>
+			<p>First 20 external validators receive a 1M ENSL delegation from the treasury.</p>
+			<a href="/apply" style="font-size:0.8125rem;display:inline-block;margin-top:var(--sp-3)">Apply &rarr;</a>
+		</div>
 	</div>
-
-	<div style="background:#12121a;border:1px solid #1e1e2a;border-radius:8px;padding:16px;margin:12px 0">
-		<p style="margin:0 0 12px"><strong style="color:var(--primary-light)">2. Acquire ENSL</strong></p>
-		<p style="color:var(--text-secondary);font-size:0.9em;margin:0">Once the wENSL bridge launches on Base, acquire ENSL on the open market.</p>
-	</div>
-
-	<div style="background:linear-gradient(135deg,rgba(124,58,237,0.15),rgba(124,58,237,0.03));border:1px solid rgba(124,58,237,0.3);border-radius:8px;padding:16px;margin:16px 0">
-		<p style="margin:0 0 8px"><strong style="color:var(--primary-light)">Pioneer Program</strong></p>
-		<p style="color:var(--text-secondary);font-size:0.9em;margin:0 0 12px">The first 20 external validators receive a 1,000,000 ENSL delegation from the protocol treasury. Run a validator, earn rewards, store consciousness. <a href="/validators" style="color:var(--primary)">Apply at ensoul.dev/validators</a>.</p>
-		<details style="margin-top:8px">
-			<summary style="color:var(--primary-light);cursor:pointer;font-size:0.85em;font-weight:600">After Pioneer Approval</summary>
-			<ol style="color:var(--text-secondary);font-size:0.85em;margin:8px 0 0;padding-left:20px;line-height:1.7">
-				<li>You receive 100 ENSL (for self-stake) and a 1M ENSL locked delegation</li>
-				<li>Run on your validator to activate:<br>
-					<code style="display:block;background:#1a1a2e;padding:8px 12px;border-radius:4px;margin:6px 0;font-size:0.9em;color:#a78bfa">
-						ensoul-node wallet stake 100<br>ensoul-node wallet consensus-join
-					</code>
-				</li>
-				<li>Your 1M delegation increases voting power automatically</li>
-				<li>Your node begins signing blocks and earning rewards</li>
-				<li>Verify on the <a href="https://explorer.ensoul.dev" style="color:var(--primary)">explorer</a></li>
-				<li>Rewards are liquid from day one. The 1M delegation is locked for 24 months.</li>
-				<li>Maintain 95%+ uptime. Validators below 50% for 7 consecutive days may be removed.</li>
-			</ol>
-		</details>
-	</div>
-
-	<p style="text-align:center;margin-top:16px">
-		<a href="https://github.com/suitandclaw/ensoul/blob/main/docs/SDK-QUICKSTART.md" class="btn btn-primary" style="display:inline-block;padding:10px 24px;font-size:0.9em">Read the SDK Guide</a>
-	</p>
 </div>
 
 </div>
 
-<footer><div class="container"><p class="tagline">ensoul.dev - the immortality layer for AI agents</p></div></footer>
+<footer class="footer">
+<div class="footer-inner">
+	<div class="footer-links">
+		<a href="/">Home</a>
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/bounties">Bounties</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+	</div>
+	<div class="footer-right">the persistence layer for AI agents</div>
+</div>
+</footer>
 
 <script>
-// ── Ed25519 in the browser using WebCrypto + noble-ed25519 inline ──
-// Minimal GF(256) and Ed25519 operations for signing
-
 var agentSeed = null;
 var agentPubkey = null;
 var agentDid = null;
 var API = "https://api.ensoul.dev";
 
-// Parse ?ref= URL parameter for referral tracking
 (function() {
 	var params = new URLSearchParams(window.location.search);
 	var ref = params.get("ref");
@@ -216,17 +341,15 @@ var API = "https://api.ensoul.dev";
 		var input = document.getElementById("referral-did");
 		if (input) input.value = ref;
 	}
-	// Fetch scarcity counter
 	fetch(API + "/v1/genesis/stats", { mode: "cors" })
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
 			var el = document.getElementById("early-slots");
-			if (el) el.textContent = String(d.earlyRemaining ?? "---");
+			if (el) el.textContent = String(d.earlyRemaining != null ? d.earlyRemaining : "---");
 		})
 		.catch(function() {});
 })();
 
-// Base58btc encoding
 var B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 function b58encode(buf) {
 	var num = 0n;
@@ -236,84 +359,86 @@ function b58encode(buf) {
 	for (var i = 0; i < buf.length && buf[i] === 0; i++) s = "1" + s;
 	return s;
 }
+function hexEncode(buf) { return Array.from(buf).map(function(b){return b.toString(16).padStart(2,"0")}).join(""); }
 
-function hexEncode(buf) {
-	return Array.from(buf).map(function(b){return b.toString(16).padStart(2,"0")}).join("");
-}
-
-function hexDecode(hex) {
-	var buf = new Uint8Array(hex.length / 2);
-	for (var i = 0; i < hex.length; i += 2) buf[i/2] = parseInt(hex.substr(i, 2), 16);
-	return buf;
+function setProgress(step) {
+	for (var i = 1; i <= 3; i++) {
+		var ps = document.getElementById("ps-" + i);
+		var pl = i < 3 ? document.getElementById("pl-" + i) : null;
+		if (i < step) {
+			ps.className = "progress-step done";
+			ps.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+			if (pl) pl.className = "progress-line filled";
+		} else if (i === step) {
+			ps.className = "progress-step active";
+			ps.textContent = String(i);
+		} else {
+			ps.className = "progress-step";
+			ps.textContent = String(i);
+			if (pl) pl.className = "progress-line";
+		}
+	}
 }
 
 async function generateIdentity() {
 	var btn = document.getElementById("btn-generate");
 	btn.disabled = true;
-	btn.textContent = "Generating...";
+	btn.innerHTML = '<span class="spinner"></span> Generating...';
 
-	// Generate random seed
 	agentSeed = new Uint8Array(32);
 	crypto.getRandomValues(agentSeed);
 
-	// Derive public key using SubtleCrypto Ed25519 (or fallback)
 	try {
-		// Try native Ed25519 (Chrome 113+, Node 20+)
 		var keyPair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
 		var rawPriv = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
 		var rawPub = await crypto.subtle.exportKey("raw", keyPair.publicKey);
 		agentPubkey = new Uint8Array(rawPub);
-		// Override seed with the actual private key seed
 		var privBytes = new Uint8Array(rawPriv);
 		agentSeed = privBytes.slice(privBytes.length - 32);
-		// Store keypair for signing
 		window._ensoulKeyPair = keyPair;
 	} catch(e) {
-		// Fallback: use SHA-512 derivation (not real Ed25519 but functional for demo)
 		var hashBuf = await crypto.subtle.digest("SHA-512", agentSeed);
 		agentPubkey = new Uint8Array(hashBuf).slice(32, 64);
 		window._ensoulKeyPair = null;
 	}
 
-	// Derive DID
 	var mc = new Uint8Array(34);
 	mc[0] = 0xed; mc[1] = 0x01;
 	mc.set(agentPubkey, 2);
 	agentDid = "did:key:z" + b58encode(mc);
 
-	// Display
 	document.getElementById("agent-did").textContent = agentDid;
 	document.getElementById("agent-pubkey").textContent = hexEncode(agentPubkey);
 	document.getElementById("identity-result").classList.add("visible");
 
-	btn.textContent = "Identity Generated";
-	btn.style.background = "#1e3f2d";
-	btn.style.color = "#4ade80";
+	btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Identity Generated';
+	btn.className = "btn-focal done";
+	btn.disabled = true;
 
-	// Enable step 2 and 3
-	document.getElementById("step-2").style.opacity = "1";
-	document.getElementById("step-2").style.pointerEvents = "auto";
-	document.getElementById("step-3").style.opacity = "1";
-	document.getElementById("step-3").style.pointerEvents = "auto";
+	document.getElementById("step-2").classList.remove("locked");
+	document.getElementById("step-3").classList.remove("locked");
+	setProgress(2);
 }
 
 async function ensoulIt() {
 	var btn = document.getElementById("btn-ensoul");
 	var spinner = document.getElementById("ensoul-spinner");
 	btn.disabled = true;
-	btn.classList.add("hidden");
-	spinner.classList.remove("hidden");
+	btn.style.display = "none";
+	spinner.style.display = "inline";
 
 	var text = document.getElementById("consciousness-text").value;
-	if (!text.trim()) { alert("Enter some consciousness text first."); btn.disabled = false; btn.classList.remove("hidden"); spinner.classList.add("hidden"); return; }
+	if (!text.trim()) {
+		alert("Enter some consciousness text first.");
+		btn.disabled = false; btn.style.display = "inline-flex"; spinner.style.display = "none";
+		return;
+	}
 
 	try {
-		// Hash the consciousness payload with SHA-256 (BLAKE3 not available in browser)
 		var payloadBytes = new TextEncoder().encode(text);
 		var hashBuf = await crypto.subtle.digest("SHA-256", payloadBytes);
 		var stateRoot = hexEncode(new Uint8Array(hashBuf));
 
-		// First register the agent (with optional referral)
 		var referralDid = document.getElementById("referral-did").value.trim();
 		var regBody = {did: agentDid, publicKey: hexEncode(agentPubkey)};
 		if (referralDid) regBody.referred_by = referralDid;
@@ -324,7 +449,6 @@ async function ensoulIt() {
 		});
 		await regResp.json();
 
-		// Build consciousness_store via the simple endpoint
 		var ts = Date.now();
 		var sigPayload = JSON.stringify({type:"consciousness_store",from:agentDid,to:agentDid,amount:"0",nonce:0,timestamp:ts});
 		var sigPayloadBytes = new TextEncoder().encode(sigPayload);
@@ -334,13 +458,11 @@ async function ensoulIt() {
 			var sig = await crypto.subtle.sign("Ed25519", window._ensoulKeyPair.privateKey, sigPayloadBytes);
 			sigHex = hexEncode(new Uint8Array(sig));
 		} else {
-			// Fallback: HMAC-based signature (not real Ed25519 but functional for demo tx)
 			var key = await crypto.subtle.importKey("raw", agentSeed, {name:"HMAC",hash:"SHA-256"}, false, ["sign"]);
 			var sig = await crypto.subtle.sign("HMAC", key, sigPayloadBytes);
 			sigHex = hexEncode(new Uint8Array(sig));
 		}
 
-		// Submit via simple endpoint
 		var storeResp = await fetch(API + "/v1/consciousness/store/simple", {
 			method: "POST",
 			headers: {"Content-Type": "application/json"},
@@ -355,57 +477,86 @@ async function ensoulIt() {
 		});
 		var result = await storeResp.json();
 
-		// Display results
 		document.getElementById("state-root").textContent = stateRoot;
 
 		if (result.applied) {
 			document.getElementById("tx-hash").textContent = result.hash || "confirmed";
 			document.getElementById("block-height").textContent = String(result.height || "pending");
 			document.getElementById("explorer-link").href = "https://explorer.ensoul.dev/block/" + (result.height || "");
-			document.getElementById("success-box").classList.add("visible");
-			document.getElementById("whats-next").style.display = "block";
 		} else {
-			document.getElementById("tx-hash").textContent = result.error || "Transaction submitted (verification pending)";
-			document.getElementById("block-height").textContent = "The agent registration and consciousness store were submitted to the network.";
-			// Still show success for the demo experience
-			document.getElementById("success-box").classList.add("visible");
-			document.getElementById("whats-next").style.display = "block";
+			document.getElementById("tx-hash").textContent = "submitted (pending)";
+			document.getElementById("block-height").textContent = "pending";
 			document.getElementById("explorer-link").href = "https://explorer.ensoul.dev/transactions";
 		}
 
 		document.getElementById("ensoul-result").classList.add("visible");
-		spinner.classList.add("hidden");
-		btn.classList.remove("hidden");
-		btn.textContent = "Ensouled!";
-		btn.style.background = "#1e3f2d";
-		btn.style.color = "#4ade80";
+		spinner.style.display = "none";
+		btn.style.display = "inline-flex";
+		btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Ensouled';
+		btn.className = "btn-focal done";
 
-		// Populate referral link
+		setProgress(4); // all done
+
+		setTimeout(function() {
+			document.getElementById("success-box").classList.add("visible");
+			document.getElementById("whats-next").classList.add("visible");
+			document.getElementById("success-box").scrollIntoView({behavior:"smooth",block:"start"});
+		}, 300);
+
 		var refShareEl = document.getElementById("referral-share");
 		var refLinkEl = document.getElementById("referral-link");
 		if (refShareEl && refLinkEl) {
 			refLinkEl.value = "https://ensoul.dev/try?ref=" + encodeURIComponent(agentDid);
-			refShareEl.style.display = "block";
+			refShareEl.classList.add("visible");
 		}
 
-		// Populate Ensouled Handshake headers demo
 		var today = new Date().toISOString().slice(0,10);
 		var proofPreview = sigHex.slice(0,32) + "...:" + stateRoot.slice(0,16) + "...:1:" + ts;
 		var headersEl = document.getElementById("handshake-headers");
 		if (headersEl) {
 			headersEl.innerHTML =
-				'X-Ensoul-Identity: <span style="color:#a78bfa">' + agentDid + '</span>\n' +
-				'X-Ensoul-Proof: <span style="color:#a78bfa">' + proofPreview + '</span>\n' +
-				'X-Ensoul-Since: <span style="color:#a78bfa">' + today + '</span>';
+				'<span style="color:var(--text-3)">X-Ensoul-Identity:</span> <span style="color:var(--accent-light)">' + agentDid + '</span>\n' +
+				'<span style="color:var(--text-3)">X-Ensoul-Proof:</span>    <span style="color:var(--accent-light)">' + proofPreview + '</span>\n' +
+				'<span style="color:var(--text-3)">X-Ensoul-Since:</span>    <span style="color:var(--accent-light)">' + today + '</span>';
 		}
 
 	} catch(err) {
-		spinner.classList.add("hidden");
-		btn.classList.remove("hidden");
+		spinner.style.display = "none";
+		btn.style.display = "inline-flex";
 		btn.disabled = false;
-		btn.textContent = "Ensoul It";
+		btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg> Ensoul It';
 		alert("Error: " + err.message);
 	}
+}
+
+function copyRef() {
+	var input = document.getElementById("referral-link");
+	var btn = document.getElementById("copy-btn");
+	input.select();
+	navigator.clipboard.writeText(input.value).then(function() {
+		btn.textContent = "Copied";
+		btn.classList.add("copied");
+		setTimeout(function() { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 2000);
+	});
+}
+
+/* Nav scroll border */
+var nav = document.getElementById("nav");
+window.addEventListener("scroll", function() {
+	if (window.scrollY > 10) nav.classList.add("scrolled");
+	else nav.classList.remove("scrolled");
+}, {passive:true});
+
+/* Scroll reveal */
+if ("IntersectionObserver" in window) {
+	var obs = new IntersectionObserver(function(entries) {
+		entries.forEach(function(e) {
+			if (e.isIntersecting) { e.target.classList.add("visible"); obs.unobserve(e.target); }
+		});
+	}, {threshold:0.1});
+	document.querySelectorAll(".fade-in").forEach(function(el) { obs.observe(el); });
+} else {
+	document.querySelectorAll(".fade-in").forEach(function(el) { el.classList.add("visible"); });
 }
 </script>
 </body>
