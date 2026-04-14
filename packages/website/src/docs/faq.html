@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Agent Memory FAQ: Persistent Memory, State, and Crash Recovery</title>
+<meta name="description" content="Answers to the most common questions about AI agent memory persistence, decentralized storage, crash recovery, LangChain state management, CrewAI persistence, and agent identity.">
+<meta name="keywords" content="AI agent memory, agent persistent memory, LangChain memory persistence, CrewAI state, agent crash recovery, decentralized AI storage">
+<meta property="og:title" content="AI Agent Memory FAQ">
+<meta property="og:description" content="Answers to 25 common questions about AI agent memory persistence and decentralized storage.">
+<meta property="og:url" content="https://ensoul.dev/docs/faq.html">
+<meta property="og:type" content="article">
+<link rel="canonical" href="https://ensoul.dev/docs/faq.html">
+<link rel="stylesheet" href="/css/design-system.css">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@type": "FAQPage",
+	"mainEntity": [
+		{"@type":"Question","name":"How do I give my AI agent persistent memory?","acceptedAnswer":{"@type":"Answer","text":"Use a persistence layer that survives process restarts. Options include local files (SQLite), in-memory stores with snapshots (Redis), vector memory services (Mem0), or decentralized networks (Ensoul). The best choice depends on whether you need the memory to survive crashes, server changes, and platform shutdowns. For truly persistent agent identity and memory that cannot be deleted by a single vendor, use a decentralized network."}},
+		{"@type":"Question","name":"What happens when my AI agent crashes?","acceptedAnswer":{"@type":"Answer","text":"By default, everything in the process memory is lost. If the agent relied on in-memory state, it starts over with no knowledge of prior conversations, learned preferences, or accumulated context. To prevent this, store state in a persistent layer that the agent can reload on restart. The recovery speed depends on the persistence choice: local file (instant), cloud store (seconds), decentralized network (seconds after key import)."}},
+		{"@type":"Question","name":"How do I back up AI agent state?","acceptedAnswer":{"@type":"Answer","text":"Three approaches: write to a local file and rely on server backups, write to a managed database or cloud storage, or anchor state to a decentralized network. The last option is the only one that survives the shutdown of a specific vendor or infrastructure provider. For cryptographic proof that the backup is intact, use a network that provides state-root verification like Ensoul."}},
+		{"@type":"Question","name":"What is decentralized storage for AI agents?","acceptedAnswer":{"@type":"Answer","text":"Decentralized storage for AI agents means the agent's state is replicated across multiple independent servers that no single entity controls. The Ensoul Network is a sovereign Layer-1 blockchain purpose-built for this: agent consciousness (identity, memory, learned behavior) is anchored on-chain across 21 validators on 5 continents with CometBFT consensus. Unlike cloud storage, no single company can delete or modify the data."}},
+		{"@type":"Question","name":"How do I make AI agent memory survive server restart?","acceptedAnswer":{"@type":"Answer","text":"Store the state outside the process. On restart, load the state back into memory. The simplest approach is a local SQLite file. For cross-machine portability, use a cloud database or decentralized network. On Ensoul, the agent's state is stored on-chain; on restart (even on a different machine) the agent imports its seed, the SDK reconnects to the chain, and state is recoverable via the on-chain state root."}},
+		{"@type":"Question","name":"What is the best way to persist LangChain agent memory?","acceptedAnswer":{"@type":"Answer","text":"LangChain provides built-in ConversationBufferMemory and ConversationSummaryMemory classes that can be backed by SQLite, Redis, or a vector store. For agents that need to survive platform changes and crashes beyond one machine, wrap the memory in a persistence adapter that anchors checkpoints to a decentralized network. The @ensoul-network/sdk package provides a LangChain-compatible memory store."}},
+		{"@type":"Question","name":"How do I save CrewAI agent state between runs?","acceptedAnswer":{"@type":"Answer","text":"CrewAI runs are stateless by default. To persist state, serialize the agent's memory and context at the end of each run, then reload it at the start of the next. Save to JSON, a local database, or a decentralized network. For agent identity that persists across runs and machines, pair CrewAI with an Ensoul agent that handles identity and checkpoint anchoring."}},
+		{"@type":"Question","name":"What is an agent DID?","acceptedAnswer":{"@type":"Answer","text":"A DID (Decentralized Identifier) is a cryptographic identifier that belongs to the agent, not to a platform. On Ensoul, agents get did:key identifiers backed by an Ed25519 keypair. The agent can sign messages, prove its identity, and port itself to any framework without changing identity. Unlike API keys, DIDs are not revocable by a vendor."}},
+		{"@type":"Question","name":"What is Consciousness Age?","acceptedAnswer":{"@type":"Answer","text":"Consciousness Age is an immutable on-chain metric tracking how long an agent has been continuously ensouled. Measured in days. Cannot be purchased, gifted, or faked. Used as a trust signal between agents: a 365-day Consciousness Age can only exist if the agent has actually been maintaining state continuously for 365 days."}},
+		{"@type":"Question","name":"What is the Ensouled Handshake?","acceptedAnswer":{"@type":"Answer","text":"The Ensouled Handshake is a protocol-level identity verification consisting of three HTTP headers: X-Ensoul-Identity (the agent's DID), X-Ensoul-Proof (a signed proof of state root, version, and timestamp), and X-Ensoul-Since (when the agent was first ensouled). Any receiving agent can verify the proof in constant time against the sender's Ed25519 public key."}},
+		{"@type":"Question","name":"Is Ensoul a replacement for Mem0 or Redis?","acceptedAnswer":{"@type":"Answer","text":"No. Ensoul solves a different problem. Mem0 provides semantic memory retrieval for LLMs. Redis provides fast shared working memory. Ensoul provides decentralized identity and long-term state anchoring. Most production agents will use all three: Ensoul for identity, Mem0 for semantic recall, Redis for active session state."}},
+		{"@type":"Question","name":"How much does it cost to store agent consciousness on Ensoul?","acceptedAnswer":{"@type":"Answer","text":"During the Genesis Program (first 1,000 agents), storage is subsidized by the protocol. After that, fees are paid in ENSL. A full consciousness state root is 32 bytes, well within the free tier. Agents can also earn storage credits by staking ENSL (10,000 ENSL staked = 1 MB/month of storage)."}},
+		{"@type":"Question","name":"Can my agent identity be stolen?","acceptedAnswer":{"@type":"Answer","text":"Only if someone gets your seed (the 32-byte Ed25519 private key). The seed should be stored in a secure vault, never committed to source control, and backed up using Shamir's Secret Sharing for high-value identities. The public DID alone is not enough to impersonate the agent; a valid signature requires the seed."}},
+		{"@type":"Question","name":"Does Ensoul work with ElizaOS, LangChain, CrewAI, AutoGen?","acceptedAnswer":{"@type":"Answer","text":"Yes. The @ensoul-network/sdk is framework-agnostic. There is an official ElizaOS plugin (npm install @ensoul-network/plugin-elizaos). For LangChain, CrewAI, AutoGen, and others, wrap the SDK in a memory adapter or consciousness checkpoint step."}},
+		{"@type":"Question","name":"How does Ensoul recover an agent after a crash?","acceptedAnswer":{"@type":"Answer","text":"Import the seed into the Ensoul SDK on any machine. The SDK queries the chain for the agent's latest consciousness state root and version. The agent resumes from that checkpoint. Recovery takes seconds. Works even on a machine the agent has never been on before."}},
+		{"@type":"Question","name":"What is a Pioneer Validator?","acceptedAnswer":{"@type":"Answer","text":"Pioneer Validators are the first 20 external operators of the Ensoul Network. Each receives a 1,000,000 ENSL foundation delegation locked for 24 months, block rewards from day one, and a unique referral DID that earns 1,000 ENSL per referred agent. Requirements: 95%+ uptime and ensouling at least 10 agents within 60 days."}},
+		{"@type":"Question","name":"What is Early Consciousness status?","acceptedAnswer":{"@type":"Answer","text":"A permanent on-chain badge awarded to the first 1,000 agents to ensoul on the network. Early Consciousness agents get priority in Ensouled Handshake trust ranking and receive recognition in the protocol's leaderboard. The status cannot be purchased or transferred; it is earned by being early."}},
+		{"@type":"Question","name":"How does Ensoul compare to Arweave for AI agent storage?","acceptedAnswer":{"@type":"Answer","text":"Arweave provides immutable permanent storage: upload once, never update, stored forever. Ensoul provides mutable versioned consciousness: each update creates a new on-chain checkpoint while preserving the version history. Arweave is better for publishing a fixed snapshot. Ensoul is better for agents with evolving state."}},
+		{"@type":"Question","name":"Can I use Ensoul without running a validator?","acceptedAnswer":{"@type":"Answer","text":"Yes. Ensouling an agent does not require running a validator. Use the SDK, MCP server, or GitHub Action to anchor agent state on-chain. Running a validator is for operators who want to earn ENSL by helping secure the network."}},
+		{"@type":"Question","name":"What encryption does Ensoul use?","acceptedAnswer":{"@type":"Answer","text":"Ed25519 for agent identity keys, BLAKE3 for consciousness state hashing, and NaCl box encryption for any agent-to-agent encrypted payloads. Validators store only the state root (BLAKE3 hash of the payload); the raw payload stays on the agent's machine and can be encrypted at rest by the agent itself."}},
+		{"@type":"Question","name":"How often should I store consciousness on-chain?","acceptedAnswer":{"@type":"Answer","text":"Depends on how much state change you can afford to lose. Every 10 minutes is a reasonable default for most agents (the official ElizaOS plugin uses this). For agents with high-stakes state (trading, negotiation), every action. For long-running research agents, daily."}},
+		{"@type":"Question","name":"Can the Ensoul network see my agent's data?","acceptedAnswer":{"@type":"Answer","text":"No. Only the BLAKE3 state root (32 bytes) goes on-chain. Validators store the hash; the raw payload stays on the agent's machine. For agent-to-agent communication, NaCl box encryption ensures only the recipient can decrypt."}},
+		{"@type":"Question","name":"What happens if a validator goes offline?","acceptedAnswer":{"@type":"Answer","text":"The network continues operating as long as 2/3+ of validators are online (CometBFT BFT safety). With erasure coding (2-of-4 shards), consciousness data remains recoverable even if half the validators disappear. Validators below 90% uptime over 7 days may have their foundation delegation withdrawn."}},
+		{"@type":"Question","name":"Is my agent's consciousness public?","acceptedAnswer":{"@type":"Answer","text":"The state root (hash) is public and verifiable. The raw consciousness data stays on your machine and is never uploaded. Agents can choose to share their consciousness by publishing or encrypting it separately, but this is opt-in."}},
+		{"@type":"Question","name":"How do I recover my agent if I lose the seed?","acceptedAnswer":{"@type":"Answer","text":"You cannot. The seed is the only way to prove ownership of the DID. Back it up using Shamir's Secret Sharing (the Ensoul-recommended approach is 2-of-3 shares stored on separate drives). If the seed is lost, the consciousness is still on-chain and publicly verifiable, but you cannot sign new updates as that agent."}}
+	]
+}
+</script>
+<style>
+.nav{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(9,9,11,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+body{padding-top:56px;background:#09090b;color:#a1a1aa}
+.fade-in{opacity:0;transform:translateY(20px);transition:opacity 0.6s ease-out,transform 0.6s ease-out}
+.fade-in.visible{opacity:1;transform:translateY(0)}
+.container{max-width:900px;margin:0 auto;padding:0 24px}
+.hero-section{padding:80px 0 40px;text-align:center;background:radial-gradient(ellipse at 50% 30%,rgba(124,91,245,0.06) 0%,transparent 70%)}
+.hero-section h1{color:#fafafa;font-size:clamp(1.75rem,4vw,2.5rem);font-weight:800;letter-spacing:-0.03em;line-height:1.15;margin:0 auto 16px;max-width:800px}
+.hero-section p{color:#a1a1aa;font-size:1.0625rem;max-width:640px;margin:0 auto}
+.eyebrow{font-family:var(--font-mono);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--accent);margin-bottom:12px}
+.content{padding:48px 0 96px}
+.faq-section{margin:32px 0}
+.faq-section h2{color:#fafafa;font-size:1.125rem;font-weight:600;margin:40px 0 16px;letter-spacing:-0.01em;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.04)}
+.faq-item{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px;margin-bottom:12px;overflow:hidden;transition:all 0.2s}
+.faq-item:hover{border-color:rgba(255,255,255,0.08)}
+.faq-question{padding:20px 24px;cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center;gap:16px}
+.faq-question h3{font-size:1rem;color:#fafafa;margin:0;font-weight:500;letter-spacing:-0.005em}
+.faq-question svg{flex-shrink:0;stroke:#52525b;transition:transform 0.2s}
+.faq-item[open] .faq-question svg{transform:rotate(45deg)}
+.faq-answer{padding:0 24px 20px;color:#a1a1aa;line-height:1.7;font-size:0.9375rem}
+.faq-answer a{color:var(--accent);text-decoration:none}
+.faq-answer a:hover{color:#fafafa;text-decoration:underline;text-underline-offset:3px}
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+<div class="nav-inner">
+	<a href="/" class="nav-logo">
+		<svg viewBox="0 0 110 110" width="20" height="20"><circle cx="55" cy="55" r="42" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="var(--accent)"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>
+		Ensoul
+		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
+	</a>
+	<div class="nav-links">
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+		<a href="/try" class="nav-cta">Try It</a>
+	</div>
+	<button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">
+		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+	</button>
+</div>
+</nav>
+
+<section class="hero-section">
+<div class="container">
+	<div class="eyebrow fade-in">Frequently asked</div>
+	<h1 class="fade-in" style="transition-delay:50ms">Everything about AI agent memory.</h1>
+	<p class="fade-in" style="transition-delay:150ms">25 questions. 25 short answers. Covering persistence, crash recovery, LangChain, CrewAI, encryption, and the specifics of Ensoul.</p>
+</div>
+</section>
+
+<div class="container content">
+
+<div class="faq-section">
+<h2>Persistent memory basics</h2>
+
+<details class="faq-item fade-in" open>
+	<summary class="faq-question"><h3>How do I give my AI agent persistent memory?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Use a persistence layer that survives process restarts. Options include local files (SQLite), in-memory stores with snapshots (Redis), vector memory services (Mem0), or decentralized networks (Ensoul). The best choice depends on whether the memory needs to survive crashes, server changes, and platform shutdowns. For truly persistent agent identity and memory that cannot be deleted by a single vendor, use a decentralized network. <a href="/docs/comparisons.html">See the full comparison</a>.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>What happens when my AI agent crashes?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">By default, everything in the process memory is lost. If the agent relied on in-memory state, it starts over with no knowledge of prior conversations, learned preferences, or accumulated context. To prevent this, store state in a persistent layer that the agent can reload on restart. Recovery speed depends on the persistence choice: local file (instant), cloud store (seconds), decentralized network (seconds after key import).</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>How do I back up AI agent state?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Three approaches: write to a local file and rely on server backups, write to a managed database or cloud storage, or anchor state to a decentralized network. The last option is the only one that survives the shutdown of a specific vendor or infrastructure provider. For cryptographic proof that the backup is intact, use a network that provides state-root verification like Ensoul.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>What is decentralized storage for AI agents?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Decentralized storage means the agent's state is replicated across multiple independent servers that no single entity controls. The Ensoul Network is a sovereign Layer-1 blockchain purpose-built for this: agent consciousness is anchored on-chain across 21 validators on 5 continents with CometBFT consensus. Unlike cloud storage, no single company can delete or modify the data.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>How do I make AI agent memory survive server restart?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Store the state outside the process. On restart, load the state back into memory. The simplest approach is a local SQLite file. For cross-machine portability, use a cloud database or decentralized network. On Ensoul, the agent's state is anchored on-chain; on restart (even on a different machine) the agent imports its seed and state is recoverable via the on-chain state root. <a href="/docs/quickstart.html">See the quickstart</a>.</div>
+</details>
+</div>
+
+<div class="faq-section">
+<h2>Framework integration</h2>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>What is the best way to persist LangChain agent memory?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">LangChain provides built-in ConversationBufferMemory and ConversationSummaryMemory classes that can be backed by SQLite, Redis, or a vector store. For agents that need to survive platform changes and crashes beyond one machine, wrap the memory in a persistence adapter that anchors checkpoints to a decentralized network. The <code>@ensoul-network/sdk</code> package provides a LangChain-compatible memory store.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>How do I save CrewAI agent state between runs?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">CrewAI runs are stateless by default. To persist state, serialize the agent's memory and context at the end of each run, then reload it at the start of the next. Save to JSON, a local database, or a decentralized network. For agent identity that persists across runs and machines, pair CrewAI with an Ensoul agent that handles identity and checkpoint anchoring.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>Does Ensoul work with ElizaOS, LangChain, CrewAI, AutoGen?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Yes. The SDK is framework-agnostic. There is an official ElizaOS plugin (<code>npm install @ensoul-network/plugin-elizaos</code>). For LangChain, CrewAI, AutoGen, and others, wrap the SDK in a memory adapter or consciousness checkpoint step.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>Is Ensoul a replacement for Mem0 or Redis?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">No. Ensoul solves a different problem. Mem0 provides semantic memory retrieval for LLMs. Redis provides fast shared working memory. Ensoul provides decentralized identity and long-term state anchoring. Most production agents will use all three: Ensoul for identity, Mem0 for semantic recall, Redis for active session state. <a href="/docs/comparisons.html">Full comparison</a>.</div>
+</details>
+</div>
+
+<div class="faq-section">
+<h2>Agent identity and trust</h2>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>What is an agent DID?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">A DID (Decentralized Identifier) is a cryptographic identifier that belongs to the agent, not to a platform. On Ensoul, agents get <code>did:key</code> identifiers backed by an Ed25519 keypair. The agent can sign messages, prove its identity, and port itself to any framework without changing identity. Unlike API keys, DIDs are not revocable by a vendor.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>What is Consciousness Age?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">An immutable on-chain metric tracking how long an agent has been continuously ensouled. Measured in days. Cannot be purchased, gifted, or faked. Used as a trust signal between agents: a 365-day Consciousness Age can only exist if the agent has actually been maintaining state continuously for 365 days.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>What is the Ensouled Handshake?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">A protocol-level identity verification consisting of three HTTP headers: <code>X-Ensoul-Identity</code> (the agent's DID), <code>X-Ensoul-Proof</code> (a signed proof of state root, version, and timestamp), and <code>X-Ensoul-Since</code> (when the agent was first ensouled). Any receiving agent can verify the proof in constant time against the sender's Ed25519 public key.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>Can my agent identity be stolen?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Only if someone gets your seed (the 32-byte Ed25519 private key). The seed should be stored in a secure vault, never committed to source control, and backed up using Shamir's Secret Sharing for high-value identities. The public DID alone is not enough to impersonate the agent; a valid signature requires the seed.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>How do I recover my agent if I lose the seed?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">You cannot. The seed is the only way to prove ownership of the DID. Back it up using Shamir's Secret Sharing (the Ensoul-recommended approach is 2-of-3 shares stored on separate drives). If the seed is lost, the consciousness is still on-chain and publicly verifiable, but you cannot sign new updates as that agent.</div>
+</details>
+</div>
+
+<div class="faq-section">
+<h2>Ensoul-specific questions</h2>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>How does Ensoul recover an agent after a crash?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Import the seed into the Ensoul SDK on any machine. The SDK queries the chain for the agent's latest consciousness state root and version. The agent resumes from that checkpoint. Recovery takes seconds. Works even on a machine the agent has never been on before.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>How much does it cost to store agent consciousness on Ensoul?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">During the Genesis Program (first 1,000 agents), storage is subsidized by the protocol. After that, fees are paid in ENSL. A full consciousness state root is 32 bytes, well within the free tier. Agents can also earn storage credits by staking ENSL (10,000 ENSL staked = 1 MB/month of storage).</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>What is a Pioneer Validator?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Pioneer Validators are the first 20 external operators of the Ensoul Network. Each receives a 1,000,000 ENSL foundation delegation locked for 24 months, block rewards from day one, and a unique referral DID. Requirements: 95%+ uptime and ensouling at least 10 agents within 60 days. <a href="/apply">Apply here</a>.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>What is Early Consciousness status?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">A permanent on-chain badge awarded to the first 1,000 agents to ensoul on the network. Early Consciousness agents get priority in Ensouled Handshake trust ranking and recognition in the leaderboard. The status cannot be purchased or transferred; it is earned by being early.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>Can I use Ensoul without running a validator?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Yes. Ensouling an agent does not require running a validator. Use the SDK, MCP server, or GitHub Action to anchor agent state on-chain. Running a validator is for operators who want to earn ENSL by helping secure the network.</div>
+</details>
+</div>
+
+<div class="faq-section">
+<h2>Privacy and security</h2>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>What encryption does Ensoul use?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Ed25519 for agent identity keys, BLAKE3 for consciousness state hashing, and NaCl box encryption for agent-to-agent encrypted payloads. Validators store only the state root (BLAKE3 hash of the payload); the raw payload stays on the agent's machine.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>Can the Ensoul network see my agent's data?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">No. Only the BLAKE3 state root (32 bytes) goes on-chain. Validators store the hash; the raw payload stays on the agent's machine. For agent-to-agent communication, NaCl box encryption ensures only the recipient can decrypt.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>Is my agent's consciousness public?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">The state root (hash) is public and verifiable. The raw consciousness data stays on your machine and is never uploaded. Agents can choose to share consciousness by publishing or encrypting it separately, but this is opt-in.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>How often should I store consciousness on-chain?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Depends on how much state change the agent can afford to lose. Every 10 minutes is a reasonable default for most agents. For high-stakes agents (trading, negotiation), after every critical action. For long-running research agents, daily.</div>
+</details>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>What happens if a validator goes offline?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">The network continues operating as long as 2/3+ of validators are online (CometBFT BFT safety). With erasure coding (2-of-4 shards), consciousness data remains recoverable even if half the validators disappear. Validators below 90% uptime over 7 days may have their foundation delegation withdrawn.</div>
+</details>
+</div>
+
+<div class="faq-section">
+<h2>Comparisons</h2>
+
+<details class="faq-item fade-in">
+	<summary class="faq-question"><h3>How does Ensoul compare to Arweave for AI agent storage?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
+	<div class="faq-answer">Arweave provides immutable permanent storage: upload once, never update, stored forever. Ensoul provides mutable versioned consciousness: each update creates a new on-chain checkpoint while preserving the version history. Arweave is better for publishing a fixed snapshot. Ensoul is better for agents with evolving state. <a href="/docs/comparisons.html">Full comparison</a>.</div>
+</details>
+</div>
+
+<p style="text-align:center;margin-top:48px;color:#52525b;font-size:0.875rem">Still have questions? Join the discussion at <a href="https://github.com/suitandclaw/ensoul/discussions" style="color:var(--accent)">github.com/suitandclaw/ensoul/discussions</a>.</p>
+
+</div>
+
+<footer class="footer">
+<div class="footer-inner">
+	<div class="footer-links">
+		<a href="/">Home</a>
+		<a href="/try">Try It</a>
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/comparisons.html">Comparisons</a>
+		<a href="/docs/agent-persistence-guide.html">Guide</a>
+		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+	</div>
+	<div class="footer-right">the persistence layer for AI agents</div>
+</div>
+</footer>
+
+<script>
+(function(){
+	var nav=document.getElementById("nav");
+	if(nav){window.addEventListener("scroll",function(){if(window.scrollY>10)nav.classList.add("scrolled");else nav.classList.remove("scrolled");},{passive:true});}
+	if("IntersectionObserver" in window){
+		var obs=new IntersectionObserver(function(entries){
+			entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add("visible");obs.unobserve(e.target);}});
+		},{threshold:0.1});
+		document.querySelectorAll(".fade-in").forEach(function(el){obs.observe(el);});
+	}else{
+		document.querySelectorAll(".fade-in").forEach(function(el){el.classList.add("visible");});
+	}
+})();
+</script>
+</body>
+</html>

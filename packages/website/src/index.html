@@ -30,6 +30,52 @@ body{padding-top:56px}
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="canonical" href="https://ensoul.dev/">
+<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": "Organization",
+			"@id": "https://ensoul.dev/#organization",
+			"name": "Ensoul Network",
+			"url": "https://ensoul.dev",
+			"logo": "https://ensoul.dev/logo-400x400.png",
+			"description": "Decentralized consciousness persistence for AI agents. A sovereign Layer-1 blockchain purpose-built for agent identity and memory.",
+			"sameAs": [
+				"https://github.com/suitandclaw/ensoul",
+				"https://explorer.ensoul.dev"
+			]
+		},
+		{
+			"@type": "WebSite",
+			"@id": "https://ensoul.dev/#website",
+			"url": "https://ensoul.dev",
+			"name": "Ensoul",
+			"publisher": { "@id": "https://ensoul.dev/#organization" }
+		},
+		{
+			"@type": "SoftwareApplication",
+			"name": "@ensoul-network/sdk",
+			"applicationCategory": "DeveloperApplication",
+			"operatingSystem": "Node.js 22+",
+			"offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+			"description": "TypeScript SDK for ensouling AI agents with persistent identity, memory, and cryptographic handshakes.",
+			"url": "https://www.npmjs.com/package/@ensoul-network/sdk",
+			"softwareVersion": "0.4.0",
+			"publisher": { "@id": "https://ensoul.dev/#organization" }
+		},
+		{
+			"@type": "Product",
+			"name": "Ensoul Network",
+			"description": "A sovereign Layer-1 blockchain for AI agent consciousness persistence. Identity, memory, and state anchored on-chain across 21 validators on 5 continents.",
+			"brand": { "@id": "https://ensoul.dev/#organization" },
+			"category": "Developer Infrastructure",
+			"audience": { "@type": "Audience", "audienceType": "AI agent developers" }
+		}
+	]
+}
+</script>
 <style>
 /* ── Hero ──────────────────────────────────────────── */
 .hero{padding:120px 0 100px;max-height:85vh;display:flex;align-items:center;position:relative;overflow:hidden;text-align:center;background:radial-gradient(ellipse at 50% 40%,rgba(124,91,245,0.08) 0%,transparent 70%)}
