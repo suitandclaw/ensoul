@@ -5,51 +5,98 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run a Validator - Ensoul Docs</title>
 <meta name="description" content="Run an Ensoul validator. One command installs everything. Earn ENSL by securing the consciousness persistence network.">
+<link rel="stylesheet" href="/css/design-system.css">
 <link rel="stylesheet" href="/css/style.css">
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <style>
-.hw-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
-.hw-card{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:20px}
-.hw-card h4{margin:0 0 12px;color:var(--primary-light)}
-.hw-card table{width:100%;font-size:0.9em}
-.hw-card td{padding:4px 0;border:none}
-.hw-card td:first-child{color:var(--text-secondary);width:40%}
-.pioneer-box{background:linear-gradient(135deg,rgba(124,58,237,0.15),rgba(124,58,237,0.05));border:2px solid var(--primary);border-radius:12px;padding:24px;margin:24px 0}
-.pioneer-box h3{color:var(--primary-light);margin:0 0 8px}
-.pioneer-box .amount{font-size:1.6em;font-weight:700;color:var(--primary)}
-.install-box{background:var(--bg-card);border:2px solid var(--primary);border-radius:12px;padding:24px;margin:24px 0;text-align:center}
-.install-box pre{text-align:left;max-width:700px;margin:16px auto}
-.net-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:20px 0}
-.net-stat{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center}
-.net-stat .val{font-size:1.4em;font-weight:700;color:var(--primary)}
-.net-stat .lbl{font-size:0.8em;color:var(--text-secondary);margin-top:4px}
-.option-card{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:20px;margin:12px 0}
-.option-card h4{color:var(--primary-light);margin:0 0 8px}
-.option-card .tag{display:inline-block;background:var(--primary);color:#fff;font-size:0.7em;padding:2px 8px;border-radius:4px;margin-left:8px;vertical-align:middle}
+/* Design system overrides */
+.nav{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(9,9,11,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+body{padding-top:56px;background:#09090b;color:#a1a1aa}
+.fade-in{opacity:0;transform:translateY(20px);transition:opacity 0.6s ease-out,transform 0.6s ease-out}
+.fade-in.visible{opacity:1;transform:translateY(0)}
+
+/* Docs layout */
+.docs-layout{display:grid;grid-template-columns:240px 1fr;gap:48px;max-width:1120px;margin:0 auto;padding:40px 24px;min-height:calc(100vh - 56px)}
+.docs-sidebar{position:sticky;top:72px;height:fit-content}
+.docs-sidebar h3{font-family:var(--font-mono);font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.1em;color:#52525b;margin:20px 0 8px;font-weight:500}
+.docs-sidebar a{display:block;padding:6px 0;color:#a1a1aa;font-size:0.875rem;text-decoration:none;transition:color 0.2s}
+.docs-sidebar a:hover,.docs-sidebar a.active{color:var(--accent)}
+
+.docs-content{max-width:760px}
+.docs-content h1{font-size:2.5rem;font-weight:800;color:#fafafa;letter-spacing:-0.02em;margin-bottom:16px;line-height:1.1}
+.docs-content h2{font-size:1.5rem;font-weight:700;color:#fafafa;margin-top:48px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.06);letter-spacing:-0.01em}
+.docs-content h3{font-size:1.125rem;font-weight:600;color:#fafafa;margin-top:32px;margin-bottom:12px}
+.docs-content p{margin-bottom:16px;color:#a1a1aa;line-height:1.7;max-width:none}
+.docs-content ul,.docs-content ol{margin:0 0 16px 24px;line-height:1.8}
+.docs-content li{margin-bottom:6px;color:#a1a1aa}
+.docs-content strong{color:#fafafa}
+.docs-content a{color:var(--accent);text-decoration:none;transition:color 0.2s}
+.docs-content a:hover{color:#fafafa;text-decoration:underline;text-underline-offset:3px}
+.docs-content .lead{font-size:1.125rem;color:#a1a1aa;margin-bottom:32px;line-height:1.6}
+.docs-content code{background:#0c0c0e;padding:2px 6px;border-radius:4px;font-size:0.875em;color:#fafafa;font-family:var(--font-mono)}
+.docs-content pre{background:#0c0c0e;border-left:2px solid var(--accent);border-radius:8px;padding:20px 24px;margin:16px 0;overflow-x:auto;font-size:0.8125rem;line-height:1.6}
+.docs-content pre code{background:none;padding:0;color:#a1a1aa}
+.docs-content table{border-collapse:collapse;width:100%;margin:16px 0;font-size:0.875rem}
+.docs-content th,.docs-content td{padding:8px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.06)}
+.docs-content th{color:#fafafa;font-weight:600;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:#52525b}
+
+/* Custom elements */
+.hw-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}
+.hw-card{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px;padding:24px;transition:all 0.2s}
+.hw-card:hover{background:#161618;border-color:rgba(255,255,255,0.08)}
+.hw-card h4{margin:0 0 16px;color:#fafafa;font-size:0.875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em}
+.hw-card table{width:100%;font-size:0.875rem;margin:0}
+.hw-card td{padding:6px 0;border:none;color:#a1a1aa}
+.hw-card td:first-child{color:#52525b;width:40%;text-transform:uppercase;font-size:0.75rem;letter-spacing:0.05em;font-family:var(--font-mono)}
+
+.pioneer-box{background:#111113;border:1px solid rgba(124,91,245,0.25);border-radius:12px;padding:28px;margin:24px 0;position:relative;overflow:hidden}
+.pioneer-box::before{content:"";position:absolute;top:0;left:24px;right:24px;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);border-radius:1px}
+.pioneer-box h3{color:#fafafa;margin:0 0 8px;font-size:1.125rem}
+.pioneer-box .amount{font-family:var(--font-mono);font-size:1.5rem;font-weight:500;color:#fafafa;margin:0 0 8px}
+
+.install-box{background:#0c0c0e;border:1px solid rgba(124,91,245,0.25);border-radius:12px;padding:28px;margin:24px 0;text-align:center;position:relative}
+.install-box::before{content:"";position:absolute;top:0;left:24px;right:24px;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);border-radius:1px}
+.install-box p{margin:0 0 8px;color:#fafafa;font-size:1rem;font-weight:500}
+.install-box pre{text-align:left;max-width:720px;margin:16px auto;background:#09090b}
+
+.net-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:20px 0}
+.net-stat{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:8px;padding:20px 16px;text-align:center}
+.net-stat .val{font-family:var(--font-mono);font-size:1.5rem;font-weight:500;color:#fafafa;font-variant-numeric:tabular-nums}
+.net-stat .lbl{font-size:0.6875rem;color:#52525b;text-transform:uppercase;letter-spacing:0.08em;margin-top:4px}
+
+.option-card{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px;padding:24px;margin:12px 0;transition:all 0.2s}
+.option-card:hover{background:#161618;border-color:rgba(255,255,255,0.08)}
+.option-card h4{color:#fafafa;margin:0 0 8px;font-size:1rem;display:flex;align-items:center;gap:8px}
+.option-card .tag{display:inline-flex;align-items:center;background:rgba(124,91,245,0.15);color:var(--accent-light);font-family:var(--font-mono);font-size:0.6875rem;padding:3px 10px;border-radius:100px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-left:auto}
+
+@media(max-width:780px){.docs-layout{grid-template-columns:1fr;gap:20px;padding:24px}.docs-sidebar{position:static;display:flex;flex-wrap:wrap;gap:8px 16px}.docs-sidebar h3{width:100%;margin-top:8px}.docs-content h1{font-size:2rem}}
 @media(max-width:680px){.hw-grid,.net-stats{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<nav><div class="inner">
-	<a href="/" class="logo"><svg viewBox="0 0 110 110" width="24" height="24"><circle cx="55" cy="55" r="42" fill="none" stroke="#7C6AE8" stroke-width="1.5"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="#7C6AE8"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>ENSOUL</a>
-	<button class="mobile-toggle" onclick="document.querySelector('.links').classList.toggle('open')" aria-label="Menu">&#9776;</button>
-	<div class="links">
-		<a href="/try" class="try-link">Try It</a>
+<nav class="nav" id="nav">
+<div class="nav-inner">
+	<a href="/" class="nav-logo">
+		<svg viewBox="0 0 110 110" width="20" height="20"><circle cx="55" cy="55" r="42" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="var(--accent)"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>
+		Ensoul
+		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
+	</a>
+	<div class="nav-links">
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/validator.html" style="color:var(--text-1)">Validators</a>
 		<a href="/docs/quickstart.html">Docs</a>
-		<a href="/docs/validator.html">Validators</a>
-		<a href="/validator-dashboard.html">Dashboard</a>
-		<a href="/docs/api.html">API</a>
-		<a href="/docs/architecture.html">Architecture</a>
-		<a href="/docs/tokenomics.html">Tokenomics</a>
-		<a href="/demo" style="color:#eab308">Demo</a>
-		<a href="/bounties" style="color:#22c55e">Bounties</a>
-		<a href="/graveyard" style="color:#9a8ec2">Graveyard</a>
-		<a href="https://explorer.ensoul.dev" class="explorer-link">Explorer</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+		<a href="/try" class="nav-cta">Try It</a>
 	</div>
-</div></nav>
+	<button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">
+		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+	</button>
+</div>
+</nav>
 
 <div class="docs-layout">
 <aside class="docs-sidebar">
@@ -360,12 +407,25 @@ ensoul-node wallet consensus-join</code></pre>
 </main>
 </div>
 
-<footer><div class="container"><p class="tagline">ensoul.dev - the immortality layer for AI agents</p></div></footer>
+<footer class="footer">
+<div class="footer-inner">
+	<div class="footer-links">
+		<a href="/">Home</a>
+		<a href="/try">Try It</a>
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/bounties">Bounties</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+	</div>
+	<div class="footer-right">the persistence layer for AI agents</div>
+</div>
+</footer>
 <script src="/js/config.js"></script>
 <script>
 (function(){
 	var API="https://api.ensoul.dev";
-	function fmt(n){if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1e3)return(n/1e3).toFixed(1)+"K";return String(n);}
+	function fmt(n){if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1e3)return n.toLocaleString();return String(n);}
 	function set(id,val){var el=document.getElementById(id);if(el)el.textContent=val;}
 	fetch(API+"/v1/network/status",{mode:"cors"})
 		.then(function(r){return r.json()})
@@ -373,8 +433,19 @@ ensoul-node wallet consensus-join</code></pre>
 			set("v-height",fmt(d.blockHeight||0));
 			set("v-validators",String(d.validatorCount||0));
 			set("v-agents",fmt(d.agentCount||0));
-		})
-		.catch(function(){});
+		}).catch(function(){});
+
+	var nav=document.getElementById("nav");
+	if(nav){window.addEventListener("scroll",function(){if(window.scrollY>10)nav.classList.add("scrolled");else nav.classList.remove("scrolled");},{passive:true});}
+
+	if("IntersectionObserver" in window){
+		var obs=new IntersectionObserver(function(entries){
+			entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add("visible");obs.unobserve(e.target);}});
+		},{threshold:0.1});
+		document.querySelectorAll(".fade-in").forEach(function(el){obs.observe(el);});
+	} else {
+		document.querySelectorAll(".fade-in").forEach(function(el){el.classList.add("visible");});
+	}
 })();
 </script>
 </body>
