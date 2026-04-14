@@ -164,11 +164,14 @@ function loadLeaderboard(){
 		})
 		.catch(function(){});
 
-	fetch(API+"/v1/genesis/stats",{mode:"cors"})
+	fetch(API+"/v1/network/status",{mode:"cors"})
 		.then(function(r){return r.json()})
 		.then(function(d){
 			var el=document.getElementById('lb-remaining');
-			if(el)el.textContent=String(d.earlyRemaining??'---');
+			if(el){
+				var remaining=Math.max(0,1000-(d.agentCount||0));
+				el.textContent=remaining.toLocaleString();
+			}
 		})
 		.catch(function(){});
 }

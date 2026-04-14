@@ -220,16 +220,13 @@ body{padding-top:56px}
 	function set(id,val){var el=document.getElementById(id);if(el)el.textContent=val;}
 	function fmt(n){if(n>=1e6)return(n/1e6).toFixed(1)+"M";if(n>=1e3)return n.toLocaleString();return String(n);}
 
-	fetch(API+"/v1/genesis/stats",{mode:"cors"})
-		.then(function(r){return r.json()})
-		.then(function(d){
-			set("g-remaining",String(d.earlyRemaining!=null?d.earlyRemaining:"---"));
-			set("g-agents",fmt(d.totalAgents||0));
-		}).catch(function(){});
-
 	fetch(API+"/v1/network/status",{mode:"cors"})
 		.then(function(r){return r.json()})
 		.then(function(d){
+			var agents=d.agentCount||0;
+			var remaining=Math.max(0,1000-agents);
+			set("g-remaining",remaining.toLocaleString());
+			set("g-agents",fmt(agents));
 			set("g-validators",String(d.validatorCount||0));
 			set("g-height",fmt(d.blockHeight||0));
 			var valCount=d.validatorCount||21;

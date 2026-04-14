@@ -341,11 +341,13 @@ var API = "https://api.ensoul.dev";
 		var input = document.getElementById("referral-did");
 		if (input) input.value = ref;
 	}
-	fetch(API + "/v1/genesis/stats", { mode: "cors" })
+	fetch(API + "/v1/network/status", { mode: "cors" })
 		.then(function(r) { return r.json(); })
 		.then(function(d) {
 			var el = document.getElementById("early-slots");
-			if (el) el.textContent = String(d.earlyRemaining != null ? d.earlyRemaining : "---");
+			var agents = d.agentCount || 0;
+			var remaining = Math.max(0, 1000 - agents);
+			if (el) el.textContent = remaining.toLocaleString();
 		})
 		.catch(function() {});
 })();

@@ -390,15 +390,26 @@ pre code { background: none; padding: 0; font-size: inherit; }
 /* ── Accessibility ─────────────────────────────────────── */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* ── Mobile-safe overflow handling ─────────────────────── */
+img, svg, video { max-width: 100%; height: auto; }
+pre, code { word-break: normal; }
+pre { max-width: 100%; overflow-x: auto; }
+table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.card, .card-flat { overflow: hidden; }
+
 /* ── Responsive type ───────────────────────────────────── */
 @media (max-width: 768px) {
 	h1 { font-size: 2.5rem; }
 	h2 { font-size: 1.75rem; }
 	.section { padding: var(--sp-8) 0; }
+	.btn, .btn-lg { min-height: 44px; } /* touch target */
 }
 @media (max-width: 480px) {
-	h1 { font-size: 2rem; }
+	h1 { font-size: 2rem; line-height: 1.1; }
 	h2 { font-size: 1.5rem; }
 	.section { padding: var(--sp-7) 0; }
 	.container { padding: 0 var(--sp-4); }
+	/* Reduce nav logo size on very narrow */
+	.nav-inner { gap: var(--sp-3); padding: 0 var(--sp-4); }
+	.nav-live { display: none; }
 }
