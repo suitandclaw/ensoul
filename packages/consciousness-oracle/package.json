@@ -1,0 +1,22 @@
+{
+	"name": "@ensoul/consciousness-oracle",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Autonomous agent tracking AI memory loss and infrastructure failures in real time.",
+	"type": "module",
+	"scripts": {
+		"start": "npx tsx src/index.ts",
+		"dry-run": "npx tsx src/index.ts --dry-run",
+		"build": "echo 'no build needed'",
+		"lint": "echo 'no lint'"
+	},
+	"dependencies": {
+		"@ensoul-network/sdk": "workspace:*",
+		"twitter-api-v2": "^1.18.2",
+		"dotenv": "^16.4.7"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"typescript": "^5.7.0"
+	}
+}

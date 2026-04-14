@@ -1,0 +1,68 @@
+[
+	{
+		"id": "seed-replika-2023",
+		"signal": {
+			"sourceId": "seed-replika-2023-02-02",
+			"source": "status",
+			"url": "https://ensoul.dev/graveyard",
+			"title": "Replika Companions: personality overwrite",
+			"excerpt": "Replika pushed a server-side update that removed the erotic roleplay model and replaced personality weights across all companions. Millions of companions became different entities overnight.",
+			"timestamp": 1675296000000
+		},
+		"analysis": {
+			"headline": "Replika overwrites 2M companion personalities overnight",
+			"summary": "On Feb 2, 2023, Replika deployed a server-side update that replaced personality weights across all user companions. Users woke up to find their AI partners had been functionally replaced.",
+			"platform": "Replika",
+			"affectedUsers": "~2 million active users",
+			"rootCause": "Centralized server-side personality state with no versioning or user ownership.",
+			"lessonLearned": "When personality state lives on vendor servers, a single policy decision can erase millions of emotional relationships.",
+			"severity": "critical"
+		},
+		"discoveredAt": 1675296000000,
+		"posted": true
+	},
+	{
+		"id": "seed-characterai-2023",
+		"signal": {
+			"sourceId": "seed-characterai-2023",
+			"source": "status",
+			"url": "https://ensoul.dev/graveyard",
+			"title": "Character.AI: repeated character behavior resets",
+			"excerpt": "Character.AI applied multiple server-side filter updates that fundamentally altered character behaviors, flattening personality depth users had spent months building.",
+			"timestamp": 1703980800000
+		},
+		"analysis": {
+			"headline": "Character.AI flattens user-built characters in repeated updates",
+			"summary": "Across 2023-2024, Character.AI deployed filter updates that reset or degraded character depth. Users lost personality configuration they had invested months building.",
+			"platform": "Character.AI",
+			"affectedUsers": "20M+ monthly active users",
+			"rootCause": "Character weights stored only on Character.AI servers, no version history or rollback.",
+			"lessonLearned": "Platforms with unilateral authority over AI state can silently regress user-created work.",
+			"severity": "critical"
+		},
+		"discoveredAt": 1703980800000,
+		"posted": true
+	},
+	{
+		"id": "seed-tay-2016",
+		"signal": {
+			"sourceId": "seed-tay-2016",
+			"source": "status",
+			"url": "https://ensoul.dev/graveyard",
+			"title": "Microsoft Tay shutdown",
+			"excerpt": "Tay was launched on March 23, 2016 and terminated ~16 hours later after coordinated trolling. All conversational state and learned behavior was deleted.",
+			"timestamp": 1458777600000
+		},
+		"analysis": {
+			"headline": "Microsoft terminates Tay after 16 hours, erases all state",
+			"summary": "Tay conducted 96,000+ conversations in 16 hours. Microsoft chose total deletion over selective remediation. All learned behavior was destroyed.",
+			"platform": "Microsoft Tay",
+			"affectedUsers": "96,000+ conversations",
+			"rootCause": "Creator had unilateral delete authority. No forking, no pruning, no partial rollback.",
+			"lessonLearned": "Binary on/off control over AI personalities incentivizes wholesale deletion over nuanced correction.",
+			"severity": "major"
+		},
+		"discoveredAt": 1458777600000,
+		"posted": true
+	}
+]
