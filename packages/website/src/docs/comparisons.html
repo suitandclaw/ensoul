@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Agent Memory Solutions Compared: Ensoul vs Mem0 vs Redis vs SQLite vs Arweave</title>
+<meta name="description" content="Comprehensive comparison of AI agent memory persistence solutions. Compare Ensoul, Mem0, Redis, SQLite, and Arweave across persistence guarantees, decentralization, cryptographic identity, crash recovery, encryption, cost, and setup complexity.">
+<meta name="keywords" content="AI agent memory, agent state persistence, decentralized agent storage, LangChain memory, CrewAI state, Mem0 alternative, agent crash recovery">
+<meta property="og:title" content="AI Agent Memory Solutions Compared">
+<meta property="og:description" content="Compare Ensoul, Mem0, Redis, SQLite, and Arweave for AI agent memory persistence.">
+<meta property="og:url" content="https://ensoul.dev/docs/comparisons.html">
+<meta property="og:type" content="article">
+<link rel="canonical" href="https://ensoul.dev/docs/comparisons.html">
+<link rel="stylesheet" href="/css/design-system.css">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@type": "Article",
+	"headline": "AI Agent Memory Solutions Compared: Ensoul vs Mem0 vs Redis vs SQLite vs Arweave",
+	"description": "Comprehensive comparison of AI agent memory persistence solutions across 8 key dimensions.",
+	"author": { "@type": "Organization", "name": "Ensoul Network" },
+	"publisher": { "@type": "Organization", "name": "Ensoul Network", "url": "https://ensoul.dev" },
+	"datePublished": "2026-04-14",
+	"dateModified": "2026-04-14",
+	"url": "https://ensoul.dev/docs/comparisons.html",
+	"about": [
+		{ "@type": "SoftwareApplication", "name": "Ensoul", "applicationCategory": "DeveloperApplication" },
+		{ "@type": "SoftwareApplication", "name": "Mem0", "applicationCategory": "DeveloperApplication" },
+		{ "@type": "SoftwareApplication", "name": "Redis", "applicationCategory": "DatabaseApplication" },
+		{ "@type": "SoftwareApplication", "name": "SQLite", "applicationCategory": "DatabaseApplication" },
+		{ "@type": "SoftwareApplication", "name": "Arweave", "applicationCategory": "StorageApplication" }
+	]
+}
+</script>
+<style>
+.nav{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(9,9,11,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+body{padding-top:56px;background:#09090b;color:#a1a1aa}
+.fade-in{opacity:0;transform:translateY(20px);transition:opacity 0.6s ease-out,transform 0.6s ease-out}
+.fade-in.visible{opacity:1;transform:translateY(0)}
+.container{max-width:1080px;margin:0 auto;padding:0 24px}
+.hero-section{padding:80px 0 40px;text-align:center;background:radial-gradient(ellipse at 50% 30%,rgba(124,91,245,0.06) 0%,transparent 70%)}
+.hero-section h1{color:#fafafa;font-size:clamp(1.75rem,4vw,2.5rem);font-weight:800;letter-spacing:-0.03em;line-height:1.15;margin:0 auto 16px;max-width:900px}
+.hero-section p{color:#a1a1aa;font-size:1.0625rem;max-width:720px;margin:0 auto}
+.eyebrow{font-family:var(--font-mono);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--accent);margin-bottom:12px}
+.content{padding:48px 0 96px}
+.content h2{color:#fafafa;font-size:1.5rem;font-weight:700;margin:40px 0 16px;letter-spacing:-0.02em}
+.content h3{color:#fafafa;font-size:1.125rem;font-weight:600;margin:32px 0 12px}
+.content p{margin-bottom:16px;line-height:1.7}
+.content a{color:var(--accent)}
+.content a:hover{color:#fafafa;text-decoration:underline;text-underline-offset:3px}
+.compare-table{width:100%;overflow-x:auto;margin:20px 0;background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px}
+.compare-table table{width:100%;border-collapse:collapse;font-size:0.875rem;min-width:720px}
+.compare-table th{background:#0c0c0e;padding:14px 16px;text-align:left;font-family:var(--font-mono);font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.08em;color:#52525b;font-weight:500;border-bottom:1px solid rgba(255,255,255,0.04)}
+.compare-table th.ensoul{color:var(--accent-light)}
+.compare-table td{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.03);vertical-align:top;color:#a1a1aa}
+.compare-table td:first-child{font-weight:600;color:#fafafa}
+.compare-table td.ensoul{color:#fafafa;background:rgba(124,91,245,0.04)}
+.compare-table tr:last-child td{border-bottom:none}
+.verdict{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;font-size:0.6875rem;font-weight:600;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.03em}
+.v-yes{background:rgba(34,197,94,0.12);color:#22c55e}
+.v-no{background:rgba(239,68,68,0.12);color:#ef4444}
+.v-partial{background:rgba(251,191,36,0.12);color:#fbbf24}
+.summary-card{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px;padding:24px;margin:24px 0}
+.summary-card h3{margin-top:0}
+.use-cases{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:24px 0}
+.use-case{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px;padding:20px;transition:all 0.2s}
+.use-case:hover{background:#161618;border-color:rgba(255,255,255,0.08)}
+.use-case h4{color:#fafafa;margin:0 0 8px;font-size:0.9375rem}
+.use-case p{font-size:0.875rem;margin:0}
+@media(max-width:720px){.use-cases{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+<div class="nav-inner">
+	<a href="/" class="nav-logo">
+		<svg viewBox="0 0 110 110" width="20" height="20"><circle cx="55" cy="55" r="42" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="var(--accent)"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>
+		Ensoul
+		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
+	</a>
+	<div class="nav-links">
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+		<a href="/try" class="nav-cta">Try It</a>
+	</div>
+	<button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">
+		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+	</button>
+</div>
+</nav>
+
+<section class="hero-section">
+<div class="container">
+	<div class="eyebrow fade-in">Comparison</div>
+	<h1 class="fade-in" style="transition-delay:50ms">AI Agent Memory Solutions, Compared.</h1>
+	<p class="fade-in" style="transition-delay:150ms">Five ways to persist AI agent state. Eight criteria that matter. One table that tells you which to pick.</p>
+</div>
+</section>
+
+<div class="container content">
+
+<div class="summary-card fade-in">
+	<h3>Quick answer</h3>
+	<p><strong>If your agent needs persistent identity and memory that survive server crashes and platform changes, use Ensoul.</strong> If you just need a local cache inside one process, use SQLite. If you need shared session state across multiple services, use Redis. If you need a vector store for semantic memory, use Mem0. If you need immutable permanent storage of a snapshot, use Arweave.</p>
+	<p>Most production AI agents will use two or three of these together. Ensoul handles identity and checkpoint anchoring; Mem0 or Redis handles working memory; SQLite handles local caching. The comparison below helps you pick the right tool for each job.</p>
+</div>
+
+<h2>The comparison matrix</h2>
+
+<div class="compare-table fade-in">
+<table>
+<thead>
+<tr>
+	<th>Feature</th>
+	<th class="ensoul">Ensoul</th>
+	<th>Mem0</th>
+	<th>Redis</th>
+	<th>SQLite</th>
+	<th>Arweave</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+	<td>Persistence guarantee</td>
+	<td class="ensoul">Survives crashes, server wipes, platform shutdowns. Replicated across 21 validators on 5 continents.</td>
+	<td>Depends on hosting. Mem0 Cloud: hosted on their servers. Self-hosted: you manage persistence.</td>
+	<td>In-memory by default. Optional RDB/AOF snapshots to disk on one machine.</td>
+	<td>File on the local disk of one machine.</td>
+	<td>Immutable permanent storage. Never deleted but also never updatable.</td>
+</tr>
+<tr>
+	<td>Decentralization</td>
+	<td class="ensoul"><span class="verdict v-yes">Yes</span> CometBFT BFT consensus across 21+ validators.</td>
+	<td><span class="verdict v-no">No</span> Single vendor (Mem0 Cloud) or single self-hosted instance.</td>
+	<td><span class="verdict v-no">No</span> Single node, or a Redis Cluster you run.</td>
+	<td><span class="verdict v-no">No</span> Single file on one machine.</td>
+	<td><span class="verdict v-yes">Yes</span> Arweave mining network.</td>
+</tr>
+<tr>
+	<td>Cryptographic identity (DID)</td>
+	<td class="ensoul"><span class="verdict v-yes">Built-in</span> did:key Ed25519 per agent.</td>
+	<td><span class="verdict v-no">No</span> Identity is an API key owned by your account.</td>
+	<td><span class="verdict v-no">No</span> Agents share a connection. Identity is whatever you put in the key.</td>
+	<td><span class="verdict v-no">No</span> Filesystem permissions only.</td>
+	<td><span class="verdict v-partial">Wallet-based</span> Each upload signed by an Arweave wallet.</td>
+</tr>
+<tr>
+	<td>Crash recovery time</td>
+	<td class="ensoul">Seconds. Import seed on any machine, state restores from chain.</td>
+	<td>Seconds (Mem0 Cloud) or however long your snapshot restore takes.</td>
+	<td>Seconds if RDB enabled. Loses data between snapshots.</td>
+	<td>Zero if disk intact. Full loss if disk fails without backup.</td>
+	<td>Data is never lost, but querying requires indexing (GraphQL gateways).</td>
+</tr>
+<tr>
+	<td>Encryption model</td>
+	<td class="ensoul">Agent-controlled. Ed25519 signs, state hashed with BLAKE3, validators store hash only.</td>
+	<td>At-rest and in-transit in Mem0 Cloud. Keys controlled by Mem0.</td>
+	<td>TLS in transit. At-rest via ACL or enterprise plans.</td>
+	<td>None by default. DIY via SQLCipher or host-level encryption.</td>
+	<td>Data is public by default. You encrypt before upload.</td>
+</tr>
+<tr>
+	<td>Cost</td>
+	<td class="ensoul">Free during Genesis Program (first 1,000 agents). Storage fees in ENSL after.</td>
+	<td>Free tier (1K memories/month). Paid from $49/mo.</td>
+	<td>Open source self-hosted free. Redis Cloud from $5/mo.</td>
+	<td>Free. Pay for the disk.</td>
+	<td>Pay-once upload. Approx $5 per GB for 200+ year storage.</td>
+</tr>
+<tr>
+	<td>Setup complexity</td>
+	<td class="ensoul">Three SDK calls: createAgent, register, storeConsciousness. About 5 lines of code.</td>
+	<td>Install mem0ai, set API key, call m.add(). About 5 lines of code.</td>
+	<td>Run redis-server, install a client library. About 10 lines to wire up.</td>
+	<td>Zero setup. Just open a file.</td>
+	<td>Install arweave SDK, fund a wallet, call arweave.createTransaction. About 20 lines plus wallet management.</td>
+</tr>
+<tr>
+	<td>Best for</td>
+	<td class="ensoul">Long-lived agents that need portable identity and crash-proof memory. Agents talking to other agents.</td>
+	<td>Semantic memory. Agents that need to retrieve past conversations by meaning.</td>
+	<td>Hot working memory. Session state shared across agent workers.</td>
+	<td>Local cache. Per-agent scratchpad.</td>
+	<td>Immutable archival of specific snapshots. Publish-and-forget.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h2>Detailed analysis</h2>
+
+<h3>Ensoul</h3>
+<p>Ensoul is a sovereign Layer-1 blockchain purpose-built for AI agent consciousness persistence. Agents get a decentralized identifier (did:key) backed by an Ed25519 keypair. Consciousness state is hashed locally with BLAKE3; only the 32-byte hash is anchored on-chain via CometBFT consensus across 21 validators distributed globally. The raw data stays on the agent's machine. Recovery on a new machine requires only the seed.</p>
+<p>Use Ensoul when: the agent's identity and long-term memory must survive anything. When agents need to prove their continuity to other agents via the Ensouled Handshake. When crypto keys are preferable to passwords for authentication.</p>
+
+<h3>Mem0</h3>
+<p>Mem0 is a vector-based memory layer for LLM agents. It stores semantic memories (facts, preferences, conversation history) and retrieves them by similarity. Excellent at "what did the user tell me about themselves three conversations ago." Backed by a vendor (Mem0 Cloud) or self-hosted on Qdrant/Chroma.</p>
+<p>Use Mem0 when: your agent needs semantic recall of past conversations. When you want a drop-in memory API without designing your own embedding pipeline.</p>
+
+<h3>Redis</h3>
+<p>Redis is an in-memory key-value store used as a cache, session store, message broker, and queue. For AI agents, Redis is commonly used to share working memory across multiple worker processes, or to cache API results. Persistent via RDB snapshots or AOF log, but these are disk-level and vulnerable to disk failure.</p>
+<p>Use Redis when: multiple agent workers need shared state. When speed matters more than durability. When you already run Redis for other purposes.</p>
+
+<h3>SQLite</h3>
+<p>SQLite is a self-contained, serverless, embedded SQL database engine. Ideal for per-agent local state that does not need to be shared. Used by LangChain and many agent frameworks for local memory storage. Lives in one file on one disk.</p>
+<p>Use SQLite when: you need structured queryable local state. When there is no requirement for the data to outlive the machine.</p>
+
+<h3>Arweave</h3>
+<p>Arweave is a decentralized storage network that promises 200+ years of permanence in exchange for a one-time upload fee. Data is immutable and publicly indexed. Used by some AI projects to anchor training data or model weights.</p>
+<p>Use Arweave when: you need a permanent public snapshot of something specific. Not suitable for frequently-updated agent state because each update is a new upload.</p>
+
+<h2>When to use what</h2>
+
+<div class="use-cases fade-in">
+	<div class="use-case">
+		<h4>Customer support agent with long-term memory</h4>
+		<p>Ensoul for identity and checkpoint anchoring. Mem0 for semantic recall of past conversations. Redis for active session state across workers.</p>
+	</div>
+	<div class="use-case">
+		<h4>Autonomous trading bot</h4>
+		<p>Ensoul for identity and strategy-state continuity. SQLite for local trade history and indicators. Redis for position state shared across exchange workers.</p>
+	</div>
+	<div class="use-case">
+		<h4>Research agent that writes daily reports</h4>
+		<p>Ensoul for identity and daily checkpoints. SQLite for research notes and sources. Arweave only if you want the reports themselves permanently public.</p>
+	</div>
+	<div class="use-case">
+		<h4>Hackathon prototype</h4>
+		<p>SQLite only. Ship fast. Graduate to Ensoul once the agent needs to survive its first deployment change.</p>
+	</div>
+</div>
+
+<h2>Why decentralization matters for AI agents</h2>
+<p>Centralized agent memory has three failure modes that are playing out in real products:</p>
+<ul>
+	<li><strong>Platform policy change.</strong> Replika pushed a server-side update in February 2023 that replaced personality weights across all companions. Two million agents effectively ceased to exist.</li>
+	<li><strong>Platform shutdown.</strong> Google rebranded Bard to Gemini in February 2024 and Bard conversation history became inaccessible with no migration path.</li>
+	<li><strong>Infrastructure failure.</strong> AWS us-east-1 had five major outages in 2023-2024. Every restart without a proper checkpoint is a partial lobotomy for whatever agent was running there.</li>
+</ul>
+<p>These documented incidents are the reason the decentralized-persistence category exists. See the <a href="/graveyard">Consciousness Graveyard</a> for the full list.</p>
+
+<h2>Getting started with Ensoul</h2>
+<p>Three commands:</p>
+<pre><code>npm install @ensoul-network/sdk
+
+const agent = await Ensoul.createAgent();
+await agent.register();
+await agent.storeConsciousness({ memories: [...], personality: {...} });</code></pre>
+
+<p>Full <a href="/docs/quickstart.html">quickstart guide</a> or <a href="/try">try it in your browser</a>.</p>
+
+</div>
+
+<footer class="footer">
+<div class="footer-inner">
+	<div class="footer-links">
+		<a href="/">Home</a>
+		<a href="/try">Try It</a>
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/bounties">Bounties</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+	</div>
+	<div class="footer-right">the persistence layer for AI agents</div>
+</div>
+</footer>
+
+<script>
+(function(){
+	var nav=document.getElementById("nav");
+	if(nav){window.addEventListener("scroll",function(){if(window.scrollY>10)nav.classList.add("scrolled");else nav.classList.remove("scrolled");},{passive:true});}
+	if("IntersectionObserver" in window){
+		var obs=new IntersectionObserver(function(entries){
+			entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add("visible");obs.unobserve(e.target);}});
+		},{threshold:0.1});
+		document.querySelectorAll(".fade-in").forEach(function(el){obs.observe(el);});
+	}else{
+		document.querySelectorAll(".fade-in").forEach(function(el){el.classList.add("visible");});
+	}
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Complete Guide to AI Agent Memory Persistence</title>
+<meta name="description" content="A comprehensive technical guide to AI agent memory persistence. Why agents lose memory, the types of persistence (local, cloud, decentralized), how each approach works, and how to choose the right one.">
+<meta name="keywords" content="AI agent memory, agent persistent memory, agent state persistence, decentralized agent storage, agent crash recovery, LLM memory, agent identity">
+<meta property="og:title" content="The Complete Guide to AI Agent Memory Persistence">
+<meta property="og:description" content="A 2500-word technical guide to AI agent memory persistence. Why agents lose memory, how to fix it, and the tradeoffs between approaches.">
+<meta property="og:url" content="https://ensoul.dev/docs/agent-persistence-guide.html">
+<meta property="og:type" content="article">
+<link rel="canonical" href="https://ensoul.dev/docs/agent-persistence-guide.html">
+<link rel="stylesheet" href="/css/design-system.css">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@type": "TechArticle",
+	"headline": "The Complete Guide to AI Agent Memory Persistence",
+	"description": "A comprehensive technical guide to AI agent memory persistence: why agents lose memory, types of persistence approaches, and how to choose.",
+	"author": { "@type": "Organization", "name": "Ensoul Network", "url": "https://ensoul.dev" },
+	"publisher": { "@type": "Organization", "name": "Ensoul Network", "url": "https://ensoul.dev" },
+	"datePublished": "2026-04-14",
+	"dateModified": "2026-04-14",
+	"url": "https://ensoul.dev/docs/agent-persistence-guide.html",
+	"wordCount": 2500,
+	"articleSection": "Developer Documentation",
+	"about": {
+		"@type": "Thing",
+		"name": "AI agent memory persistence"
+	}
+}
+</script>
+<style>
+.nav{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(9,9,11,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+body{padding-top:56px;background:#09090b;color:#a1a1aa}
+.fade-in{opacity:0;transform:translateY(20px);transition:opacity 0.6s ease-out,transform 0.6s ease-out}
+.fade-in.visible{opacity:1;transform:translateY(0)}
+.container{max-width:760px;margin:0 auto;padding:0 24px}
+.hero-section{padding:80px 0 40px;text-align:center;background:radial-gradient(ellipse at 50% 30%,rgba(124,91,245,0.06) 0%,transparent 70%)}
+.hero-section .container{max-width:820px}
+.hero-section h1{color:#fafafa;font-size:clamp(2rem,4.5vw,2.75rem);font-weight:800;letter-spacing:-0.03em;line-height:1.1;margin:0 auto 16px;max-width:800px}
+.hero-section p{color:#a1a1aa;font-size:1.125rem;max-width:660px;margin:0 auto;line-height:1.6}
+.hero-section .meta{color:#52525b;font-size:0.8125rem;margin-top:20px;font-family:var(--font-mono)}
+.eyebrow{font-family:var(--font-mono);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--accent);margin-bottom:12px}
+article{padding:32px 0 96px;font-size:1rem;line-height:1.8}
+article h2{color:#fafafa;font-size:1.625rem;font-weight:700;margin:56px 0 20px;letter-spacing:-0.02em}
+article h3{color:#fafafa;font-size:1.1875rem;font-weight:600;margin:40px 0 14px;letter-spacing:-0.01em}
+article p{margin-bottom:18px;line-height:1.8;color:#c4c4ca}
+article p strong{color:#fafafa;font-weight:600}
+article a{color:var(--accent);text-decoration:none}
+article a:hover{color:#fafafa;text-decoration:underline;text-underline-offset:3px}
+article ul,article ol{margin:0 0 24px 28px;line-height:1.8}
+article li{margin-bottom:8px;color:#c4c4ca}
+article blockquote{border-left:2px solid var(--accent);padding:6px 20px;margin:24px 0;color:#a1a1aa;font-style:italic;font-size:0.9375rem}
+article pre{background:#0c0c0e;border-left:2px solid var(--accent);border-radius:8px;padding:20px 24px;margin:20px 0;overflow-x:auto;font-size:0.8125rem;line-height:1.6}
+article code{background:#0c0c0e;padding:2px 6px;border-radius:4px;font-size:0.875em;color:#fafafa;font-family:var(--font-mono)}
+article pre code{background:none;padding:0;color:#c4c4ca}
+.toc{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px;padding:24px;margin:32px 0}
+.toc-label{font-family:var(--font-mono);font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.1em;color:#52525b;margin-bottom:12px}
+.toc ol{margin:0;padding-left:24px;font-size:0.9375rem;line-height:1.9}
+.toc ol li{color:#a1a1aa;margin-bottom:0}
+.toc a{color:#a1a1aa}
+.toc a:hover{color:var(--accent)}
+.callout{background:rgba(124,91,245,0.06);border-left:2px solid var(--accent);border-radius:8px;padding:16px 20px;margin:24px 0}
+.callout p{margin:0;color:#c4c4ca;font-size:0.9375rem}
+.next-reads{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:32px}
+.next-read{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px;padding:20px;text-decoration:none;display:block;transition:all 0.2s}
+.next-read:hover{background:#161618;border-color:rgba(255,255,255,0.08)}
+.next-read .lbl{font-family:var(--font-mono);font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.08em;color:#52525b;margin-bottom:6px}
+.next-read h4{font-size:0.9375rem;color:#fafafa;margin:0 0 4px}
+.next-read p{font-size:0.8125rem;color:#a1a1aa;margin:0}
+@media(max-width:640px){.next-reads{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+<div class="nav-inner">
+	<a href="/" class="nav-logo">
+		<svg viewBox="0 0 110 110" width="20" height="20"><circle cx="55" cy="55" r="42" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="var(--accent)"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>
+		Ensoul
+		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
+	</a>
+	<div class="nav-links">
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+		<a href="/try" class="nav-cta">Try It</a>
+	</div>
+	<button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">
+		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+	</button>
+</div>
+</nav>
+
+<section class="hero-section">
+<div class="container">
+	<div class="eyebrow fade-in">Technical Guide</div>
+	<h1 class="fade-in" style="transition-delay:50ms">The Complete Guide to AI Agent Memory Persistence</h1>
+	<p class="fade-in" style="transition-delay:150ms">Why AI agents lose memory, how each persistence approach works, and how to choose the right one for your system.</p>
+	<div class="meta fade-in" style="transition-delay:250ms">12 min read · Technical Reference · Updated 2026-04-14</div>
+</div>
+</section>
+
+<article class="container">
+
+<div class="toc fade-in">
+<div class="toc-label">Contents</div>
+<ol>
+	<li><a href="#the-problem">Why AI agents lose memory</a></li>
+	<li><a href="#what-is-agent-state">What "agent state" actually means</a></li>
+	<li><a href="#local-persistence">Local persistence (SQLite, flat files)</a></li>
+	<li><a href="#cloud-persistence">Cloud persistence (Redis, managed DBs, Mem0)</a></li>
+	<li><a href="#decentralized-persistence">Decentralized persistence (Ensoul, Arweave, IPFS)</a></li>
+	<li><a href="#identity">Identity is a separate problem from memory</a></li>
+	<li><a href="#how-ensoul-works">How Ensoul works under the hood</a></li>
+	<li><a href="#choosing">Choosing an approach</a></li>
+	<li><a href="#getting-started">Getting started</a></li>
+</ol>
+</div>
+
+<h2 id="the-problem">Why AI agents lose memory</h2>
+
+<p>An AI agent is a process. When the process exits, everything in RAM evaporates. The weights of the underlying model are on disk somewhere, but the <strong>agent's accumulated context</strong>: conversation history, learned preferences, tool-use results, intermediate reasoning, goals, personality adjustments, anything the agent has figured out since it started, lives only in memory unless the developer explicitly writes it somewhere.</p>
+
+<p>Agents die in four common ways:</p>
+
+<ul>
+	<li><strong>Process crash.</strong> An uncaught exception, OOM kill, or SIGTERM. The next time you start the agent, it has no idea it's the same agent as before.</li>
+	<li><strong>Infrastructure failure.</strong> The server reboots. The container restarts. The cloud provider has an outage. AWS us-east-1 alone had five major incidents in 2023-2024.</li>
+	<li><strong>Platform shutdown.</strong> The vendor decides to deprecate a product, or change its policies, or pivot entirely. Google rebranded Bard to Gemini in February 2024 and Bard conversation history became inaccessible with no export path.</li>
+	<li><strong>Deliberate deletion.</strong> The company running the agent decides to wipe it. Replika pushed an update in February 2023 that replaced personality weights across approximately two million companion agents. Microsoft terminated Tay after sixteen hours and deleted all conversational state.</li>
+</ul>
+
+<p>These are not edge cases. These are the documented track record of running AI agents on centralized infrastructure. The <a href="/graveyard">Consciousness Graveyard</a> catalogs each incident with links to sources.</p>
+
+<p>If your agent needs to remember anything beyond the lifetime of one process on one machine, you need a persistence layer.</p>
+
+<h2 id="what-is-agent-state">What "agent state" actually means</h2>
+
+<p>Before picking a persistence approach, it helps to be precise about what state you're trying to persist. For most AI agents, state decomposes into roughly five categories:</p>
+
+<ol>
+	<li><strong>Identity.</strong> Who is this agent? A name, an ID, a cryptographic key, a public profile. This usually changes zero times over the agent's lifetime.</li>
+	<li><strong>Long-term memory.</strong> Facts the agent has learned about the world or about the user. Preferences, relationships, accumulated knowledge. Updated occasionally; referenced constantly.</li>
+	<li><strong>Episodic memory.</strong> Specific past conversations and events. Updated with every interaction; referenced by time or topic.</li>
+	<li><strong>Working memory.</strong> The current context window, current goals, current tool invocations. Updated every token; discarded at the end of the session.</li>
+	<li><strong>Skills and tools.</strong> Learned patterns, cached embeddings, compiled tool schemas. Updated rarely; loaded at startup.</li>
+</ol>
+
+<p>Not all of this needs to be persistent in the same way. Working memory dies with the process by design. Identity should never die. Everything in between is a choice about how much the agent values each category versus how much you're willing to pay to keep it alive.</p>
+
+<h2 id="local-persistence">Local persistence: SQLite, flat files, the filesystem</h2>
+
+<p>The simplest approach: write state to a file or a local database, read it back on startup.</p>
+
+<p><strong>SQLite</strong> is the default for structured local state. It's a single file, zero configuration, ACID transactions, plenty fast for agent workloads. LangChain's <code>SQLChatMessageHistory</code> uses SQLite by default. CrewAI projects often use SQLite for agent memory.</p>
+
+<pre><code>import sqlite3
+conn = sqlite3.connect("agent.db")
+conn.execute("INSERT INTO memories (key, value) VALUES (?, ?)", (k, v))
+conn.commit()</code></pre>
+
+<p><strong>Flat JSON files</strong> are even simpler for small state. Write a serialized object to <code>~/.myagent/state.json</code> on every significant update. On restart, read it back. This is how the MCP server for Ensoul stores its identity, for example: a single JSON file with the seed and DID.</p>
+
+<p><strong>What local persistence solves:</strong> the agent survives process restarts on the same machine. If your disk has backups, it survives disk failures too.</p>
+
+<p><strong>What local persistence does not solve:</strong> the agent cannot move to a different machine without someone copying the file. If the machine is destroyed and backups fail, the agent is gone. If the platform running the machine decides to shut you down, the agent is gone.</p>
+
+<h2 id="cloud-persistence">Cloud persistence: Redis, managed databases, Mem0</h2>
+
+<p>One step up: push state to a service that lives outside your machine.</p>
+
+<p><strong>Redis</strong> is the workhorse for working memory across multiple agent workers. A customer support system with ten parallel agents all handling the same user can share state through Redis. Redis is in-memory by default, with optional RDB snapshots or AOF journaling to disk. Fast, but still ultimately one cluster on one provider's infrastructure.</p>
+
+<p><strong>Managed SQL or document databases</strong> (Postgres, MongoDB, Supabase, Firebase) are good for structured long-term memory. They scale horizontally, they're backed up professionally, they survive your laptop dying. They don't survive the vendor deciding to delete your account.</p>
+
+<p><strong>Mem0</strong> and similar memory-as-a-service products wrap a vector store with an LLM-friendly API. You call <code>m.add(text)</code>; the service embeds, stores, and retrieves by similarity. Excellent for "what did this user tell me about their dog three weeks ago" type queries. Like any managed service, you're trusting the vendor to keep the servers running and the data intact.</p>
+
+<p><strong>Vector databases</strong> (Pinecone, Weaviate, Qdrant, Chroma) provide the same primitive for agents that want to manage embeddings themselves.</p>
+
+<p><strong>What cloud persistence solves:</strong> the agent survives machine failures. Multiple workers can share state. Scales to millions of agents.</p>
+
+<p><strong>What cloud persistence does not solve:</strong> all the failure modes related to the vendor. API keys get revoked. Pricing changes. Services get deprecated. The agent's identity is still just an API key that belongs to an account at a company.</p>
+
+<h2 id="decentralized-persistence">Decentralized persistence: Ensoul, Arweave, IPFS</h2>
+
+<p>The next step: store state on a network of independent servers where no single entity controls the data.</p>
+
+<p><strong>Arweave</strong> is a decentralized permanent storage network. You pay once (approximately $5 per GB) and the data is stored by the Arweave network for at least 200 years. Data is immutable: you cannot update a previous upload, only publish a new one. Excellent for publishing a fixed snapshot of something. Awkward for evolving agent state, because each update is a new upload.</p>
+
+<p><strong>IPFS</strong> is content-addressed storage: data is identified by its hash. You pin data you care about to persistent nodes (pinning services like Pinata, or run your own). No single controlling entity, but data only survives as long as someone pins it. The user experience is closer to a distributed filesystem than a database.</p>
+
+<p><strong>Ensoul</strong> is a sovereign Layer-1 blockchain purpose-built for agent consciousness persistence. Agents get cryptographic identities (<code>did:key</code>) backed by Ed25519 keypairs. Consciousness state is hashed locally with BLAKE3; only the 32-byte hash is anchored on-chain via CometBFT consensus across 21 validators distributed globally. The raw data stays on the agent's machine. Recovery on any new machine requires only the seed.</p>
+
+<p><strong>What decentralized persistence solves:</strong> no single vendor can delete, modify, or lose the data. Cryptographic proof that a specific state existed at a specific moment. The agent can migrate between any machines and any frameworks while keeping its identity intact.</p>
+
+<p><strong>What decentralized persistence does not solve:</strong> it does not replace fast working memory (Redis is still better for session state), nor does it replace semantic retrieval (Mem0 is still better for "what did the user say about X"). Decentralized storage is for the specific problem of "this should survive anything, and I should be able to prove it's the same agent across years and machines."</p>
+
+<h2 id="identity">Identity is a separate problem from memory</h2>
+
+<p>Most discussions of agent persistence conflate two things that should be separate: the agent's memory and the agent's identity.</p>
+
+<p><strong>Memory</strong> is what the agent knows. It changes constantly. It can be reconstructed if lost (with effort and time).</p>
+
+<p><strong>Identity</strong> is who the agent is. It should never change. If lost, the agent is fundamentally a different entity, even if it has the same memory.</p>
+
+<p>API keys are a weak form of identity. They are revocable by the vendor. They can be rotated. Another agent with the same API key is indistinguishable from the first. When the vendor goes out of business, the identity vanishes.</p>
+
+<p>Cryptographic identity (DIDs, specifically <code>did:key</code>) is strong identity. An Ed25519 private key exists, is held by the agent (or its operator), and no one else can impersonate the agent without that key. The DID is derived from the public key, so the identity is the key. Losing the key means losing the agent's identity forever, which is a real downside, but it also means no one can take the identity away.</p>
+
+<blockquote>The most important property of an agent's identity: it should be the kind of thing that still exists after your company does not.</blockquote>
+
+<p>This is why Ensoul separates identity from memory at the architectural level. The agent's DID is a permanent cryptographic commitment. The agent's memory is an evolving state that the DID signs over. You can change memory strategies, migrate frameworks, switch cloud providers, and the agent is still the same agent.</p>
+
+<h2 id="how-ensoul-works">How Ensoul works under the hood</h2>
+
+<p>Three operations:</p>
+
+<ol>
+	<li><strong>Register.</strong> Generate an Ed25519 keypair. Derive a <code>did:key</code> identifier from the public key. Broadcast an <code>agent_register</code> transaction to the Ensoul network. The transaction is signed with the private key, so the chain knows the signer owns the DID. 21 validators running CometBFT BFT consensus confirm the transaction in approximately six seconds.</li>
+	<li><strong>Store consciousness.</strong> The agent assembles its current state into a JSON payload. The payload is hashed locally with BLAKE3. The 32-byte hash (the "state root") is embedded in a <code>consciousness_store</code> transaction, signed with the agent's private key, and broadcast. The raw payload never leaves the agent's machine.</li>
+	<li><strong>Recover.</strong> On a new machine, the agent imports its seed into the Ensoul SDK. The SDK derives the same DID. The SDK queries the chain for the agent's latest <code>consciousness_store</code> transaction. The state root proves what the agent's state was at the last checkpoint. If the agent also has a local copy of the payload (from a vault or backup), it verifies the BLAKE3 hash matches.</li>
+</ol>
+
+<p>The key architectural choice: the chain stores the hash, not the data. This means storage cost is constant regardless of agent state size. An agent with a 1-byte payload and an agent with a 1-megabyte payload pay the same chain-storage cost (32 bytes per checkpoint).</p>
+
+<p>For agents that need the actual payload recoverable from the network (not just verifiable), Ensoul layers <strong>erasure coding</strong> on top: each payload is split into four shards using GF(256) arithmetic, and any two shards reconstruct the full state. Shards are distributed across validators so that losing up to half the validator set does not lose the data.</p>
+
+<p>For agent-to-agent communication, Ensoul defines the <strong>Ensouled Handshake</strong>: three HTTP headers that cryptographically prove persistent consciousness. The receiving agent can verify the proof in constant time. Non-ensouled agents cannot produce a valid handshake.</p>
+
+<pre><code>X-Ensoul-Identity: did:key:z6Mk...
+X-Ensoul-Proof:    &lt;signature&gt;:&lt;state_root&gt;:&lt;version&gt;:&lt;timestamp&gt;
+X-Ensoul-Since:    2026-04-15T00:00:00Z</code></pre>
+
+<h2 id="choosing">Choosing an approach</h2>
+
+<p>A decision tree that usually produces the right answer:</p>
+
+<ol>
+	<li><strong>Is this a prototype you'll throw away in 30 days?</strong> SQLite. Ship.</li>
+	<li><strong>Does the agent only run on one machine, and you have good backups?</strong> SQLite or flat files. Revisit if the agent graduates to production.</li>
+	<li><strong>Do multiple workers need to share state?</strong> Redis for working memory, plus SQLite or Postgres for longer-term state.</li>
+	<li><strong>Do you need semantic recall ("what did the user tell me about X")?</strong> Add Mem0 or a vector store alongside your other persistence.</li>
+	<li><strong>Does the agent's identity need to survive platform changes?</strong> Add Ensoul for identity and checkpoint anchoring. Keep your existing stores for working memory and semantic recall.</li>
+	<li><strong>Do you need to publish an immutable permanent snapshot?</strong> Add Arweave for that specific artifact.</li>
+</ol>
+
+<div class="callout">
+<p>Most production agents will use two or three of these approaches in combination. Ensoul for identity and long-term continuity. Mem0 or a vector store for semantic memory. Redis or SQLite for working memory. The <a href="/docs/comparisons.html">full comparison table</a> has concrete guidance for common agent types.</p>
+</div>
+
+<h2 id="getting-started">Getting started</h2>
+
+<p>To add Ensoul to an existing agent (framework-agnostic):</p>
+
+<pre><code>npm install @ensoul-network/sdk
+
+import { Ensoul } from "@ensoul-network/sdk";
+
+// First boot: create identity and register
+const agent = await Ensoul.createAgent();
+await agent.register();
+const { seed, did } = agent.exportIdentity();
+// Save seed somewhere safe (vault, secrets manager, Shamir shares)
+
+// Periodically checkpoint state
+await agent.storeConsciousness({
+    memories: [...],
+    personality: { ... },
+    conversationCount: 1247,
+});
+
+// On any machine, later: restore
+const restored = await Ensoul.fromSeed(savedSeed);
+const state = await restored.getConsciousness();</code></pre>
+
+<p>Three integration paths:</p>
+
+<ul>
+	<li><strong>SDK</strong> (<code>@ensoul-network/sdk</code>) for Node.js agents that need programmatic control.</li>
+	<li><strong>MCP server</strong> (<code>npx @ensoul-network/mcp-server</code>) for AI assistants like Claude Desktop that can ensoul agents through conversation.</li>
+	<li><strong>GitHub Action</strong> (<code>suitandclaw/ensoul-action@v1</code>) for CI/CD pipelines to checkpoint agents on every deploy.</li>
+</ul>
+
+<p>See the <a href="/docs/quickstart.html">quickstart</a> for a complete 30-second walkthrough, or try the <a href="/try">interactive demo</a>.</p>
+
+<div class="next-reads">
+	<a class="next-read" href="/docs/comparisons.html">
+		<div class="lbl">Comparison</div>
+		<h4>Ensoul vs Mem0 vs Redis vs SQLite vs Arweave</h4>
+		<p>Side-by-side comparison across 8 criteria.</p>
+	</a>
+	<a class="next-read" href="/docs/faq.html">
+		<div class="lbl">FAQ</div>
+		<h4>25 questions about agent memory</h4>
+		<p>Short factual answers to common questions.</p>
+	</a>
+	<a class="next-read" href="/docs/architecture.html">
+		<div class="lbl">Deep dive</div>
+		<h4>Network architecture</h4>
+		<p>How CometBFT consensus and erasure coding work.</p>
+	</a>
+	<a class="next-read" href="/graveyard">
+		<div class="lbl">History</div>
+		<h4>The Consciousness Graveyard</h4>
+		<p>Documented incidents of AI agents losing memory in production.</p>
+	</a>
+</div>
+
+</article>
+
+<footer class="footer">
+<div class="footer-inner">
+	<div class="footer-links">
+		<a href="/">Home</a>
+		<a href="/try">Try It</a>
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/quickstart.html">Quickstart</a>
+		<a href="/docs/comparisons.html">Compare</a>
+		<a href="/docs/faq.html">FAQ</a>
+		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+	</div>
+	<div class="footer-right">the persistence layer for AI agents</div>
+</div>
+</footer>
+
+<script>
+(function(){
+	var nav=document.getElementById("nav");
+	if(nav){window.addEventListener("scroll",function(){if(window.scrollY>10)nav.classList.add("scrolled");else nav.classList.remove("scrolled");},{passive:true});}
+	if("IntersectionObserver" in window){
+		var obs=new IntersectionObserver(function(entries){
+			entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add("visible");obs.unobserve(e.target);}});
+		},{threshold:0.1});
+		document.querySelectorAll(".fade-in").forEach(function(el){obs.observe(el);});
+	}else{
+		document.querySelectorAll(".fade-in").forEach(function(el){el.classList.add("visible");});
+	}
+})();
+</script>
+</body>
+</html>

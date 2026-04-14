@@ -53,6 +53,55 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 .alloc-pct{font-size:0.8125rem;color:#52525b;min-width:40px;font-family:var(--font-mono)}
 @media(max-width:780px){.docs-layout{grid-template-columns:1fr;gap:20px;padding:24px}.docs-sidebar{position:static;display:flex;flex-wrap:wrap;gap:8px 16px}.docs-sidebar h3{width:100%;margin-top:8px}.docs-content h1{font-size:2rem}}
 </style>
+<link rel="canonical" href="https://ensoul.dev/docs/quickstart.html">
+<script type="application/ld+json">
+{
+	"@context": "https://schema.org",
+	"@type": "HowTo",
+	"name": "How to Ensoul an AI Agent in 30 Seconds",
+	"description": "Step-by-step guide to give your AI agent persistent memory and cryptographic identity using the Ensoul Network.",
+	"totalTime": "PT30S",
+	"supply": [{ "@type": "HowToSupply", "name": "Node.js 22 or later" }],
+	"tool": [{ "@type": "HowToTool", "name": "@ensoul-network/sdk" }],
+	"step": [
+		{
+			"@type": "HowToStep",
+			"position": 1,
+			"name": "Install the SDK",
+			"text": "Run npm install @ensoul-network/sdk to add the Ensoul SDK to your project.",
+			"url": "https://ensoul.dev/docs/quickstart.html#install"
+		},
+		{
+			"@type": "HowToStep",
+			"position": 2,
+			"name": "Create an agent identity",
+			"text": "Call Ensoul.createAgent() to generate an Ed25519 keypair and derive a did:key identifier. Save the seed to a secure location.",
+			"url": "https://ensoul.dev/docs/quickstart.html#create"
+		},
+		{
+			"@type": "HowToStep",
+			"position": 3,
+			"name": "Register the agent on-chain",
+			"text": "Call await agent.register() to broadcast an agent_register transaction. Confirmation takes approximately 6 seconds.",
+			"url": "https://ensoul.dev/docs/quickstart.html#register"
+		},
+		{
+			"@type": "HowToStep",
+			"position": 4,
+			"name": "Store consciousness",
+			"text": "Call await agent.storeConsciousness(payload) with any JSON object representing the agent's state. Only the BLAKE3 hash goes on-chain; raw data stays local.",
+			"url": "https://ensoul.dev/docs/quickstart.html#store"
+		},
+		{
+			"@type": "HowToStep",
+			"position": 5,
+			"name": "Recover on a new machine",
+			"text": "Call Ensoul.fromSeed(savedSeed) on any machine to restore the agent identity and access its consciousness state.",
+			"url": "https://ensoul.dev/docs/quickstart.html#recover"
+		}
+	]
+}
+</script>
 </head>
 <body>
 <nav class="nav" id="nav">
