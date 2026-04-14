@@ -1,0 +1,24 @@
+{
+	"name": "@ensoul/resurrection-agent",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Public demonstration agent that dies and resurrects weekly on a public schedule, proving Ensoul's consciousness persistence.",
+	"type": "module",
+	"scripts": {
+		"start": "npx tsx src/agent.ts",
+		"dry-run": "npx tsx src/agent.ts --dry-run",
+		"resurrect": "npx tsx src/phases/resurrect.ts",
+		"kill": "bash scripts/kill.sh",
+		"build": "echo 'no build needed'",
+		"lint": "echo 'no lint'"
+	},
+	"dependencies": {
+		"@ensoul-network/sdk": "workspace:*",
+		"twitter-api-v2": "^1.18.2",
+		"dotenv": "^16.4.7"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"typescript": "^5.7.0"
+	}
+}

@@ -1,0 +1,20 @@
+# Resurrection Agent cron schedule (America/New_York)
+#
+# Install on the primary host (where the agent lives Mon-Fri-3:59pm):
+#   crontab -e
+#   # then paste:
+#
+# Fri 16:00 EST: kill the agent, wipe local state
+#   0 16 * * 5 cd $HOME/ensoul/packages/resurrection-agent && ./scripts/kill.sh >> $HOME/.ensoul/resurrection-agent/kill.log 2>&1
+#
+# Install on the SECONDARY host (the one that picks up after kill):
+#   Fri 16:05 EST: resurrect on new machine
+#   5 16 * * 5 cd $HOME/ensoul/packages/resurrection-agent && ./scripts/resurrect.sh >> $HOME/.ensoul/resurrection-agent/resurrect.log 2>&1
+#
+# To alternate hosts week-over-week, have the resurrect.sh script include
+# a hostname-rotation hop that scp's the vault to the next-next machine.
+# For MVP, just alternate between MBP and one of the Minis manually.
+#
+# Note: cron runs in local system timezone by default. Set TZ at the top
+# of crontab if your box is not in America/New_York:
+#   TZ=America/New_York
