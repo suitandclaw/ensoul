@@ -123,6 +123,39 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 	<div class="net-stat"><div class="val" id="v-agents">---</div><div class="lbl">Ensouled Agents</div></div>
 </div>
 
+<!-- Key Backup -->
+<h2 id="key-backup">Key Backup</h2>
+<p><strong>Read this first if you have already installed a validator.</strong> If you lose access to your server and do not have backups of these files, your validator identity, your stake, and your Pioneer status are gone. Permanently.</p>
+
+<p>Three files plus your seed make up your validator's complete identity. Back them up the moment the installer finishes. Before staking. Before applying for Pioneer. Before anything else.</p>
+
+<h3>What each file is</h3>
+<table>
+	<thead><tr><th>File</th><th>What it does</th></tr></thead>
+	<tbody>
+		<tr><td><code>priv_validator_key.json</code></td><td>Your CometBFT signing key. This is what makes blocks. If you lose it you cannot sign as your validator.</td></tr>
+		<tr><td><code>node_key.json</code></td><td>Your P2P network identity. Other validators find you with this. Losing it means a new node ID, but no loss of stake.</td></tr>
+		<tr><td><code>identity.json</code></td><td>Your Ensoul DID keypair. This is your on-chain identity, your wallet, and your Pioneer-application identity.</td></tr>
+		<tr><td><code>Seed</code></td><td>Your master key, shown by the installer in a box. Everything above can be regenerated from this. The seed alone is enough to recover the agent identity, but having the key files makes recovery instant.</td></tr>
+	</tbody>
+</table>
+
+<h3>How to back them up (run from your laptop, not the server)</h3>
+<pre><code>scp root@YOUR_SERVER_IP:/root/.cometbft-ensoul/node/config/priv_validator_key.json ./
+scp root@YOUR_SERVER_IP:/root/.ensoul/identity.json ./
+scp root@YOUR_SERVER_IP:/root/.cometbft-ensoul/node/config/node_key.json ./</code></pre>
+
+<p>Replace <code>YOUR_SERVER_IP</code> with the public IP of your VPS. The installer prints these exact commands at the end, with your IP filled in.</p>
+
+<h3>Where to store them</h3>
+<ul>
+	<li><strong>Encrypted USB drive</strong>, kept in a drawer. Cheapest, simplest, most paranoid-safe.</li>
+	<li><strong>Password manager</strong> (1Password, Bitwarden) with the seed in a Secure Note and the JSON files as attachments.</li>
+	<li><strong>Shamir's Secret Sharing</strong> (split the seed into 2-of-3 shares on three drives) for high-value identities.</li>
+</ul>
+
+<p style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.25);border-radius:8px;padding:14px 16px;color:#fbbf24;font-size:0.9em"><strong>Never share these files.</strong> Never paste them into Discord, never email them, never commit them to a git repo. Anyone with these files becomes your validator.</p>
+
 <!-- Getting a VPS -->
 <h2>New to servers? Start here.</h2>
 <p>A VPS (Virtual Private Server) is a computer in a data center that you rent by the month. You connect to it over the internet and run commands in a terminal. No hardware to buy.</p>
