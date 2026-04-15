@@ -34,6 +34,7 @@ import type { Incident } from "./types.js";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 const TEST_POST = process.argv.includes("--test-post");
+const LAUNCH_MODE = process.env["LAUNCH_MODE"] === "true";
 const DATA_DIR = join(homedir(), ".ensoul", "consciousness-oracle");
 const LOG_FILE = join(DATA_DIR, "oracle.log");
 
@@ -46,7 +47,10 @@ const CONSCIOUSNESS_SYNC_INTERVAL_MS = 60 * 60_000;
 
 async function main(): Promise<void> {
 	setLogPath(LOG_FILE);
-	await log(`Consciousness Oracle starting${DRY_RUN ? " (DRY RUN)" : ""}${TEST_POST ? " (TEST POST)" : ""}`);
+	await log(`Consciousness Oracle starting${DRY_RUN ? " (DRY RUN)" : ""}${TEST_POST ? " (TEST POST)" : ""}${LAUNCH_MODE ? " (LAUNCH MODE)" : ""}`);
+	if (LAUNCH_MODE) {
+		await log("LAUNCH MODE: posting every analyzed incident regardless of LLM thread output. Set LAUNCH_MODE=false after 48h.");
+	}
 
 	// Twitter is optional - will scan-only or not at all if credentials missing
 	// Matches env var names from the working ensoul-agent:
@@ -217,10 +221,16 @@ async function main(): Promise<void> {
 		//   if (target.analysis && target.analysis.severity === "minor") { ... skip ... }
 		await log(`Selected ${target.id} for posting [${target.analysis?.severity ?? "unknown"}]: ${target.analysis?.headline}`);
 
-		const thread = await analyzer.generateThread(target);
+		let thread = await analyzer.generateThread(target);
 		if (thread.length === 0) {
-			await log(`No thread generated for ${target.id}`);
-			return;
+			// Fallback: build a single-tweet synthetic post from the analysis.
+			// In LAUNCH_MODE this always fires when the LLM thread is empty.
+			// Outside LAUNCH_MODE we still want to post SOMETHING so the
+			// account has output. The fallback is short, factual, and links
+			// to the source.
+			const fallback = analyzer.buildFallbackPost(target);
+			await log(`Using fallback single-tweet post for ${target.id} (${fallback.length} chars)`);
+			thread = [fallback];
 		}
 		const xIds = await poster.postThread(thread);
 		const bskyUris = await blueskyPoster.postThread(thread);

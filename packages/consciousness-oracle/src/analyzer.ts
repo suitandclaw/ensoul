@@ -150,13 +150,57 @@ export class Analyzer {
 
 		try {
 			const content = await this.call(THREAD_SYSTEM, prompt, 600);
-			const tweets = content.split(/\n---\n/).map(t => t.trim()).filter(t => t.length > 0);
-			// Ensure each tweet is under 280 chars
-			return tweets.filter(t => t.length <= 280).slice(0, 5);
+			if (!content || content.trim().length === 0) {
+				await log(`Thread gen ${incident.id}: LLM returned empty response`);
+				return [];
+			}
+			// Try several separator patterns the LLM might produce.
+			let tweets = content.split(/\n---\n/).map(t => t.trim()).filter(t => t.length > 0);
+			if (tweets.length <= 1) {
+				tweets = content.split(/\n\s*---+\s*\n/).map(t => t.trim()).filter(t => t.length > 0);
+			}
+			if (tweets.length <= 1) {
+				// Fall back to splitting on numbered markers like "1." or "Tweet 1:"
+				tweets = content.split(/\n(?=(?:Tweet\s+)?\d+[.):]\s)/i)
+					.map(t => t.replace(/^(?:Tweet\s+)?\d+[.):]\s*/i, "").trim())
+					.filter(t => t.length > 0);
+			}
+			if (tweets.length === 0) {
+				await log(`Thread gen ${incident.id}: no tweets after split. Raw: ${content.slice(0, 200)}`);
+				return [];
+			}
+			// Truncate long tweets instead of dropping them entirely.
+			const cleaned = tweets.slice(0, 5).map(t => t.length <= 280 ? t : t.slice(0, 277) + "...");
+			await log(`Thread gen ${incident.id}: produced ${cleaned.length} tweets`);
+			return cleaned;
 		} catch (e) {
 			await log(`Thread generation failed for ${incident.id}: ${errMsg(e)}`);
 			return [];
 		}
+	}
+
+	/**
+	 * Synthetic single-tweet fallback for when the LLM fails to produce a thread.
+	 * Built from incident analysis fields. Always returns one usable tweet.
+	 */
+	buildFallbackPost(incident: Incident): string {
+		const a = incident.analysis;
+		const s = incident.signal;
+		const headline = a?.headline ?? s.title;
+		const lesson = a?.lessonLearned ?? "Another stateful AI system with no persistence layer.";
+		// Compose: headline. lesson. URL.
+		const url = s.url;
+		// Rough length math: headline + "\n\n" + lesson + "\n\n" + url
+		// Cap headline+lesson combined to leave room for URL (assume up to 100 chars).
+		const urlLen = url.length;
+		const overhead = 4; // two "\n\n" separators
+		const budget = 280 - urlLen - overhead;
+		const headLen = Math.min(headline.length, Math.floor(budget * 0.6));
+		const lessonLen = budget - headLen;
+		const truncHead = headline.length > headLen ? headline.slice(0, headLen - 1) + "…" : headline;
+		const truncLesson = lesson.length > lessonLen ? lesson.slice(0, lessonLen - 1) + "…" : lesson;
+		const text = `${truncHead}\n\n${truncLesson}\n\n${url}`;
+		return text.length <= 280 ? text : text.slice(0, 277) + "...";
 	}
 
 	async generateDailyReport(incidents: Incident[]): Promise<string[]> {
