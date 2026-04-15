@@ -765,6 +765,88 @@ async function main(): Promise<void> {
 		};
 	});
 
+	// ── Transaction History ──────────────────────────────────────
+	// GET /v1/account/:did/transactions?limit=50
+	// Returns recent transactions where this DID is sender or recipient.
+	// Sources the data from CometBFT's tx_search (query all txs, decode JSON,
+	// filter client-side). Cached per-DID for 10s to avoid hammering the node.
+	const txHistoryCache = new Map<string, { fetchedAt: number; data: unknown }>();
+	const TX_HISTORY_TTL = 10_000;
+
+	app.get<{ Params: { did: string }; Querystring: Record<string, string> }>(
+		"/v1/account/:did/transactions",
+		async (req) => {
+			const did = decodeURIComponent(req.params.did);
+			const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "50"), 10) || 50));
+			const cacheKey = `${did}|${limit}`;
+
+			const cached = txHistoryCache.get(cacheKey);
+			if (cached && Date.now() - cached.fetchedAt < TX_HISTORY_TTL) {
+				return cached.data;
+			}
+
+			// Fetch recent txs (descending height) from CometBFT.
+			// per_page is capped to 100 by CometBFT; that covers a deep window
+			// for a single account since most DIDs transact rarely.
+			const result = await cometRpc("tx_search", {
+				query: "tx.height > 0",
+				per_page: "100",
+				page: "1",
+				order_by: "desc",
+			});
+
+			interface CmtTx {
+				hash?: string;
+				height?: string;
+				tx_result?: { code?: number; log?: string };
+				tx?: string;
+			}
+			const rawTxs: CmtTx[] = Array.isArray(result?.["txs"]) ? (result["txs"] as CmtTx[]) : [];
+
+			const txs: Array<Record<string, unknown>> = [];
+			for (const r of rawTxs) {
+				if (!r.tx) continue;
+				let parsed: Record<string, unknown>;
+				try {
+					parsed = JSON.parse(Buffer.from(r.tx, "base64").toString("utf-8")) as Record<string, unknown>;
+				} catch { continue; }
+
+				const from = String(parsed["from"] ?? "");
+				const to = String(parsed["to"] ?? "");
+				if (from !== did && to !== did) continue;
+
+				const direction = from === did ? (to === did ? "self" : "out") : "in";
+				const counterparty = direction === "out" ? to : direction === "in" ? from : did;
+				const amountWei = String(parsed["amount"] ?? "0");
+				const amountFormatted = (() => {
+					try { return fmtEnsl(BigInt(amountWei)); } catch { return "0.00 ENSL"; }
+				})();
+
+				txs.push({
+					hash: r.hash ?? "",
+					height: Number(r.height ?? 0),
+					type: String(parsed["type"] ?? "unknown"),
+					from,
+					to,
+					amount: amountFormatted,
+					amountRaw: amountWei,
+					nonce: Number(parsed["nonce"] ?? 0),
+					timestamp: Number(parsed["timestamp"] ?? 0),
+					success: (r.tx_result?.code ?? 0) === 0,
+					log: r.tx_result?.log ?? "",
+					direction,
+					counterparty,
+				});
+
+				if (txs.length >= limit) break;
+			}
+
+			const data = { did, count: txs.length, transactions: txs };
+			txHistoryCache.set(cacheKey, { fetchedAt: Date.now(), data });
+			return data;
+		},
+	);
+
 	// ── Network Status ───────────────────────────────────────────
 
 	app.get("/v1/network/status", async () => {

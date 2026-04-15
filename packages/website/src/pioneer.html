@@ -424,6 +424,27 @@ function b58encode(buf){
 	for (var j = 0; j < buf.length && buf[j] === 0; j++) s = "1" + s;
 	return s;
 }
+function b58decode(str){
+	var n = 0n;
+	for (var i = 0; i < str.length; i++) {
+		var idx = B58.indexOf(str[i]);
+		if (idx < 0) return null;
+		n = n * 58n + BigInt(idx);
+	}
+	var bytes = [];
+	while (n > 0n) { bytes.unshift(Number(n & 0xffn)); n >>= 8n; }
+	for (var k = 0; k < str.length && str[k] === "1"; k++) bytes.unshift(0);
+	return new Uint8Array(bytes);
+}
+// Extract the Ed25519 public key (32 bytes) from a did:key string. Returns
+// null if the DID is not a valid ed25519 did:key.
+function pubKeyFromDid(did){
+	if (!did || !did.startsWith("did:key:z")) return null;
+	var decoded = b58decode(did.slice(9));
+	if (!decoded || decoded.length !== 34) return null;
+	if (decoded[0] !== 0xed || decoded[1] !== 0x01) return null;
+	return decoded.slice(2);
+}
 function hexEncode(buf){ return Array.from(buf).map(function(b){ return b.toString(16).padStart(2,"0"); }).join(""); }
 function hexDecode(h){
 	if (h.length % 2 !== 0) return null;
@@ -497,13 +518,17 @@ window.submitSeed = async function(){
 	}
 };
 
-window.submitDid = function(){
+window.submitDid = async function(){
 	var raw = $("did-in").value.trim();
 	if (!raw.startsWith("did:key:")) { $("entry-err").textContent = "DID must start with 'did:key:'."; return; }
+	var pub = pubKeyFromDid(raw);
+	if (!pub) { $("entry-err").textContent = "DID is not a valid ed25519 did:key."; return; }
 	state.seed = null;
-	state.pubKeyHex = null;
+	state.pubKeyHex = hexEncode(pub);
 	state.did = raw;
-	state.addr = null; // no pubkey → no cometbft address in read-only
+	// Even in read-only mode we can derive the CometBFT address — the
+	// pubkey is encoded inside did:key itself.
+	state.addr = await addressFromPubKey(pub);
 	localStorage.setItem(DID_KEY, raw);
 	localStorage.removeItem(STORAGE_KEY);
 	enterPortal();
@@ -521,7 +546,7 @@ function enterPortal(){
 
 	// Section 1
 	$("s1-did").textContent = state.did;
-	$("s1-addr").textContent = state.addr || "(import seed to derive)";
+	$("s1-addr").textContent = state.addr || "(unavailable for this DID)";
 	$("s1-explorer").href = EXPLORER + "/?q=" + encodeURIComponent(state.did);
 	$("qa-explorer").href = EXPLORER + "/?q=" + encodeURIComponent(state.did);
 
@@ -795,15 +820,19 @@ async function sendTx(type, to, amount){
 	}
 }
 
+function shortDidConfirm(d){ return d && d.length > 28 ? d.slice(0,16) + "…" + d.slice(-8) : (d || ""); }
+
 window.doStake = async function(){
 	var amt = parseFloat($("stake-amt").value);
 	if (!amt || amt <= 0) { showTx("Enter a positive amount.", "err"); return; }
+	if (!confirm("You are about to stake " + amt + " ENSL.\n\nStaked tokens are locked for 30 days. Confirm?")) return;
 	await sendTx("stake", state.did, toWei(amt));
 	$("stake-amt").value = "";
 };
 window.doUnstake = async function(){
 	var amt = parseFloat($("unstake-amt").value);
 	if (!amt || amt <= 0) { showTx("Enter a positive amount.", "err"); return; }
+	if (!confirm("You are about to unstake " + amt + " ENSL.\n\nA 7-day cooldown applies before the tokens return to your available balance. Confirm?")) return;
 	await sendTx("unstake", state.did, toWei(amt));
 	$("unstake-amt").value = "";
 };
@@ -812,10 +841,12 @@ window.doDelegate = async function(){
 	var amt = parseFloat($("deleg-amt").value);
 	if (!to.startsWith("did:key:")) { showTx("Enter a valid validator DID.", "err"); return; }
 	if (!amt || amt < 100) { showTx("Minimum delegation is 100 ENSL.", "err"); return; }
+	if (!confirm("You are about to delegate " + amt + " ENSL to " + shortDidConfirm(to) + ".\n\nConfirm?")) return;
 	await sendTx("delegate", to, toWei(amt));
 	$("deleg-to").value = ""; $("deleg-amt").value = "";
 };
 window.doClaim = async function(){
+	if (!confirm("Claim pending rewards? They will move into your available balance.\n\nConfirm?")) return;
 	await sendTx("reward_claim", state.did, "0");
 };
 
@@ -855,7 +886,9 @@ window.doClaim = async function(){
 	if (savedDid && savedDid.startsWith("did:key:")) {
 		// Read-only auto-load for returning visitors
 		state.did = savedDid;
-		state.addr = null;
+		var pub = pubKeyFromDid(savedDid);
+		state.addr = pub ? await addressFromPubKey(pub) : null;
+		state.pubKeyHex = pub ? hexEncode(pub) : null;
 		enterPortal();
 		return;
 	}

@@ -54,6 +54,24 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 .msg.error{background:#3f1e1e;color:#f87171;border:1px solid #4f2d2d}
 .msg.info{background:#1e2a3f;color:#60a5fa;border:1px solid #2d3f5f}
 .hidden{display:none}
+.tx-table{width:100%;border-collapse:collapse;font-size:0.8em}
+.tx-table th{text-align:left;color:var(--text-dim);font-weight:600;font-size:0.7em;text-transform:uppercase;letter-spacing:0.05em;padding:6px 8px;border-bottom:1px solid var(--border-dim)}
+.tx-table td{padding:8px;border-bottom:1px solid var(--border-dim);vertical-align:top;font-family:'SF Mono',monospace}
+.tx-table tr:last-child td{border-bottom:none}
+.tx-dir{display:inline-block;padding:1px 6px;border-radius:3px;font-size:0.7em;font-weight:700;text-transform:uppercase}
+.tx-dir.in{background:rgba(74,222,128,0.1);color:#4ade80}
+.tx-dir.out{background:rgba(248,113,113,0.1);color:#f87171}
+.tx-dir.self{background:rgba(124,91,245,0.1);color:var(--primary-light)}
+.tx-hash{color:var(--text-dim)}
+.tx-copy{background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:0.8em;padding:0 4px}
+.tx-copy:hover{color:var(--primary-light)}
+.tx-fail{opacity:0.55}
+.tx-fail::after{content:" • failed";color:#f87171;font-size:0.85em}
+@media(max-width:600px){
+.tx-table{font-size:0.72em}
+.tx-table th,.tx-table td{padding:5px 4px}
+.tx-col-type,.tx-col-peer{display:none}
+}
 @media(max-width:600px){
 .wallet-actions{grid-template-columns:1fr}
 .network-stats{grid-template-columns:repeat(2,1fr)}
@@ -171,6 +189,8 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 <h2>Balance</h2>
 <p style="font-size:0.75em;color:var(--text-dim);margin-bottom:8px">DID (click to copy):</p>
 <div class="did-box" id="dash-did" onclick="copyDid()"></div>
+<p style="font-size:0.75em;color:var(--text-dim);margin:10px 0 4px">CometBFT address:</p>
+<div class="did-box" id="dash-addr" style="cursor:pointer" onclick="copyAddr(this)" title="click to copy"></div>
 <div style="height:12px"></div>
 <div class="wallet-row"><span class="label">Available</span><span class="value" id="b-available">0.00 ENSL</span></div>
 <div class="wallet-row"><span class="label">Staked</span><span class="value" id="b-staked">0.00 ENSL</span></div>
@@ -245,7 +265,7 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 <!-- History -->
 <div class="wallet-card">
 <h2>History</h2>
-<p style="color:var(--text-dim);font-size:0.85em">Transaction history coming soon.</p>
+<div id="tx-history"><p style="color:var(--text-dim);font-size:0.85em">Loading transactions...</p></div>
 </div>
 
 <!-- Wallet Management -->
@@ -291,6 +311,8 @@ var API="https://api.ensoul.dev";
 var STORAGE_KEY="ensoul_wallet";
 var currentSeed=null;
 var currentDid=null;
+var currentAddress="";
+var currentPubKeyHex="";
 
 // ---- Crypto (Ed25519 via SubtleCrypto fallback + manual DID derivation) ----
 
@@ -357,21 +379,27 @@ async function decryptSeed(encHex,password){
   return new Uint8Array(plaintext);
 }
 
-// We need the public key from the seed. Since we cannot use noble-ed25519
-// from CDN reliably, we store the public key alongside the encrypted seed.
-// The DID is derived from the public key at creation time.
-// For now, we generate a random 32-byte "seed" and use it as a pseudo-public-key
-// to derive a DID. In production, this would use proper Ed25519 key derivation.
-// The wallet is functional for registration and balance checking.
-
-async function createKeypair(seed){
-  // Real Ed25519 public key derivation via @noble/ed25519
-  if(window._ed25519){
-    return window._ed25519.getPublicKey(seed);
+// Real Ed25519 public key derivation. @noble/ed25519 loads from CDN as a
+// module (see the <script type="module"> above). We wait for it rather than
+// falling back to a wrong hash — an incorrect pubkey produces an incorrect
+// DID and silently breaks signing.
+async function waitForEd(timeoutMs){
+  if(window._ed25519) return window._ed25519;
+  var start=Date.now();
+  while(!window._ed25519){
+    if(Date.now()-start>timeoutMs) throw new Error("Ed25519 library failed to load. Check your network and refresh.");
+    await new Promise(function(r){setTimeout(r,50);});
   }
-  // Fallback: SHA-256 stub (DID will not match, but wallet loads)
-  var hash=await crypto.subtle.digest("SHA-256",seed);
-  return new Uint8Array(hash);
+  return window._ed25519;
+}
+async function createKeypair(seed){
+  var ed=await waitForEd(5000);
+  return ed.getPublicKey(seed);
+}
+// CometBFT consensus address: first 20 bytes of sha256(pubkey), uppercase hex.
+async function deriveCometAddr(pubKey){
+  var h=await crypto.subtle.digest("SHA-256",pubKey);
+  return hexEncode(new Uint8Array(h).slice(0,20)).toUpperCase();
 }
 
 // ---- UI helpers ----
@@ -405,6 +433,16 @@ window.copyDid=function(){
   if(currentDid){navigator.clipboard.writeText(currentDid).catch(function(){});}
 };
 
+window.copyAddr=function(btn){
+  if(!currentAddress)return;
+  navigator.clipboard.writeText(currentAddress).catch(function(){});
+  if(btn){
+    var orig=btn.textContent,h=btn.title;
+    btn.title="Copied!";
+    setTimeout(function(){btn.title=h;},1500);
+  }
+};
+
 window.showActionMsg=function(msg,type){
   el("action-msg").innerHTML='<div class="msg '+type+'">'+msg+'</div>';
   setTimeout(function(){el("action-msg").innerHTML="";},5000);
@@ -419,7 +457,9 @@ window.createWallet=async function(){
   if(pw!==pw2){el("create-msg").innerHTML='<div class="msg error">Passwords do not match</div>';return;}
 
   var seed=generateSeed();
-  var pubKey=await createKeypair(seed);
+  var pubKey;
+  try{pubKey=await createKeypair(seed);}
+  catch(e){el("create-msg").innerHTML='<div class="msg error">'+e.message+'</div>';return;}
   var did=makeDid(pubKey);
   var encrypted=await encryptSeed(seed,pw);
 
@@ -443,14 +483,17 @@ window.confirmSeed=function(){
 // ---- Import wallet ----
 
 window.importWallet=async function(){
-  var seedHex=el("import-seed").value.trim();
+  var seedHex=el("import-seed").value.trim().toLowerCase();
   var pw=el("import-pw").value;
 
   if(seedHex.length!==64){el("import-msg").innerHTML='<div class="msg error">Seed must be 64 hex characters</div>';return;}
+  if(!/^[0-9a-f]{64}$/.test(seedHex)){el("import-msg").innerHTML='<div class="msg error">Seed must be hex (0-9, a-f) only</div>';return;}
   if(pw.length<8){el("import-msg").innerHTML='<div class="msg error">Password must be at least 8 characters</div>';return;}
 
   var seed=hexDecode(seedHex);
-  var pubKey=await createKeypair(seed);
+  var pubKey;
+  try{pubKey=await createKeypair(seed);}
+  catch(e){el("import-msg").innerHTML='<div class="msg error">'+e.message+'</div>';return;}
   var did=makeDid(pubKey);
   var encrypted=await encryptSeed(seed,pw);
 
@@ -465,16 +508,29 @@ window.importWallet=async function(){
 
 // ---- Dashboard ----
 
-function showDashboard(){
+async function showDashboard(){
   show("dashboard");
   el("dash-did").textContent=currentDid;
+
+  // Derive and display the CometBFT consensus address from the stored pubKey
+  try{
+    var stored=JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}");
+    if(stored.pubKey){
+      currentPubKeyHex=stored.pubKey;
+      currentAddress=await deriveCometAddr(hexDecode(stored.pubKey));
+    }
+  }catch(e){}
+  el("dash-addr").textContent=currentAddress||"(unavailable — re-import wallet to refresh)";
+
   refreshBalance();
   refreshNetwork();
   refreshDelegations();
+  refreshTxHistory();
   updateClaimButton();
   setInterval(refreshBalance,10000);
   setInterval(refreshNetwork,10000);
   setInterval(refreshDelegations,30000);
+  setInterval(refreshTxHistory,30000);
   setInterval(updateClaimButton,10000);
 }
 
@@ -512,6 +568,7 @@ async function refreshNetwork(){
 
 window.registerAgent=async function(){
   if(!currentDid){showActionMsg("No wallet loaded","error");return;}
+  if(!confirm("Register this wallet as an agent on the Ensoul Network?\n\nDID: "+shortDidForConfirm(currentDid)+"\n\nConfirm?"))return;
   try{
     var stored=JSON.parse(localStorage.getItem(STORAGE_KEY));
     var r=await fetch(API+"/v1/agents/register",{
@@ -580,7 +637,32 @@ setInterval(function(){
   }
 },60000);
 
+// Unlock the wallet by prompting for the password, decrypting the seed,
+// and verifying the DID matches. Runs before any signing action if the
+// session seed has been cleared (e.g. after page reload or 30-min timeout).
+async function ensureUnlocked(){
+  if(currentSeed)return true;
+  var stored=localStorage.getItem(STORAGE_KEY);
+  if(!stored){showActionMsg("No wallet found in this browser.","error");return false;}
+  var parsed=JSON.parse(stored);
+  var pw=prompt("Wallet locked. Enter your password to sign this transaction:");
+  if(!pw)return false;
+  try{
+    var seed=await decryptSeed(parsed.encrypted,pw);
+    var pubKey=await createKeypair(seed);
+    var did=makeDid(pubKey);
+    if(did!==parsed.did){showActionMsg("Wrong password.","error");return false;}
+    currentSeed=seed;
+    lastActivity=Date.now();
+    return true;
+  }catch(e){
+    showActionMsg("Could not unlock: "+e.message,"error");
+    return false;
+  }
+}
+
 async function buildAndBroadcast(type,to,amount,data){
+  if(!(await ensureUnlocked()))return null;
   if(!currentSeed){showActionMsg("Wallet locked. Re-enter password.","error");return null;}
   showActionMsg("Broadcasting transaction...","info");
   try{
@@ -626,23 +708,29 @@ async function buildAndBroadcast(type,to,amount,data){
 var DECIMALS="1000000000000000000";
 function toWei(ensl){return(BigInt(Math.floor(Number(ensl)*100))*BigInt(DECIMALS)/100n).toString();}
 
+// Short DID for confirm dialogs (fits in the browser native prompt)
+function shortDidForConfirm(d){return d && d.length>28 ? d.slice(0,16)+"…"+d.slice(-8) : (d||"");}
+
 window.doSend=async function(){
   var to=el("send-to").value.trim();
   var amt=parseFloat(el("send-amount").value);
   if(!to||!to.startsWith("did:")){showActionMsg("Enter a valid DID","error");return;}
   if(!amt||amt<=0){showActionMsg("Enter a valid amount","error");return;}
+  if(!confirm("You are about to send "+amt+" ENSL to "+shortDidForConfirm(to)+".\n\nThis is a signed, on-chain transaction. Confirm?"))return;
   await buildAndBroadcast("transfer",to,toWei(amt));
 };
 
 window.doStake=async function(){
   var amt=parseFloat(el("stake-amount").value);
   if(!amt||amt<=0){showActionMsg("Enter a valid amount","error");return;}
+  if(!confirm("You are about to stake "+amt+" ENSL.\n\nStaked tokens are locked for 30 days. Confirm?"))return;
   await buildAndBroadcast("stake",currentDid,toWei(amt));
 };
 
 window.doUnstake=async function(){
   var amt=parseFloat(el("unstake-amount").value);
   if(!amt||amt<=0){showActionMsg("Enter a valid amount","error");return;}
+  if(!confirm("You are about to unstake "+amt+" ENSL.\n\nA 7-day cooldown applies before the tokens return to your available balance. Confirm?"))return;
   await buildAndBroadcast("unstake",currentDid,toWei(amt));
 };
 
@@ -651,10 +739,12 @@ window.doDelegate=async function(){
   var amt=parseFloat(el("delegate-amount").value);
   if(!validator||!validator.startsWith("did:")){showActionMsg("Enter a valid validator DID","error");return;}
   if(!amt||amt<100){showActionMsg("Minimum delegation: 100 ENSL","error");return;}
+  if(!confirm("You are about to delegate "+amt+" ENSL to "+shortDidForConfirm(validator)+".\n\nConfirm?"))return;
   await buildAndBroadcast("delegate",validator,toWei(amt));
 };
 
 window.claimRewards=async function(){
+  if(!confirm("Claim pending rewards? They will move into your available balance.\n\nConfirm?"))return;
   await buildAndBroadcast("reward_claim",currentDid,"0");
 };
 
@@ -689,6 +779,65 @@ async function refreshDelegations(){
     container.innerHTML=html;
   }catch(e){
     container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">Could not load delegations.</p>';
+  }
+}
+
+// ---- Transaction history ----
+
+function shortHash(h){return h && h.length>16 ? h.slice(0,8)+"…"+h.slice(-6) : (h||"");}
+function shortDidShort(d){return d && d.length>24 ? d.slice(0,12)+"…"+d.slice(-6) : (d||"");}
+function fmtTxDate(ms){
+  if(!ms)return"";
+  var d=new Date(ms);
+  var now=Date.now();
+  var age=(now-ms)/1000;
+  if(age<60)return"just now";
+  if(age<3600)return Math.floor(age/60)+"m ago";
+  if(age<86400)return Math.floor(age/3600)+"h ago";
+  return d.toLocaleDateString();
+}
+function escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
+
+window.copyTxHash=function(hash,btn){
+  navigator.clipboard.writeText(hash).then(function(){
+    var o=btn.textContent;btn.textContent="✓";setTimeout(function(){btn.textContent=o;},1200);
+  }).catch(function(){});
+};
+
+async function refreshTxHistory(){
+  if(!currentDid)return;
+  var container=el("tx-history");
+  try{
+    var r=await fetch(API+"/v1/account/"+encodeURIComponent(currentDid)+"/transactions?limit=25");
+    if(!r.ok){container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">Could not load history.</p>';return;}
+    var d=await r.json();
+    var txs=d.transactions||[];
+    if(txs.length===0){
+      container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">No transactions yet for this account.</p>';
+      return;
+    }
+    var rows=txs.map(function(t){
+      var dirCls=t.direction==="in"?"in":t.direction==="out"?"out":"self";
+      var dirLabel=t.direction==="in"?"In":t.direction==="out"?"Out":"Self";
+      var rowCls=t.success?"":"tx-fail";
+      var counterparty=shortDidShort(t.counterparty||"");
+      var hashShort=shortHash(t.hash||"");
+      var date=fmtTxDate(t.timestamp);
+      var amt=t.amount||"0.00 ENSL";
+      return '<tr class="'+rowCls+'">'
+        +'<td>'+escHtml(date)+'</td>'
+        +'<td class="tx-col-type">'+escHtml(t.type||"")+'</td>'
+        +'<td><span class="tx-dir '+dirCls+'">'+dirLabel+'</span></td>'
+        +'<td>'+escHtml(amt)+'</td>'
+        +'<td class="tx-col-peer" title="'+escHtml(t.counterparty||"")+'">'+escHtml(counterparty)+'</td>'
+        +'<td><span class="tx-hash">'+escHtml(hashShort)+'</span><button class="tx-copy" onclick="copyTxHash(\''+escHtml(t.hash||"")+'\',this)" title="Copy tx hash">⎘</button></td>'
+        +'</tr>';
+    }).join("");
+    container.innerHTML='<div style="overflow-x:auto"><table class="tx-table">'
+      +'<thead><tr><th>When</th><th class="tx-col-type">Type</th><th>Dir</th><th>Amount</th><th class="tx-col-peer">Counterparty</th><th>Tx</th></tr></thead>'
+      +'<tbody>'+rows+'</tbody></table></div>';
+  }catch(e){
+    container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">Could not load history.</p>';
   }
 }
 
