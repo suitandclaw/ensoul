@@ -40,6 +40,10 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 .next-steps{background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:16px;margin-top:16px;font-size:0.9em}
 .next-steps h4{margin:0 0 8px;color:#22c55e;font-size:0.95em}
 .next-steps code{background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;font-size:0.9em}
+.backup-reminder{background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.25);border-radius:8px;padding:14px 16px;margin-top:16px;font-size:0.9em;display:flex;gap:12px;align-items:flex-start}
+.backup-reminder svg{flex-shrink:0;stroke:#fbbf24;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;margin-top:2px}
+.backup-reminder strong{color:#fbbf24;display:block;margin-bottom:4px}
+.backup-reminder a{color:#fbbf24;text-decoration:underline;text-underline-offset:3px}
 </style>
 </head>
 <body>
@@ -176,6 +180,13 @@ function checkStatus(){
 
 			if(s==="approved"&&d.nextSteps){
 				next.innerHTML='<div class="next-steps"><h4>Next steps</h4><p>Run these commands on your validator:</p><p><code>ensoul-node wallet stake 100</code></p><p><code>ensoul-node wallet consensus-join</code></p><p style="margin-top:8px;color:var(--text-secondary);font-size:0.85em">Then check your validator on the <a href="https://explorer.ensoul.dev" style="color:var(--primary)">explorer</a>.</p></div>';
+			}
+
+			// Key backup reminder for pending and approved Pioneers.
+			// (Rejected applicants do not need this since no validator was activated.)
+			if(s==="pending"||s==="approved"){
+				var backupHtml='<div class="backup-reminder"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg><div><strong>Have you backed up your keys?</strong>Your validator identity cannot be recovered without them. <a href="/docs/validator.html#key-backup">Read the key backup guide &rarr;</a></div></div>';
+				next.innerHTML+=backupHtml;
 			}
 		})
 		.catch(function(){

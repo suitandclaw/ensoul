@@ -976,12 +976,41 @@ fetch('http://localhost:26657', {
     echo ""
     if [ -n "$identity_seed" ]; then
         echo "  ╔══════════════════════════════════════════════════════════════╗"
-        echo "  ║  YOUR SEED (save this, it cannot be recovered):            ║"
+        echo "  ║  YOUR SEED (save this, it cannot be recovered):              ║"
         echo "  ║  $identity_seed  ║"
         echo "  ╚══════════════════════════════════════════════════════════════╝"
         echo ""
     fi
-    echo "  BACK UP YOUR KEYS. They cannot be recovered if lost."
+
+    # Re-detect public IP for the backup commands. Falls back to a placeholder.
+    local backup_ip
+    backup_ip=$(curl -4 -s -m 5 https://ifconfig.me 2>/dev/null || curl -4 -s -m 5 https://api.ipify.org 2>/dev/null || echo "YOUR_SERVER_IP")
+    [ -z "$backup_ip" ] && backup_ip="YOUR_SERVER_IP"
+
+    echo "  ╔══════════════════════════════════════════════════════════════╗"
+    echo "  ║  CRITICAL: BACK UP THESE FILES TO YOUR LOCAL MACHINE         ║"
+    echo "  ║                                                              ║"
+    echo "  ║  These files ARE your validator. If this server is lost      ║"
+    echo "  ║  and you don't have backups, your validator identity,        ║"
+    echo "  ║  your stake, and your Pioneer status are gone forever.       ║"
+    echo "  ║                                                              ║"
+    echo "  ║  From YOUR computer (not this server), run:                  ║"
+    echo "  ╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "    scp root@${backup_ip}:${CMT_HOME}/config/priv_validator_key.json ./"
+    echo "    scp root@${backup_ip}:${DATA_DIR}/identity.json ./"
+    echo "    scp root@${backup_ip}:${CMT_HOME}/config/node_key.json ./"
+    echo ""
+    echo "  Store these files + your seed offline. USB drive, password"
+    echo "  manager, encrypted backup. Never share them with anyone."
+    echo ""
+    echo "  What each file is:"
+    echo "    priv_validator_key.json  CometBFT signing key. Makes blocks."
+    echo "    node_key.json            P2P network identity. Other validators find you with this."
+    echo "    identity.json            Ensoul DID keypair. Your on-chain identity."
+    echo "    Seed (above)             Master key. Everything above can be regenerated from this."
+    echo ""
+    echo "  Full backup guide: https://ensoul.dev/docs/validator.html#key-backup"
     echo ""
     echo "  Wallet:  Import your seed into ensoul.dev/wallet.html to"
     echo "           manage your stake and rewards."
