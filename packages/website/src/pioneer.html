@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pioneer Portal - Ensoul</title>
+<meta name="description" content="Your Pioneer validator in one place: identity, stake, rewards, health, and key backup. Seed stays in your browser.">
+<meta name="robots" content="noindex,nofollow">
+<link rel="stylesheet" href="/css/design-system.css">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<style>
+.nav{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(9,9,11,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+body{padding-top:56px;background:#09090b;color:#a1a1aa}
+.container{max-width:960px;margin:0 auto;padding:0 24px}
+
+/* Hero */
+.portal-hero{padding:56px 0 20px}
+.portal-hero h1{font-family:var(--font-display);font-size:clamp(1.75rem,4vw,2.25rem);color:#fafafa;font-weight:800;letter-spacing:-0.02em;margin:0 0 8px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.portal-hero .sub{color:var(--text-3);font-size:0.9375rem;margin:0}
+.live-tag{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:0.6875rem;color:#22c55e;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;padding:4px 10px;border-radius:100px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2)}
+.live-dot{width:6px;height:6px;background:#22c55e;border-radius:50%;box-shadow:0 0 0 0 rgba(34,197,94,0.7);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.5)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+
+.portal-meta{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px;font-family:var(--font-mono);font-size:0.75rem;color:#52525b}
+.portal-meta .did-small{color:var(--text-2);word-break:break-all}
+.chip-btn{background:transparent;color:var(--text-3);border:1px solid rgba(255,255,255,0.06);padding:4px 10px;border-radius:4px;font-size:0.75rem;font-family:var(--font-mono);cursor:pointer;transition:all 0.15s}
+.chip-btn:hover{color:#fafafa;border-color:rgba(255,255,255,0.12)}
+.chip-btn.danger:hover{color:#ef4444;border-color:rgba(239,68,68,0.3)}
+
+/* Entry card */
+.entry-card{max-width:560px;margin:60px auto;background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:14px;padding:32px}
+.entry-card h2{color:#fafafa;font-size:1.25rem;margin:0 0 6px}
+.entry-card .lead{color:var(--text-3);font-size:0.9375rem;margin:0 0 20px}
+.entry-tabs{display:flex;gap:4px;margin-bottom:16px;background:#0c0c0e;border:1px solid rgba(255,255,255,0.04);border-radius:8px;padding:4px}
+.entry-tab{flex:1;background:transparent;color:var(--text-3);border:none;padding:8px 14px;border-radius:6px;font-size:0.8125rem;font-weight:600;cursor:pointer;transition:all 0.15s}
+.entry-tab.active{background:#1a1a1d;color:#fafafa}
+.entry-input{width:100%;padding:12px 14px;background:#0c0c0e;border:1px solid rgba(255,255,255,0.06);border-radius:6px;color:#fafafa;font-family:var(--font-mono);font-size:0.875rem;margin-bottom:12px;box-sizing:border-box}
+.entry-input:focus{outline:none;border-color:var(--accent)}
+.entry-check{display:flex;align-items:flex-start;gap:8px;margin:8px 0 16px;font-size:0.8125rem;color:var(--text-3);cursor:pointer}
+.entry-check input{margin-top:2px;accent-color:var(--accent)}
+.entry-btn{width:100%;padding:12px 20px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-weight:600;font-size:0.9375rem;cursor:pointer;transition:background 0.2s}
+.entry-btn:hover{background:var(--accent-hover)}
+.entry-btn:disabled{opacity:0.6;cursor:not-allowed}
+.entry-note{font-size:0.8125rem;color:var(--text-3);background:rgba(124,91,245,0.05);border:1px solid rgba(124,91,245,0.15);border-radius:6px;padding:10px 12px;margin-bottom:16px}
+.entry-err{color:#ef4444;font-size:0.8125rem;margin-top:10px;min-height:18px}
+
+/* Sections */
+.section{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:14px;padding:24px;margin:16px 0}
+.section-title{font-family:var(--font-display);color:#fafafa;font-size:1.0625rem;font-weight:700;margin:0 0 16px;display:flex;align-items:center;gap:10px;letter-spacing:-0.01em}
+.section-title .idx{font-family:var(--font-mono);color:#52525b;font-size:0.75rem;background:rgba(255,255,255,0.04);padding:2px 8px;border-radius:100px;font-weight:500;letter-spacing:0.05em}
+
+.kv{display:grid;grid-template-columns:140px 1fr;gap:10px 20px;font-size:0.875rem;line-height:1.5}
+.kv .lbl{color:#52525b;font-family:var(--font-mono);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;padding-top:2px}
+.kv .val{color:var(--text-1);word-break:break-all}
+.kv .val code{background:#0c0c0e;border:1px solid rgba(255,255,255,0.04);padding:2px 8px;border-radius:4px;font-size:0.8125rem;font-family:var(--font-mono);color:#fafafa}
+.kv a{color:var(--accent)}
+.kv a:hover{color:var(--accent-hover)}
+
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:100px;font-size:0.6875rem;font-weight:700;letter-spacing:0.05em;font-family:var(--font-mono);text-transform:uppercase}
+.badge-pioneer{background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25)}
+.badge-pending{background:rgba(234,179,8,0.12);color:#eab308;border:1px solid rgba(234,179,8,0.25)}
+.badge-rejected{background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25)}
+.badge-none{background:rgba(107,114,128,0.12);color:#9ca3af;border:1px solid rgba(107,114,128,0.2)}
+
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0}
+.dot.green{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,0.12)}
+.dot.red{background:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,0.12)}
+.dot.gray{background:#52525b}
+
+/* Health grid */
+.h-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.h-stat{background:#0c0c0e;border:1px solid rgba(255,255,255,0.04);border-radius:10px;padding:14px}
+.h-stat .l{font-family:var(--font-mono);color:#52525b;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px}
+.h-stat .v{color:#fafafa;font-weight:700;font-size:1.125rem;font-family:var(--font-display);letter-spacing:-0.01em}
+.h-stat .c{color:var(--text-3);font-size:0.75rem;margin-top:4px}
+.h-stat.warn{border-color:rgba(234,179,8,0.25);background:rgba(234,179,8,0.04)}
+.h-stat.warn .v{color:#eab308}
+.h-stat.bad{border-color:rgba(239,68,68,0.25);background:rgba(239,68,68,0.04)}
+.h-stat.bad .v{color:#ef4444}
+
+.warn-box{background:rgba(234,179,8,0.05);border:1px solid rgba(234,179,8,0.2);border-radius:8px;padding:12px 14px;margin:12px 0;font-size:0.875rem;color:#eab308}
+.warn-box strong{color:#fbbf24}
+.info-box{background:rgba(124,91,245,0.05);border:1px solid rgba(124,91,245,0.15);border-radius:8px;padding:12px 14px;margin:12px 0;font-size:0.8125rem;color:var(--text-2)}
+.info-box a{color:var(--accent)}
+
+/* Action forms */
+.actions-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.stake-action{background:#0c0c0e;border:1px solid rgba(255,255,255,0.04);border-radius:10px;padding:14px}
+.stake-action h4{color:#fafafa;font-size:0.875rem;margin:0 0 8px;font-weight:600}
+.stake-input{width:100%;padding:8px 10px;background:#09090b;border:1px solid rgba(255,255,255,0.06);border-radius:6px;color:#fafafa;font-family:var(--font-mono);font-size:0.8125rem;margin-bottom:8px;box-sizing:border-box}
+.stake-input:focus{outline:none;border-color:var(--accent)}
+.stake-btn{width:100%;padding:8px 12px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-weight:600;font-size:0.8125rem;cursor:pointer;transition:background 0.2s}
+.stake-btn:hover{background:var(--accent-hover)}
+.stake-btn:disabled{opacity:0.5;cursor:not-allowed}
+
+/* Quick actions */
+.qa-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.qa-link{display:block;background:#0c0c0e;border:1px solid rgba(255,255,255,0.04);border-radius:10px;padding:16px;color:var(--text-1);text-decoration:none;transition:all 0.15s}
+.qa-link:hover{border-color:var(--accent);color:#fafafa;transform:translateY(-1px)}
+.qa-link .qa-t{font-weight:600;color:#fafafa;font-size:0.9375rem;margin-bottom:4px}
+.qa-link .qa-d{color:var(--text-3);font-size:0.8125rem}
+
+details.qa-details{background:#0c0c0e;border:1px solid rgba(255,255,255,0.04);border-radius:10px;padding:0;margin:10px 0;overflow:hidden}
+details.qa-details summary{padding:14px 16px;cursor:pointer;color:#fafafa;font-weight:600;font-size:0.9375rem;list-style:none;display:flex;align-items:center;justify-content:space-between}
+details.qa-details summary::-webkit-details-marker{display:none}
+details.qa-details summary::after{content:"+";color:var(--text-3);font-weight:400;font-size:1.125rem;transition:transform 0.2s}
+details.qa-details[open] summary::after{transform:rotate(45deg)}
+details.qa-details .qa-body{padding:0 16px 16px;border-top:1px solid rgba(255,255,255,0.04)}
+details.qa-details .qa-body p{color:var(--text-3);font-size:0.8125rem;margin:10px 0 8px}
+.cmd-block{background:#09090b;border:1px solid rgba(255,255,255,0.04);border-radius:6px;padding:10px 12px;font-family:var(--font-mono);font-size:0.8125rem;color:#e0e0e0;overflow-x:auto;cursor:pointer;position:relative;margin:8px 0}
+.cmd-block:hover{border-color:rgba(255,255,255,0.1)}
+.cmd-block .copy-hint{position:absolute;right:8px;top:8px;font-size:0.6875rem;color:var(--text-3);opacity:0;transition:opacity 0.15s}
+.cmd-block:hover .copy-hint{opacity:1}
+.cmd-block.copied .copy-hint{opacity:1;color:#22c55e}
+.ip-inline{width:180px;padding:6px 10px;background:#09090b;border:1px solid rgba(255,255,255,0.06);border-radius:4px;color:#fafafa;font-family:var(--font-mono);font-size:0.8125rem;margin-left:6px}
+
+/* Msg areas */
+.tx-msg{font-size:0.8125rem;margin-top:8px;padding:8px 10px;border-radius:6px}
+.tx-msg.ok{background:rgba(34,197,94,0.08);color:#22c55e;border:1px solid rgba(34,197,94,0.2)}
+.tx-msg.err{background:rgba(239,68,68,0.08);color:#ef4444;border:1px solid rgba(239,68,68,0.2)}
+.tx-msg.info{background:rgba(124,91,245,0.08);color:#c4b5fd;border:1px solid rgba(124,91,245,0.2)}
+.read-only-note{background:rgba(251,191,36,0.05);border:1px solid rgba(251,191,36,0.2);color:#fbbf24;border-radius:8px;padding:12px 14px;font-size:0.875rem}
+.read-only-note a{color:#fbbf24;text-decoration:underline}
+
+@media(max-width:640px){
+	.portal-hero{padding:40px 0 16px}
+	.section{padding:18px}
+	.kv{grid-template-columns:1fr;gap:4px 0}
+	.kv .lbl{padding-top:12px}
+	.kv .val{padding-bottom:4px}
+	.actions-grid{grid-template-columns:1fr}
+	.qa-grid{grid-template-columns:1fr}
+	.entry-card{margin:28px 16px;padding:20px}
+	.ip-inline{width:100%;margin:6px 0 0}
+}
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+<div class="nav-inner">
+	<a href="/" class="nav-logo">
+		<svg viewBox="0 0 110 110" width="20" height="20"><circle cx="55" cy="55" r="42" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="var(--accent)"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>
+		Ensoul
+		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
+	</a>
+	<div class="nav-links">
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/pioneer.html">Pioneer</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="/try" class="nav-cta">Try It</a>
+	</div>
+	<button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">
+		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+	</button>
+</div>
+</nav>
+
+<div class="container">
+
+<!-- Entry gate (seed or DID input) -->
+<div id="entry-gate" class="entry-card" style="display:none">
+	<h2>Pioneer Portal</h2>
+	<p class="lead">One page for everything: identity, stake, rewards, validator health, key backup. Seed never leaves this browser.</p>
+
+	<div class="entry-tabs" role="tablist">
+		<button type="button" class="entry-tab active" id="tab-seed" onclick="switchTab('seed')">Paste Seed</button>
+		<button type="button" class="entry-tab" id="tab-did" onclick="switchTab('did')">Read-only (DID)</button>
+	</div>
+
+	<div id="pane-seed">
+		<div class="entry-note">Your seed is processed locally in your browser. It is never sent to any server. It derives your DID and signs transactions on-device.</div>
+		<input type="password" id="seed-in" class="entry-input" placeholder="Paste your 64-character hex seed" autocomplete="off" spellcheck="false">
+		<label class="entry-check">
+			<input type="checkbox" id="remember-seed">
+			<span>Remember this seed on this device. Anyone with access to this browser will have full validator control. Leave unchecked on shared or untrusted devices.</span>
+		</label>
+		<button type="button" class="entry-btn" onclick="submitSeed()">Unlock Portal</button>
+	</div>
+
+	<div id="pane-did" style="display:none">
+		<div class="entry-note">Read-only mode shows validator health and Pioneer status — no balances or staking. Import your seed later for full access.</div>
+		<input type="text" id="did-in" class="entry-input" placeholder="did:key:z6Mk..." autocomplete="off" spellcheck="false">
+		<button type="button" class="entry-btn" onclick="submitDid()">View Validator</button>
+	</div>
+
+	<div id="entry-err" class="entry-err"></div>
+</div>
+
+<!-- Full portal -->
+<div id="portal" style="display:none">
+
+	<div class="portal-hero">
+		<h1>Pioneer Portal <span class="live-tag"><span class="live-dot"></span>Live</span></h1>
+		<p class="sub">Refreshing every 30 seconds.</p>
+		<div class="portal-meta">
+			<span class="did-small" id="m-did">--</span>
+			<button class="chip-btn" onclick="copyCurrentDid(this)">Copy DID</button>
+			<button class="chip-btn" onclick="switchIdentity()">Switch</button>
+			<button class="chip-btn danger" id="clear-btn" onclick="clearSaved()" style="display:none">Clear saved seed</button>
+			<span id="mode-pill" style="font-family:var(--font-mono);font-size:0.6875rem;color:#52525b;text-transform:uppercase;letter-spacing:0.06em"></span>
+		</div>
+	</div>
+
+	<!-- Section 1: Identity -->
+	<div class="section">
+		<h2 class="section-title"><span class="idx">01</span> Identity</h2>
+		<div class="kv">
+			<div class="lbl">DID</div>
+			<div class="val"><code id="s1-did">--</code></div>
+			<div class="lbl">Address</div>
+			<div class="val"><code id="s1-addr" title="CometBFT consensus address (sha256(pubkey)[:20])">--</code></div>
+			<div class="lbl">Pioneer</div>
+			<div class="val" id="s1-pioneer"><span class="badge badge-none">Loading…</span></div>
+			<div class="lbl">Age</div>
+			<div class="val" id="s1-age">--</div>
+			<div class="lbl">Explorer</div>
+			<div class="val"><a id="s1-explorer" href="#" target="_blank" rel="noopener">View on explorer.ensoul.dev →</a></div>
+		</div>
+	</div>
+
+	<!-- Section 2: Stake and Rewards -->
+	<div class="section" id="section-stake">
+		<h2 class="section-title"><span class="idx">02</span> Stake &amp; Rewards</h2>
+
+		<div id="stake-readonly" class="read-only-note" style="display:none">
+			Import your seed for full access including balance, staking, and delegation actions. <a href="#" onclick="event.preventDefault();switchIdentity()">Switch identity &rarr;</a>
+		</div>
+
+		<div id="stake-full">
+			<div class="kv">
+				<div class="lbl">Available</div><div class="val" id="s2-available">--</div>
+				<div class="lbl">Staked</div><div class="val" id="s2-staked">--</div>
+				<div class="lbl">Foundation delegation</div><div class="val" id="s2-foundation">--</div>
+				<div class="lbl">Est. daily</div><div class="val" id="s2-daily">~13,000 ENSL <span style="color:var(--text-3);font-size:0.8125rem">(rough network estimate)</span></div>
+				<div class="lbl">Pending rewards</div><div class="val" id="s2-pending">--</div>
+				<div class="lbl">Total earned</div><div class="val" id="s2-earned">--</div>
+			</div>
+
+			<div class="actions-grid">
+				<div class="stake-action">
+					<h4>Stake more</h4>
+					<input type="number" id="stake-amt" class="stake-input" placeholder="Amount (ENSL)" step="1" min="1">
+					<button class="stake-btn" onclick="doStake()">Stake</button>
+				</div>
+				<div class="stake-action">
+					<h4>Unstake</h4>
+					<input type="number" id="unstake-amt" class="stake-input" placeholder="Amount (ENSL)" step="1" min="1">
+					<button class="stake-btn" onclick="doUnstake()">Unstake</button>
+				</div>
+				<div class="stake-action">
+					<h4>Delegate to another validator</h4>
+					<input type="text" id="deleg-to" class="stake-input" placeholder="Validator DID">
+					<input type="number" id="deleg-amt" class="stake-input" placeholder="Amount (ENSL)" step="1" min="100">
+					<button class="stake-btn" onclick="doDelegate()">Delegate</button>
+				</div>
+				<div class="stake-action">
+					<h4>Claim rewards</h4>
+					<p style="font-size:0.75rem;color:var(--text-3);margin:0 0 8px">Moves pending rewards into your available balance.</p>
+					<button class="stake-btn" onclick="doClaim()">Claim rewards</button>
+				</div>
+			</div>
+			<div id="tx-msg" style="margin-top:12px"></div>
+		</div>
+	</div>
+
+	<!-- Section 3: Validator Health -->
+	<div class="section">
+		<h2 class="section-title"><span class="idx">03</span> Validator Health</h2>
+		<div id="health-warn"></div>
+		<div class="h-grid">
+			<div class="h-stat" id="hs-online">
+				<div class="l">Status</div>
+				<div class="v"><span class="dot gray" id="h-dot"></span> <span id="h-status">--</span></div>
+				<div class="c" id="h-status-ctx">&nbsp;</div>
+			</div>
+			<div class="h-stat">
+				<div class="l">Network height</div>
+				<div class="v" id="h-net-height">--</div>
+				<div class="c">Current chain tip</div>
+			</div>
+			<div class="h-stat">
+				<div class="l">Blocks proposed</div>
+				<div class="v" id="h-blocks">--</div>
+				<div class="c" id="h-blocks-24h">&nbsp;</div>
+			</div>
+			<div class="h-stat">
+				<div class="l">Uptime</div>
+				<div class="v" id="h-uptime">--</div>
+				<div class="c">7-day</div>
+			</div>
+			<div class="h-stat">
+				<div class="l">Last activity</div>
+				<div class="v" id="h-last">--</div>
+				<div class="c" id="h-last-ctx">&nbsp;</div>
+			</div>
+			<div class="h-stat">
+				<div class="l">Registered</div>
+				<div class="v" id="h-reg">--</div>
+				<div class="c">On-chain validator record</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Section 4: Quick Actions -->
+	<div class="section">
+		<h2 class="section-title"><span class="idx">04</span> Quick Actions</h2>
+
+		<div class="qa-grid" style="margin-bottom:12px">
+			<a class="qa-link" id="qa-explorer" href="#" target="_blank" rel="noopener">
+				<div class="qa-t">View on Explorer →</div>
+				<div class="qa-d">Blocks proposed, delegations, on-chain history.</div>
+			</a>
+			<a class="qa-link" href="https://bsky.app/profile/ensoul.bsky.social" target="_blank" rel="noopener">
+				<div class="qa-t">Contact support →</div>
+				<div class="qa-d">DM @ensoul on Bluesky. We respond fast.</div>
+			</a>
+		</div>
+
+		<details class="qa-details">
+			<summary>Check server health</summary>
+			<div class="qa-body">
+				<p>Run these on your VPS to confirm CometBFT is alive and in sync:</p>
+				<div class="cmd-block" onclick="copyCmd(this)"><span class="copy-hint">click to copy</span>curl -s localhost:26657/status | python3 -c "import sys,json; d=json.load(sys.stdin)['result']['sync_info']; print(f'Height: {d[\"latest_block_height\"]}  Catching up: {d[\"catching_up\"]}')"</div>
+				<div class="cmd-block" onclick="copyCmd(this)"><span class="copy-hint">click to copy</span>systemctl status cometbft --no-pager | head -20</div>
+				<div class="cmd-block" onclick="copyCmd(this)"><span class="copy-hint">click to copy</span>journalctl -u cometbft -n 50 --no-pager</div>
+			</div>
+		</details>
+
+		<details class="qa-details">
+			<summary>Back up keys</summary>
+			<div class="qa-body">
+				<p>Losing these files = losing your validator forever. Copy them off the server to at least two places. Enter your VPS IP to fill in the commands:</p>
+				<div style="margin:6px 0 10px">
+					<span style="font-size:0.75rem;color:var(--text-3);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.06em">Server IP:</span>
+					<input type="text" id="backup-ip" class="ip-inline" placeholder="1.2.3.4" oninput="refreshBackupCmds()">
+				</div>
+				<div id="backup-cmds"></div>
+				<p style="margin-top:12px"><a href="/docs/validator.html#key-backup" style="color:var(--accent)">Full backup guide &rarr;</a></p>
+			</div>
+		</details>
+
+		<details class="qa-details">
+			<summary>Common commands on your VPS</summary>
+			<div class="qa-body">
+				<p>Run these with <code>ensoul-node</code> on your validator host:</p>
+				<div class="cmd-block" onclick="copyCmd(this)"><span class="copy-hint">click to copy</span>ensoul-node wallet stake 100</div>
+				<div class="cmd-block" onclick="copyCmd(this)"><span class="copy-hint">click to copy</span>ensoul-node wallet consensus-join</div>
+				<div class="cmd-block" onclick="copyCmd(this)"><span class="copy-hint">click to copy</span>ensoul-node --status</div>
+			</div>
+		</details>
+	</div>
+
+	<p style="text-align:center;color:var(--text-3);font-size:0.8125rem;margin:32px 0 48px">
+		Seed stays in your browser. <a href="/docs/validator.html#key-backup" style="color:var(--accent)">Key backup guide</a> · <a href="/docs/validator.html" style="color:var(--accent)">Validator docs</a> · <a href="/apply" style="color:var(--accent)">Re-apply</a>
+	</p>
+</div>
+
+</div>
+
+<footer class="footer">
+<div class="footer-inner">
+	<div class="footer-links">
+		<a href="/">Home</a>
+		<a href="/try">Try It</a>
+		<a href="/genesis">Genesis</a>
+		<a href="/pioneer.html">Pioneer</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+	</div>
+	<div class="footer-right">the persistence layer for AI agents</div>
+</div>
+</footer>
+
+<script src="/js/config.js"></script>
+<script type="module">
+import * as ed from "https://cdn.jsdelivr.net/npm/@noble/ed25519@2.1.0/+esm";
+import { sha512 } from "https://cdn.jsdelivr.net/npm/@noble/hashes@1.6.0/sha2.js/+esm";
+ed.etc.sha512Sync = function(){return sha512.apply(null,arguments);};
+window._ed25519 = ed;
+window.dispatchEvent(new CustomEvent("ed25519-ready"));
+</script>
+<script>
+(function(){
+"use strict";
+
+var API = "https://api.ensoul.dev";
+var EXPLORER = "https://explorer.ensoul.dev";
+var STORAGE_KEY = "ensoulPioneerSeed";     // hex seed, only if the user opted in
+var DID_KEY = "ensoulPioneerDid";           // last-used DID (so read-only mode also persists)
+var REFRESH_MS = 30000;
+
+var state = {
+	seed: null,        // Uint8Array or null (null = read-only mode)
+	did: null,
+	pubKeyHex: null,
+	addr: null,
+	refresher: null,
+	edReady: !!window._ed25519,
+};
+
+if (!state.edReady) {
+	window.addEventListener("ed25519-ready", function(){ state.edReady = true; });
+}
+
+// ─── Helpers ──────────────────────────────────────────────
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+
+var B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function b58encode(buf){
+	var n = 0n;
+	for (var i = 0; i < buf.length; i++) n = n*256n + BigInt(buf[i]);
+	var s = "";
+	while (n > 0n){ s = B58[Number(n%58n)] + s; n = n/58n; }
+	for (var j = 0; j < buf.length && buf[j] === 0; j++) s = "1" + s;
+	return s;
+}
+function hexEncode(buf){ return Array.from(buf).map(function(b){ return b.toString(16).padStart(2,"0"); }).join(""); }
+function hexDecode(h){
+	if (h.length % 2 !== 0) return null;
+	var b = new Uint8Array(h.length/2);
+	for (var i = 0; i < h.length; i += 2) {
+		var v = parseInt(h.substr(i,2),16);
+		if (Number.isNaN(v)) return null;
+		b[i/2] = v;
+	}
+	return b;
+}
+function makeDid(pubKey){
+	var mc = new Uint8Array(2 + pubKey.length);
+	mc[0] = 0xed; mc[1] = 0x01;
+	mc.set(pubKey, 2);
+	return "did:key:z" + b58encode(mc);
+}
+async function addressFromPubKey(pubKey){
+	// Cosmos/CometBFT consensus address: first 20 bytes of sha256(pubkey), as hex
+	var hash = await crypto.subtle.digest("SHA-256", pubKey);
+	return hexEncode(new Uint8Array(hash).slice(0,20)).toUpperCase();
+}
+function shortDid(d){ return d && d.length > 40 ? d.slice(0,24) + "…" + d.slice(-8) : (d || "--"); }
+
+// ─── Entry gate ────────────────────────────────────────────
+
+window.switchTab = function(which){
+	var s = which === "seed";
+	$("tab-seed").classList.toggle("active", s);
+	$("tab-did").classList.toggle("active", !s);
+	$("pane-seed").style.display = s ? "block" : "none";
+	$("pane-did").style.display = s ? "none" : "block";
+	$("entry-err").textContent = "";
+};
+
+window.submitSeed = async function(){
+	var raw = $("seed-in").value.trim().toLowerCase();
+	if (raw.length !== 64) { $("entry-err").textContent = "Seed must be exactly 64 hex characters."; return; }
+	var seed = hexDecode(raw);
+	if (!seed) { $("entry-err").textContent = "Invalid hex seed."; return; }
+
+	// Wait for ed25519 if not yet loaded
+	if (!state.edReady) {
+		$("entry-err").textContent = "Loading crypto library…";
+		var waited = 0;
+		while (!state.edReady && waited < 5000) { await new Promise(function(r){ setTimeout(r, 100); }); waited += 100; }
+		if (!state.edReady) { $("entry-err").textContent = "Could not load crypto library. Check your network."; return; }
+	}
+
+	try {
+		var pubKey = window._ed25519.getPublicKey(seed);
+		var did = makeDid(pubKey);
+		var addr = await addressFromPubKey(pubKey);
+
+		state.seed = seed;
+		state.pubKeyHex = hexEncode(pubKey);
+		state.did = did;
+		state.addr = addr;
+
+		if ($("remember-seed").checked) {
+			localStorage.setItem(STORAGE_KEY, raw);
+			localStorage.setItem(DID_KEY, did);
+		} else {
+			localStorage.removeItem(STORAGE_KEY);
+			localStorage.setItem(DID_KEY, did);
+		}
+
+		enterPortal();
+	} catch (e) {
+		$("entry-err").textContent = "Could not derive DID: " + e.message;
+	}
+};
+
+window.submitDid = function(){
+	var raw = $("did-in").value.trim();
+	if (!raw.startsWith("did:key:")) { $("entry-err").textContent = "DID must start with 'did:key:'."; return; }
+	state.seed = null;
+	state.pubKeyHex = null;
+	state.did = raw;
+	state.addr = null; // no pubkey → no cometbft address in read-only
+	localStorage.setItem(DID_KEY, raw);
+	localStorage.removeItem(STORAGE_KEY);
+	enterPortal();
+};
+
+function enterPortal(){
+	$("entry-gate").style.display = "none";
+	$("portal").style.display = "block";
+
+	// Meta
+	$("m-did").textContent = shortDid(state.did);
+	$("m-did").title = state.did || "";
+	$("mode-pill").textContent = state.seed ? "Full access" : "Read-only";
+	$("clear-btn").style.display = localStorage.getItem(STORAGE_KEY) ? "inline-flex" : "none";
+
+	// Section 1
+	$("s1-did").textContent = state.did;
+	$("s1-addr").textContent = state.addr || "(import seed to derive)";
+	$("s1-explorer").href = EXPLORER + "/?q=" + encodeURIComponent(state.did);
+	$("qa-explorer").href = EXPLORER + "/?q=" + encodeURIComponent(state.did);
+
+	// Read-only handling in Section 2
+	if (state.seed) {
+		$("stake-readonly").style.display = "none";
+		$("stake-full").style.display = "block";
+	} else {
+		$("stake-readonly").style.display = "block";
+		$("stake-full").style.display = "none";
+	}
+
+	refreshBackupCmds();
+	refreshAll();
+	if (state.refresher) clearInterval(state.refresher);
+	state.refresher = setInterval(refreshAll, REFRESH_MS);
+}
+
+window.switchIdentity = function(){
+	if (state.refresher) { clearInterval(state.refresher); state.refresher = null; }
+	state.seed = null; state.did = null; state.pubKeyHex = null; state.addr = null;
+	$("portal").style.display = "none";
+	$("entry-gate").style.display = "block";
+	$("seed-in").value = "";
+	$("did-in").value = "";
+	$("entry-err").textContent = "";
+	$("remember-seed").checked = false;
+};
+
+window.clearSaved = function(){
+	if (!confirm("Remove saved seed from this browser? The portal will ask for your seed next time.")) return;
+	localStorage.removeItem(STORAGE_KEY);
+	localStorage.removeItem(DID_KEY);
+	state.seed = null;
+	switchIdentity();
+};
+
+window.copyCurrentDid = function(btn){
+	if (!state.did) return;
+	navigator.clipboard.writeText(state.did).then(function(){
+		var o = btn.textContent; btn.textContent = "Copied"; btn.style.color = "#22c55e";
+		setTimeout(function(){ btn.textContent = o; btn.style.color = ""; }, 1200);
+	});
+};
+
+window.copyCmd = function(el){
+	var text = el.textContent.replace(/^click to copy/, "").trim();
+	navigator.clipboard.writeText(text).then(function(){
+		el.classList.add("copied");
+		var hint = el.querySelector(".copy-hint");
+		if (hint) hint.textContent = "copied";
+		setTimeout(function(){ el.classList.remove("copied"); if (hint) hint.textContent = "click to copy"; }, 1200);
+	});
+};
+
+// ─── Data refresh ──────────────────────────────────────────
+
+async function fetchJson(url){
+	try {
+		var r = await fetch(url);
+		if (!r.ok) return null;
+		return await r.json();
+	} catch (e) { return null; }
+}
+
+async function refreshAll(){
+	if (!state.did) return;
+	var did = state.did;
+	var encodedDid = encodeURIComponent(did);
+
+	// Fire in parallel
+	var [acct, pioneer, stats, badge, netStatus] = await Promise.all([
+		state.seed ? fetchJson(API + "/v1/account/" + encodedDid) : Promise.resolve(null),
+		fetchJson(API + "/v1/pioneers/status?did=" + encodedDid),
+		fetchJson(API + "/v1/validators/" + encodedDid + "/stats"),
+		fetchJson(API + "/v1/badge/" + encodedDid),
+		fetchJson(API + "/v1/network/status"),
+	]);
+
+	renderPioneer(pioneer);
+	renderAge(badge);
+	renderHealth(stats, netStatus);
+	if (state.seed) renderStake(acct, pioneer);
+}
+
+function renderPioneer(p){
+	var el = $("s1-pioneer");
+	if (!p || p.status === "not_found") {
+		el.innerHTML = '<span class="badge badge-none">Not applied</span> <a href="/apply?did=' + encodeURIComponent(state.did) + '" style="color:var(--accent);font-size:0.8125rem;margin-left:8px">Apply →</a>';
+		return;
+	}
+	if (p.status === "approved") {
+		var days = p.lockDaysRemaining || 0;
+		el.innerHTML = '<span class="badge badge-pioneer">Pioneer</span> <span style="color:var(--text-3);font-size:0.8125rem;margin-left:8px">Locked for ' + days + ' more day' + (days === 1 ? "" : "s") + '</span>';
+	} else if (p.status === "pending") {
+		var dt = p.appliedAt ? new Date(p.appliedAt).toLocaleDateString() : "";
+		el.innerHTML = '<span class="badge badge-pending">Pending review</span> <span style="color:var(--text-3);font-size:0.8125rem;margin-left:8px">Applied ' + esc(dt) + '</span>';
+	} else if (p.status === "rejected") {
+		el.innerHTML = '<span class="badge badge-rejected">Rejected</span>' + (p.reason ? ' <span style="color:var(--text-3);font-size:0.8125rem;margin-left:8px">' + esc(p.reason) + '</span>' : '');
+	} else {
+		el.innerHTML = '<span class="badge badge-none">' + esc(String(p.status)) + '</span>';
+	}
+}
+
+function renderAge(badge){
+	if (!badge) { $("s1-age").textContent = "—"; return; }
+	if (badge.registered === false) { $("s1-age").textContent = "Not registered"; return; }
+	var d = Number(badge.consciousnessAge || 0);
+	$("s1-age").textContent = d + " day" + (d === 1 ? "" : "s");
+}
+
+function renderStake(acct, pioneer){
+	if (!acct) {
+		$("s2-available").textContent = "—";
+		$("s2-staked").textContent = "—";
+		$("s2-pending").textContent = "—";
+		$("s2-earned").textContent = "—";
+	} else {
+		$("s2-available").textContent = acct.available || "0.00 ENSL";
+		$("s2-staked").textContent = acct.staked || "0.00 ENSL";
+		$("s2-pending").textContent = acct.pendingRewards || "0.00 ENSL";
+		// We don't track cumulative earned separately. Show pending as "running total."
+		$("s2-earned").textContent = acct.pendingRewards || "0.00 ENSL";
+	}
+
+	// Foundation delegation + lock countdown
+	if (pioneer && pioneer.status === "approved") {
+		var days = pioneer.lockDaysRemaining || 0;
+		var expiry = pioneer.lockExpiryDate ? new Date(pioneer.lockExpiryDate).toLocaleDateString() : "?";
+		$("s2-foundation").innerHTML = '1,000,000 ENSL <span style="color:var(--text-3);font-size:0.8125rem">· unlocks ' + esc(expiry) + ' (' + days + ' day' + (days === 1 ? "" : "s") + ' remaining)</span>';
+	} else if (pioneer && pioneer.status === "pending") {
+		$("s2-foundation").innerHTML = '<span style="color:#eab308">Pending approval</span>';
+	} else {
+		$("s2-foundation").innerHTML = '<span style="color:var(--text-3)">None yet</span>';
+	}
+}
+
+function renderHealth(stats, net){
+	$("h-net-height").textContent = net && net.blockHeight ? Number(net.blockHeight).toLocaleString() : "—";
+
+	var warnHtml = "";
+
+	if (!stats || stats.error) {
+		$("h-dot").className = "dot gray";
+		$("h-status").textContent = "Unknown";
+		$("h-status-ctx").textContent = "Not registered as a validator yet";
+		$("h-blocks").textContent = "—";
+		$("h-blocks-24h").textContent = "";
+		$("h-uptime").textContent = "—";
+		$("h-last").textContent = "—";
+		$("h-last-ctx").textContent = "";
+		$("h-reg").textContent = "—";
+		warnHtml = '<div class="warn-box"><strong>Not registered.</strong> This DID has no validator record on-chain. If you just started, sync can take 5-15 minutes. If you never ran the installer, see <a href="/docs/validator.html" style="color:inherit;text-decoration:underline">the validator guide</a>.</div>';
+		$("health-warn").innerHTML = warnHtml;
+		return;
+	}
+
+	var online = stats.status === "online";
+	$("hs-online").className = "h-stat" + (online ? "" : " bad");
+	$("h-dot").className = "dot " + (online ? "green" : "red");
+	$("h-status").textContent = online ? "Online" : "Offline";
+	$("h-status-ctx").textContent = online ? "Signing blocks" : "Not producing blocks";
+
+	var blocksTotal = stats.blocks ? Number(stats.blocks.total || 0) : 0;
+	var blocks24h = stats.blocks ? Number(stats.blocks.last24h || 0) : 0;
+	$("h-blocks").textContent = blocksTotal.toLocaleString();
+	$("h-blocks-24h").textContent = blocks24h + " in last 24h";
+
+	var uptime = stats.uptime && typeof stats.uptime.last7d === "number" ? stats.uptime.last7d : null;
+	if (uptime !== null) {
+		$("h-uptime").textContent = uptime.toFixed(1) + "%";
+		var uptimeBad = uptime < 90;
+		document.querySelectorAll(".h-stat")[3].className = "h-stat" + (uptimeBad ? " warn" : "");
+	} else {
+		$("h-uptime").textContent = "—";
+	}
+
+	// "Last activity" — if online and recent blocks, show that
+	if (online && blocks24h > 0) {
+		$("h-last").textContent = "Recent";
+		$("h-last-ctx").textContent = "Produced " + blocks24h + " block" + (blocks24h === 1 ? "" : "s") + " in last 24h";
+	} else if (online) {
+		$("h-last").textContent = "Synced";
+		$("h-last-ctx").textContent = "Online, awaiting proposer slot";
+	} else {
+		$("h-last").textContent = "Stale";
+		$("h-last-ctx").textContent = "No recent signing";
+	}
+
+	// Registered date
+	if (stats.registeredAt) {
+		var regDate = new Date(stats.registeredAt);
+		var daysAgo = Math.floor((Date.now() - regDate.getTime()) / 86400000);
+		$("h-reg").textContent = daysAgo + "d ago";
+	} else {
+		$("h-reg").textContent = "—";
+	}
+
+	// Warnings
+	if (stats.offlineWarning || !online) {
+		warnHtml += '<div class="warn-box"><strong>Your validator appears offline.</strong> No rewards are accruing. Check <code style="background:rgba(0,0,0,0.3);padding:2px 5px;border-radius:3px">systemctl status cometbft</code> on your VPS — the "Check server health" action below has the full commands.</div>';
+	}
+	if (stats.uptimeWarning) {
+		warnHtml += '<div class="warn-box"><strong>Uptime below 90%.</strong> If this continues for 7 days your foundation delegation may be withdrawn.</div>';
+	}
+	$("health-warn").innerHTML = warnHtml;
+}
+
+// ─── Backup command refresh ───────────────────────────────
+
+window.refreshBackupCmds = function(){
+	var ip = ($("backup-ip") ? $("backup-ip").value.trim() : "") || "YOUR_SERVER_IP";
+	var cometHome = "~/.ensoul/cometbft";
+	var dataDir = "~/.ensoul/validator-0";
+	var host = "root@" + ip;
+	var lines = [
+		"scp " + host + ":" + cometHome + "/config/priv_validator_key.json ./",
+		"scp " + host + ":" + dataDir + "/identity.json ./",
+		"scp " + host + ":" + cometHome + "/config/node_key.json ./",
+	];
+	var html = lines.map(function(l){ return '<div class="cmd-block" onclick="copyCmd(this)"><span class="copy-hint">click to copy</span>' + esc(l) + '</div>'; }).join("");
+	html += '<p style="color:var(--text-3);font-size:0.8125rem;margin-top:10px">Keep these in at least two safe places (password manager + encrypted offline drive). Anyone with <code style="color:#fafafa">priv_validator_key.json</code> can double-sign on your behalf — guard it like your wallet seed.</p>';
+	var target = $("backup-cmds");
+	if (target) target.innerHTML = html;
+};
+
+// ─── Transactions (seed mode only) ────────────────────────
+
+var DECIMALS = "1000000000000000000";
+function toWei(ensl){
+	var cents = BigInt(Math.floor(Number(ensl) * 100));
+	return (cents * BigInt(DECIMALS) / 100n).toString();
+}
+
+function showTx(msg, cls){
+	var el = $("tx-msg");
+	if (!el) return;
+	el.innerHTML = '<div class="tx-msg ' + cls + '">' + esc(msg) + '</div>';
+	if (cls !== "info") setTimeout(function(){ if (el) el.innerHTML = ""; }, 8000);
+}
+
+async function sendTx(type, to, amount){
+	if (!state.seed || !state.edReady) { showTx("Wallet locked — re-import your seed.", "err"); return null; }
+	showTx("Broadcasting transaction…", "info");
+	try {
+		var nonce = 0;
+		var nr = await fetchJson(API + "/v1/account/" + encodeURIComponent(state.did));
+		if (nr && typeof nr.nonce === "number") nonce = nr.nonce;
+
+		var ts = Date.now();
+		var payload = JSON.stringify({ type: type, from: state.did, to: to, amount: String(amount), nonce: nonce, timestamp: ts });
+		var sigBytes = await window._ed25519.sign(new TextEncoder().encode(payload), state.seed);
+		var tx = { type: type, from: state.did, to: to, amount: String(amount), nonce: nonce, timestamp: ts, signature: hexEncode(sigBytes) };
+
+		var r = await fetch(API + "/v1/tx/broadcast", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(tx),
+		});
+		var res = await r.json();
+		if (res.applied) {
+			showTx("Confirmed at height " + res.height, "ok");
+			refreshAll();
+			return res;
+		}
+		showTx("Rejected: " + (res.error || "unknown error"), "err");
+		return null;
+	} catch (e) {
+		showTx("Failed: " + e.message, "err");
+		return null;
+	}
+}
+
+window.doStake = async function(){
+	var amt = parseFloat($("stake-amt").value);
+	if (!amt || amt <= 0) { showTx("Enter a positive amount.", "err"); return; }
+	await sendTx("stake", state.did, toWei(amt));
+	$("stake-amt").value = "";
+};
+window.doUnstake = async function(){
+	var amt = parseFloat($("unstake-amt").value);
+	if (!amt || amt <= 0) { showTx("Enter a positive amount.", "err"); return; }
+	await sendTx("unstake", state.did, toWei(amt));
+	$("unstake-amt").value = "";
+};
+window.doDelegate = async function(){
+	var to = $("deleg-to").value.trim();
+	var amt = parseFloat($("deleg-amt").value);
+	if (!to.startsWith("did:key:")) { showTx("Enter a valid validator DID.", "err"); return; }
+	if (!amt || amt < 100) { showTx("Minimum delegation is 100 ENSL.", "err"); return; }
+	await sendTx("delegate", to, toWei(amt));
+	$("deleg-to").value = ""; $("deleg-amt").value = "";
+};
+window.doClaim = async function(){
+	await sendTx("reward_claim", state.did, "0");
+};
+
+// ─── Boot ──────────────────────────────────────────────────
+
+(async function init(){
+	// Support ?seed=... or ?did=... in URL for quick access (strip from URL afterwards)
+	var params = new URLSearchParams(location.search);
+	var urlSeed = params.get("seed");
+	var urlDid = params.get("did");
+	if (urlSeed || urlDid) {
+		history.replaceState(null, "", location.pathname);
+	}
+
+	var savedSeedHex = urlSeed || localStorage.getItem(STORAGE_KEY);
+	var savedDid = urlDid || localStorage.getItem(DID_KEY);
+
+	if (savedSeedHex && savedSeedHex.length === 64) {
+		// Auto-login from saved seed
+		var waited = 0;
+		while (!state.edReady && waited < 5000) { await new Promise(function(r){ setTimeout(r, 100); }); waited += 100; }
+		if (state.edReady) {
+			try {
+				var seed = hexDecode(savedSeedHex);
+				var pubKey = window._ed25519.getPublicKey(seed);
+				var did = makeDid(pubKey);
+				var addr = await addressFromPubKey(pubKey);
+				state.seed = seed;
+				state.pubKeyHex = hexEncode(pubKey);
+				state.did = did;
+				state.addr = addr;
+				enterPortal();
+				return;
+			} catch (e) { /* fall through to gate */ }
+		}
+	}
+	if (savedDid && savedDid.startsWith("did:key:")) {
+		// Read-only auto-load for returning visitors
+		state.did = savedDid;
+		state.addr = null;
+		enterPortal();
+		return;
+	}
+
+	// Show gate
+	$("entry-gate").style.display = "block";
+})();
+})();
+</script>
+<script>
+(function(){
+	var nav = document.getElementById("nav");
+	if (nav) window.addEventListener("scroll", function(){
+		if (window.scrollY > 10) nav.classList.add("scrolled"); else nav.classList.remove("scrolled");
+	}, { passive: true });
+})();
+</script>
+</body>
+</html>

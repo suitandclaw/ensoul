@@ -1044,6 +1044,9 @@ fetch('http://localhost:26657', {
             echo "  You will be contacted when approved. After approval:"
             echo "    ensoul-node wallet stake 100"
             echo "    ensoul-node wallet consensus-join"
+            echo ""
+            echo "  BOOKMARK THIS — your Pioneer portal (identity, stake, rewards, health, key backup):"
+            echo "    ensoul.dev/pioneer.html?did=$did"
         else
             echo "  Apply for Pioneer delegation (1M ENSL):"
             echo "    Visit: ensoul.dev/apply?did=$did"
@@ -1054,6 +1057,9 @@ fetch('http://localhost:26657', {
             echo ""
             echo "  Check application status anytime:"
             echo "    curl -s https://api.ensoul.dev/v1/pioneers/status?did=$did"
+            echo ""
+            echo "  BOOKMARK THIS — your Pioneer portal (one page for everything):"
+            echo "    ensoul.dev/pioneer.html?did=$did"
         fi
     else
         echo "  Next Steps:"
