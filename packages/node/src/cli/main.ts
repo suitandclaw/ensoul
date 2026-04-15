@@ -85,6 +85,13 @@ async function main(): Promise<void> {
 		return;
 	}
 
+	// Admin commands: pioneer-list, pioneer-approve
+	if (process.argv[2] === "admin") {
+		const { runAdminCommand } = await import("./admin.js");
+		await runAdminCommand(process.argv.slice(3));
+		return;
+	}
+
 	if (args.mode === "genesis") {
 		if (!args.genesisConfig) {
 			console.error("Error: --config is required for genesis subcommand");
