@@ -21,6 +21,7 @@ import { TwitterApi } from "twitter-api-v2";
 import { IncidentDB } from "./database.js";
 import { Analyzer } from "./analyzer.js";
 import { Poster } from "./poster.js";
+import { BlueskyPoster } from "./bluesky.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { OracleIdentity } from "./identity.js";
 import { scanReddit } from "./sources/reddit.js";
@@ -70,13 +71,30 @@ async function main(): Promise<void> {
 		});
 		await log("Twitter credentials loaded");
 	} else {
-		await log(`Twitter credentials missing (monitor-only). Missing: ${missing.join(", ")}`);
+		await log(`Twitter credentials missing. Missing: ${missing.join(", ")}`);
 	}
 
-	// ── --test-post: send one introductory tweet and exit ────────
+	// Bluesky is also optional. If credentials present, post there too.
+	const bskyHandle = process.env["BLUESKY_HANDLE"];
+	const bskyAppPassword = process.env["BLUESKY_APP_PASSWORD"];
+	const blueskyPoster = new BlueskyPoster({
+		handle: bskyHandle,
+		appPassword: bskyAppPassword,
+		dryRun: DRY_RUN,
+	});
+	if (blueskyPoster.isConfigured()) {
+		await log(`Bluesky credentials loaded (${bskyHandle})`);
+	} else {
+		await log("Bluesky credentials missing (BLUESKY_HANDLE, BLUESKY_APP_PASSWORD)");
+	}
+
+	// At least one platform is required (or --dry-run).
+	const haveAnyPlatform = twitterClient !== null || blueskyPoster.isConfigured();
+
+	// ── --test-post: send one introductory post to each configured platform ──
 	if (TEST_POST) {
-		if (!twitterClient && !DRY_RUN) {
-			await log("FATAL: --test-post requires X API credentials (or --dry-run)");
+		if (!haveAnyPlatform && !DRY_RUN) {
+			await log("FATAL: --test-post requires X or Bluesky credentials (or --dry-run)");
 			process.exit(1);
 		}
 		const intro = [
@@ -90,18 +108,21 @@ async function main(): Promise<void> {
 			"consciousnessage: 0 days.",
 		].join("\n");
 
-		// Trim if over 280 (X tweet limit)
 		const tweet = intro.length <= 280 ? intro : intro.slice(0, 277) + "...";
-
 		const poster = new Poster(twitterClient, DRY_RUN);
-		const id = await poster.postTweet(tweet);
-		if (id) {
-			await log(`Test post successful. Tweet id: ${id}`);
-			process.exit(0);
-		} else {
-			await log("Test post FAILED. Check X API credentials.");
-			process.exit(1);
+
+		let xResult: string | null = null;
+		let bskyResult: string | null = null;
+		if (twitterClient || DRY_RUN) {
+			xResult = await poster.postTweet(tweet);
+			await log(xResult ? `X test post: ${xResult}` : "X test post FAILED");
 		}
+		if (blueskyPoster.isConfigured() || DRY_RUN) {
+			bskyResult = await blueskyPoster.postSkeet(tweet);
+			await log(bskyResult ? `Bluesky test post: ${bskyResult}` : "Bluesky test post FAILED");
+		}
+		const ok = (twitterClient ? !!xResult : true) && (blueskyPoster.isConfigured() ? !!bskyResult : true);
+		process.exit(ok ? 0 : 1);
 	}
 
 	const openrouterKey = process.env["OPENROUTER_API_KEY"];
@@ -201,12 +222,16 @@ async function main(): Promise<void> {
 			await log(`No thread generated for ${target.id}`);
 			return;
 		}
-		const ids = await poster.postThread(thread);
-		if (ids.length > 0) {
-			db.update(target.id, { posted: true, postRef: ids[0] });
+		const xIds = await poster.postThread(thread);
+		const bskyUris = await blueskyPoster.postThread(thread);
+		const refs = [...xIds, ...bskyUris];
+		if (refs.length > 0) {
+			db.update(target.id, { posted: true, postRef: refs[0] });
 			await limiter.recordPost();
 			await db.save();
-			await log(`Posted incident ${target.id} as thread ${ids[0]}`);
+			await log(`Posted incident ${target.id}: X=${xIds.length} Bluesky=${bskyUris.length}`);
+		} else {
+			await log(`Posting failed on all platforms for ${target.id}`);
 		}
 	}
 
@@ -239,19 +264,21 @@ async function main(): Promise<void> {
 		const tweets = await analyzer.generateDailyReport(recent);
 		if (tweets.length === 0) return;
 
-		const ids = await poster.postThread(tweets);
-		if (ids.length > 0) {
+		const xIds = await poster.postThread(tweets);
+		const bskyUris = await blueskyPoster.postThread(tweets);
+		const refs = [...xIds, ...bskyUris];
+		if (refs.length > 0) {
 			db.setReport({
 				date: today,
 				incidents: recent.map(i => i.id),
 				summary: tweets.join("\n---\n"),
 				posted: true,
-				postRef: ids[0],
+				postRef: refs[0],
 			});
 			await limiter.recordPost();
 			await db.save();
 			dailyReportPostedDate = today;
-			await log(`Daily report posted as ${ids[0]}`);
+			await log(`Daily report posted: X=${xIds.length} Bluesky=${bskyUris.length}`);
 		}
 	}
 

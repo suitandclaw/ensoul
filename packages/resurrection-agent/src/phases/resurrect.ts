@@ -19,6 +19,8 @@ import { Identity } from "../identity.js";
 import { Consciousness } from "../consciousness.js";
 import { Brain } from "../brain.js";
 import { TwitterClient } from "../twitter.js";
+import { BlueskyClient } from "../bluesky.js";
+import { Broadcaster } from "../broadcaster.js";
 import { log, setLogPath, getHostname, errMsg } from "../log.js";
 
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -113,6 +115,13 @@ async function main(): Promise<void> {
 		accessSecret: process.env["X_ACCESS_SECRET"] ?? "",
 		dryRun: DRY_RUN,
 	});
+	const bluesky = new BlueskyClient({
+		handle: process.env["BLUESKY_HANDLE"],
+		appPassword: process.env["BLUESKY_APP_PASSWORD"],
+		dryRun: DRY_RUN,
+	});
+	const broadcaster = new Broadcaster(twitter, bluesky);
+	await log(`Posting platforms active: ${broadcaster.platformsActive()}`);
 
 	const explorerUrl = `${EXPLORER_BASE}/agent/${encodeURIComponent(identity.getDid())}`;
 
@@ -135,14 +144,14 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	const ids = await twitter.postThread(thread);
+	const ids = await broadcaster.postThread(thread);
 	if (ids.length > 0) {
 		for (let i = 0; i < ids.length; i++) {
 			consciousness.recordPost(ids[i]!, thread[i] ?? "", `resurrect-${i}`);
 		}
 		await consciousness.save();
-		await log(`Posted resurrection thread head tweet: ${ids[0]}`);
-		await log("Remember to PIN the first tweet manually.");
+		await log(`Posted resurrection thread head: ${ids[0]}`);
+		await log("Remember to PIN the first post manually on each platform.");
 	}
 
 	await log("Resurrection complete.");

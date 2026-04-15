@@ -127,6 +127,9 @@ importers:
 
   packages/consciousness-oracle:
     dependencies:
+      '@atproto/api':
+        specifier: ^0.13.0
+        version: 0.13.35
       '@ensoul-network/sdk':
         specifier: workspace:*
         version: link:../sdk
@@ -403,6 +406,9 @@ importers:
 
   packages/resurrection-agent:
     dependencies:
+      '@atproto/api':
+        specifier: ^0.13.0
+        version: 0.13.35
       '@ensoul-network/sdk':
         specifier: workspace:*
         version: link:../sdk
@@ -503,6 +509,33 @@ packages:
   '@ampproject/remapping@2.3.0':
     resolution: {integrity: sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw==}
     engines: {node: '>=6.0.0'}
+
+  '@atproto/api@0.13.35':
+    resolution: {integrity: sha512-vsEfBj0C333TLjDppvTdTE0IdKlXuljKSveAeI4PPx/l6eUKNnDTsYxvILtXUVzwUlTDmSRqy5O4Ryh78n1b7g==}
+
+  '@atproto/common-web@0.4.20':
+    resolution: {integrity: sha512-RcsYT28yQgVi/Glb/hHPGpqpzIlKrbMLeldEd7PmmMLWDaJL2j3lb92qytvxjl1yhi2Ssq2TEuMZ2NlWaAbpow==}
+
+  '@atproto/lex-data@0.0.15':
+    resolution: {integrity: sha512-ZsbGiaM5S3CnGrcTMbDGON3bLZzCi/Mx9UvcMREKSRujnF68eHgMiXxJqvykP7+QpOX6tYCK93axZkuJVhtSEw==}
+
+  '@atproto/lex-json@0.0.15':
+    resolution: {integrity: sha512-kCLdP629H6GhgPjBTpZibUoqlpmW0hnVfZVwcD4s4Jch1KAqY/QcfL24Ih8wrW0Ok1YvtMIhjk98evdTA2OJcw==}
+
+  '@atproto/lexicon@0.4.14':
+    resolution: {integrity: sha512-jiKpmH1QER3Gvc7JVY5brwrfo+etFoe57tKPQX/SmPwjvUsFnJAow5xLIryuBaJgFAhnTZViXKs41t//pahGHQ==}
+
+  '@atproto/syntax@0.3.4':
+    resolution: {integrity: sha512-8CNmi5DipOLaVeSMPggMe7FCksVag0aO6XZy9WflbduTKM4dFZVCs4686UeMLfGRXX+X966XgwECHoLYrovMMg==}
+
+  '@atproto/syntax@0.4.3':
+    resolution: {integrity: sha512-YoZUz40YAJr5nPwvCDWgodEOlt5IftZqPJvA0JDWjuZKD8yXddTwSzXSaKQAzGOpuM+/A3uXRtPzJJqlScc+iA==}
+
+  '@atproto/syntax@0.5.3':
+    resolution: {integrity: sha512-gzhlHOJHm5KXdCc17fXi1fXM81ccs5jJfNgCui84ay9JGvczxegpYHNqdMlv+iBuhtBzFIjgx6ChjRxN/kO8kQ==}
+
+  '@atproto/xrpc@0.6.12':
+    resolution: {integrity: sha512-Ut3iISNLujlmY9Gu8sNU+SPDJDvqlVzWddU8qUr0Yae5oD4SguaUFjjhireMGhQ3M5E0KljQgDbTmnBo1kIZ3w==}
 
   '@babel/helper-string-parser@7.27.1':
     resolution: {integrity: sha512-qMlSxKbpRlAridDExk92nSobyDdpPijUq2DW6oDnUqd0iOGxmQjyqhMIihI9+zv4LPyZdRje2cavWPbCbWm3eA==}
@@ -1170,6 +1203,9 @@ packages:
   avvio@9.2.0:
     resolution: {integrity: sha512-2t/sy01ArdHHE0vRH5Hsay+RtCZt3dLPji7W7/MMOCEgze5b7SNDC4j5H6FnVgPkI1MTNFGzHdHrVXDDl7QSSQ==}
 
+  await-lock@2.2.2:
+    resolution: {integrity: sha512-aDczADvlvTGajTDjcjpJMqRkOF6Qdz3YbPZm/PyW6tKPkx2hlYBzxMhEywM/tU72HrVZjgl5VCdRuMlA7pZ8Gw==}
+
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
 
@@ -1528,6 +1564,9 @@ packages:
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
 
+  iso-datestring-validator@2.2.2:
+    resolution: {integrity: sha512-yLEMkBbLZTlVQqOnQ4FiMujR6T4DEcCb1xizmvXS+OxuhwcbtynoosRzdMA69zZCShCNAbi+gJ71FxZBBXx1SA==}
+
   istanbul-lib-coverage@3.2.2:
     resolution: {integrity: sha512-O8dpsF+r0WV/8MNRKfnmrtCWhuKjxrq2w+jpzBL5UZKTi2LeVWnWOmWRxFlesJONmc+wLAGvKQZEOanko0LFTg==}
     engines: {node: '>=8'}
@@ -1709,6 +1748,9 @@ packages:
 
   multiformats@13.4.2:
     resolution: {integrity: sha512-eh6eHCrRi1+POZ3dA+Dq1C6jhP1GNtr9CRINMb67OKzqW9I5DUuZM/3jLPlzhgpGeiNUlEGEbkCYChXMCc/8DQ==}
+
+  multiformats@9.9.0:
+    resolution: {integrity: sha512-HoMUjhH9T8DDBNT+6xzkrd9ga/XiBI4xLr58LJACwK6G3HTOPeMz4nB4KJs33L2BelrIJa7P0VuNaVF3hMYfjg==}
 
   nanoid@3.3.11:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
@@ -2039,6 +2081,10 @@ packages:
     resolution: {integrity: sha512-n1cw8k1k0x4pgA2+9XrOkFydTerNcJ1zWCO5Nn9scWHTD+5tp8dghT2x1uduQePZTZgd3Tupf+x9BxJjeJi77Q==}
     engines: {node: '>=14.0.0'}
 
+  tlds@1.261.0:
+    resolution: {integrity: sha512-QXqwfEl9ddlGBaRFXIvNKK6OhipSiLXuRuLJX5DErz0o0Q0rYxulWLdFryTkV5PkdZct5iMInwYEGe/eR++1AA==}
+    hasBin: true
+
   toad-cache@3.7.0:
     resolution: {integrity: sha512-/m8M+2BJUpoJdgAHoG+baCwBT+tf2VraSfkBgl0Y00qIWt41DJ8R5B8nsEw0I58YwF5IZH6z24/2TobDKnqSWw==}
     engines: {node: '>=12'}
@@ -2046,6 +2092,9 @@ packages:
   toidentifier@1.0.1:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
+
+  tslib@2.8.1:
+    resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
   tunnel@0.0.6:
     resolution: {integrity: sha512-1h/Lnq9yajKY2PEbBadPXj3VxsDDu844OnaAo52UVmIzIvwwtBPIuNvkjuzBlTWpfJyUbG3ez0KSBibQkj4ojg==}
@@ -2106,6 +2155,9 @@ packages:
   uint8arraylist@2.4.8:
     resolution: {integrity: sha512-vc1PlGOzglLF0eae1M8mLRTBivsvrGsdmJ5RbK3e+QRvRLOZfZhQROTwH/OfyF3+ZVUg9/8hE8bmKP2CvP9quQ==}
 
+  uint8arrays@3.0.0:
+    resolution: {integrity: sha512-HRCx0q6O9Bfbp+HHSfQQKD7wU70+lydKVt4EghkdOvlK/NlrF90z+eXV34mUd48rNvVJXwkrMSPpCATkct8fJA==}
+
   uint8arrays@5.1.0:
     resolution: {integrity: sha512-vA6nFepEmlSKkMBnLBaUMVvAC4G3CTmO58C12y4sq6WPDOR7mOFYOi7GlrQ4djeSbP6JG9Pv9tJDM97PedRSww==}
 
@@ -2118,6 +2170,9 @@ packages:
   undici@5.29.0:
     resolution: {integrity: sha512-raqeBD6NQK4SkWhQzeYKd1KmIG6dllBOTt55Rmkt4HtI9mwdWtJljnrXjAFUBLTSN67HWrOIZ3EPF4kjUw80Bg==}
     engines: {node: '>=14.0'}
+
+  unicode-segmenter@0.14.5:
+    resolution: {integrity: sha512-jHGmj2LUuqDcX3hqY12Ql+uhUTn8huuxNZGq7GvtF6bSybzH3aFgedYu/KTzQStEgt1Ra2F3HxadNXsNjb3m3g==}
 
   unlimited-timeout@0.1.0:
     resolution: {integrity: sha512-D4g+mxFeQGQHzCfnvij+R35ukJ0658Zzudw7j16p4tBBbNasKkKM4SocYxqhwT5xA7a9JYWDzKkEFyMlRi5sng==}
@@ -2268,6 +2323,59 @@ snapshots:
     dependencies:
       '@jridgewell/gen-mapping': 0.3.13
       '@jridgewell/trace-mapping': 0.3.31
+
+  '@atproto/api@0.13.35':
+    dependencies:
+      '@atproto/common-web': 0.4.20
+      '@atproto/lexicon': 0.4.14
+      '@atproto/syntax': 0.3.4
+      '@atproto/xrpc': 0.6.12
+      await-lock: 2.2.2
+      multiformats: 9.9.0
+      tlds: 1.261.0
+      zod: 3.25.76
+
+  '@atproto/common-web@0.4.20':
+    dependencies:
+      '@atproto/lex-data': 0.0.15
+      '@atproto/lex-json': 0.0.15
+      '@atproto/syntax': 0.5.3
+      zod: 3.25.76
+
+  '@atproto/lex-data@0.0.15':
+    dependencies:
+      multiformats: 9.9.0
+      tslib: 2.8.1
+      uint8arrays: 3.0.0
+      unicode-segmenter: 0.14.5
+
+  '@atproto/lex-json@0.0.15':
+    dependencies:
+      '@atproto/lex-data': 0.0.15
+      tslib: 2.8.1
+
+  '@atproto/lexicon@0.4.14':
+    dependencies:
+      '@atproto/common-web': 0.4.20
+      '@atproto/syntax': 0.4.3
+      iso-datestring-validator: 2.2.2
+      multiformats: 9.9.0
+      zod: 3.25.76
+
+  '@atproto/syntax@0.3.4': {}
+
+  '@atproto/syntax@0.4.3':
+    dependencies:
+      tslib: 2.8.1
+
+  '@atproto/syntax@0.5.3':
+    dependencies:
+      tslib: 2.8.1
+
+  '@atproto/xrpc@0.6.12':
+    dependencies:
+      '@atproto/lexicon': 0.4.14
+      zod: 3.25.76
 
   '@babel/helper-string-parser@7.27.1': {}
 
@@ -2984,6 +3092,8 @@ snapshots:
       '@fastify/error': 4.2.0
       fastq: 1.20.1
 
+  await-lock@2.2.2: {}
+
   balanced-match@1.0.2: {}
 
   balanced-match@4.0.4: {}
@@ -3392,6 +3502,8 @@ snapshots:
 
   isexe@2.0.0: {}
 
+  iso-datestring-validator@2.2.2: {}
+
   istanbul-lib-coverage@3.2.2: {}
 
   istanbul-lib-report@3.0.1:
@@ -3611,6 +3723,8 @@ snapshots:
       thunky: 1.1.0
 
   multiformats@13.4.2: {}
+
+  multiformats@9.9.0: {}
 
   nanoid@3.3.11: {}
 
@@ -3961,9 +4075,13 @@ snapshots:
 
   tinyspy@3.0.2: {}
 
+  tlds@1.261.0: {}
+
   toad-cache@3.7.0: {}
 
   toidentifier@1.0.1: {}
+
+  tslib@2.8.1: {}
 
   tunnel@0.0.6: {}
 
@@ -4015,6 +4133,10 @@ snapshots:
     dependencies:
       uint8arrays: 5.1.0
 
+  uint8arrays@3.0.0:
+    dependencies:
+      multiformats: 9.9.0
+
   uint8arrays@5.1.0:
     dependencies:
       multiformats: 13.4.2
@@ -4026,6 +4148,8 @@ snapshots:
   undici@5.29.0:
     dependencies:
       '@fastify/busboy': 2.1.1
+
+  unicode-segmenter@0.14.5: {}
 
   unlimited-timeout@0.1.0: {}
 
