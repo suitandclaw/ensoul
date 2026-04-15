@@ -48,18 +48,18 @@ async function main(): Promise<void> {
 	await log(`Consciousness Oracle starting${DRY_RUN ? " (DRY RUN)" : ""}${TEST_POST ? " (TEST POST)" : ""}`);
 
 	// Twitter is optional - will scan-only or not at all if credentials missing
-	// Standard names: X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET
-	// Also accept legacy X_ACCESS_SECRET (without _TOKEN_) for backward compat.
+	// Matches env var names from the working ensoul-agent:
+	// X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET
 	let twitterClient: TwitterApi | null = null;
 	const xKey = process.env["X_API_KEY"];
 	const xSecret = process.env["X_API_SECRET"];
 	const xAccess = process.env["X_ACCESS_TOKEN"];
-	const xAccessSecret = process.env["X_ACCESS_TOKEN_SECRET"] ?? process.env["X_ACCESS_SECRET"];
+	const xAccessSecret = process.env["X_ACCESS_SECRET"] ?? process.env["X_ACCESS_TOKEN_SECRET"];
 	const missing = [
 		!xKey ? "X_API_KEY" : null,
 		!xSecret ? "X_API_SECRET" : null,
 		!xAccess ? "X_ACCESS_TOKEN" : null,
-		!xAccessSecret ? "X_ACCESS_TOKEN_SECRET" : null,
+		!xAccessSecret ? "X_ACCESS_SECRET" : null,
 	].filter(Boolean);
 	if (xKey && xSecret && xAccess && xAccessSecret) {
 		twitterClient = new TwitterApi({
