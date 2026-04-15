@@ -1570,6 +1570,73 @@ async function main(): Promise<void> {
 		};
 	});
 
+	// ── Pioneer Reject (admin dashboard alias) ──────────────────
+	// POST /v1/pioneers/reject
+	// Body: { did, reason?, admin_key }  (also accepts adminKey)
+	// Auth: X-Admin-Key header (preferred) OR admin_key in body.
+	app.post<{ Body: Record<string, unknown> }>("/v1/pioneers/reject", async (req, reply) => {
+		const did = String(req.body["did"] ?? "");
+		const reason = String(req.body["reason"] ?? "");
+		const headerKey = (req.headers["x-admin-key"] as string | undefined) ?? "";
+		const bodyKey = String(req.body["admin_key"] ?? req.body["adminKey"] ?? "");
+		const adminKey = headerKey || bodyKey;
+
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+
+		const app_entry = pioneerApps.find((a) => a.did === did);
+		if (!app_entry) {
+			return reply.status(404).send({ error: "Application not found for this DID" });
+		}
+		if (app_entry.status === "approved") {
+			return reply.status(409).send({ error: "Cannot reject an already-approved Pioneer" });
+		}
+
+		app_entry.status = "rejected";
+		app_entry.rejectedAt = new Date().toISOString();
+		if (reason) app_entry.rejectionReason = reason;
+		await savePioneerApps();
+
+		await log(`Pioneer REJECTED: ${app_entry.name} (${did.slice(0, 30)}...) reason: ${reason || "(none given)"}`);
+
+		return { status: "rejected", did };
+	});
+
+	// ── Pioneer Delete (admin dashboard: remove test/dismissed entries) ──
+	// POST /v1/pioneers/delete
+	// Body: { did, admin_key }  (also accepts adminKey)
+	// Auth: X-Admin-Key header (preferred) OR admin_key in body.
+	// Refuses to delete approved Pioneers (their delegations are on-chain and
+	// need an explicit on-chain action to unwind; delete only removes the
+	// dashboard record).
+	app.post<{ Body: Record<string, unknown> }>("/v1/pioneers/delete", async (req, reply) => {
+		const did = String(req.body["did"] ?? "");
+		const headerKey = (req.headers["x-admin-key"] as string | undefined) ?? "";
+		const bodyKey = String(req.body["admin_key"] ?? req.body["adminKey"] ?? "");
+		const adminKey = headerKey || bodyKey;
+
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+
+		const idx = pioneerApps.findIndex((a) => a.did === did);
+		if (idx === -1) {
+			return reply.status(404).send({ error: "Application not found for this DID" });
+		}
+		if (pioneerApps[idx]!.status === "approved") {
+			return reply.status(409).send({
+				error: "Cannot delete an approved Pioneer — delegation is on-chain",
+			});
+		}
+
+		const removed = pioneerApps.splice(idx, 1)[0]!;
+		await savePioneerApps();
+		await log(`Pioneer DELETED from dashboard: ${removed.name} (${did.slice(0, 30)}...) was ${removed.status}`);
+
+		return { status: "deleted", did };
+	});
+
 	// ── Consciousness Store ──────────────────────────────────────
 
 	/**
