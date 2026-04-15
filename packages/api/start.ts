@@ -1446,6 +1446,117 @@ async function main(): Promise<void> {
 		return { applications: pioneerApps, count: pioneerApps.length };
 	});
 
+	// ── Pioneer List (admin, filterable) ────────────────────────
+	// GET /v1/pioneers/list?status=pending&admin_key=...
+	// GET /v1/pioneers/list?status=approved&admin_key=...
+	app.get<{ Querystring: Record<string, string> }>("/v1/pioneers/list", async (req, reply) => {
+		const adminKey = String(req.query["admin_key"] ?? req.query["adminKey"] ?? "");
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+		const statusFilter = String(req.query["status"] ?? "").toLowerCase();
+		let filtered: PioneerApp[] = pioneerApps;
+		if (statusFilter && (statusFilter === "pending" || statusFilter === "approved" || statusFilter === "rejected")) {
+			filtered = pioneerApps.filter(a => a.status === statusFilter);
+		}
+		return {
+			status: statusFilter || "all",
+			count: filtered.length,
+			applications: filtered.map(a => ({
+				did: a.did,
+				name: a.name,
+				contact: a.contact,
+				status: a.status,
+				appliedAt: a.appliedAt,
+				approvedAt: a.approvedAt,
+				rejectedAt: a.rejectedAt,
+				rejectionReason: a.rejectionReason,
+				delegationHeight: a.delegationHeight,
+				delegationHash: a.delegationHash,
+				lockedUntil: a.lockedUntil,
+				lockExpiryDate: a.lockedUntil ? new Date(a.lockedUntil).toISOString() : null,
+			})),
+		};
+	});
+
+	// ── Pioneer Approve (convenience alias) ─────────────────────
+	// POST /v1/pioneers/approve
+	// Body: { did, admin_key }  (also accepts adminKey)
+	// Forwards to the existing /v1/admin/pioneer-approve handler logic.
+	app.post<{ Body: Record<string, unknown> }>("/v1/pioneers/approve", async (req, reply) => {
+		const did = String(req.body["did"] ?? "");
+		const adminKey = String(req.body["admin_key"] ?? req.body["adminKey"] ?? "");
+
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+
+		const app_entry = pioneerApps.find((a) => a.did === did);
+		if (!app_entry) {
+			return reply.status(404).send({ error: "Application not found for this DID" });
+		}
+		if (app_entry.status === "approved") {
+			return {
+				status: "already_approved",
+				did,
+				delegation_tx: app_entry.delegationHash,
+				delegationHeight: app_entry.delegationHeight,
+				locked_until: app_entry.lockedUntil ? new Date(app_entry.lockedUntil).toISOString() : null,
+			};
+		}
+		if (app_entry.status === "rejected") {
+			return reply.status(409).send({ error: "Application was previously rejected", reason: app_entry.rejectionReason });
+		}
+
+		// Step 1: send 100 ENSL self-stake from onboarding fund (if available)
+		let selfStakeResult: { applied: boolean; hash?: string; error?: string } = { applied: false, error: "Onboarding key not loaded" };
+		if (onboardingSeed) {
+			selfStakeResult = await signAndBroadcastWith(
+				onboardingSeed, "transfer", onboardingDid, did, PIONEER_SELF_STAKE,
+			);
+			if (selfStakeResult.applied) {
+				await log(`Pioneer self-stake sent: 100 ENSL to ${did.slice(0, 30)}...`);
+			} else {
+				await log(`Pioneer self-stake FAILED: ${selfStakeResult.error}`);
+			}
+		}
+
+		// Step 2: pioneer_delegate 1M ENSL from foundation/treasury (locked 24 months)
+		const result = await signAndBroadcast(
+			"pioneer_delegate", governanceDid, did, PIONEER_DELEGATION_AMOUNT,
+		);
+		if (!result.applied) {
+			return reply.status(500).send({
+				error: "Delegation transaction failed",
+				detail: result.error,
+				selfStakeSent: selfStakeResult.applied,
+				did,
+			});
+		}
+
+		const lockedUntil = Date.now() + PIONEER_LOCK_MS;
+		app_entry.status = "approved";
+		app_entry.approvedAt = new Date().toISOString();
+		app_entry.delegationHeight = result.height;
+		app_entry.delegationHash = result.hash;
+		app_entry.lockedUntil = lockedUntil;
+		await savePioneerApps();
+
+		await log(`Pioneer APPROVED: ${app_entry.name} (${did.slice(0, 30)}...) hash=${result.hash ?? "pending"}`);
+
+		return {
+			status: "approved",
+			did,
+			name: app_entry.name,
+			delegation_tx: result.hash,
+			delegationHeight: result.height,
+			delegationAmount: PIONEER_DELEGATION_AMOUNT,
+			selfStakeSent: selfStakeResult.applied,
+			locked_until: new Date(lockedUntil).toISOString(),
+			lockedUntil,
+		};
+	});
+
 	// ── Consciousness Store ──────────────────────────────────────
 
 	/**
