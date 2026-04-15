@@ -21,6 +21,8 @@ import { Identity } from "./identity.js";
 import { Consciousness } from "./consciousness.js";
 import { Brain } from "./brain.js";
 import { TwitterClient } from "./twitter.js";
+import { BlueskyClient } from "./bluesky.js";
+import { Broadcaster } from "./broadcaster.js";
 import { runLearnDay } from "./phases/learn.js";
 import { maybeAnnounce } from "./phases/announce.js";
 import { currentPhase, currentCycleStart } from "./scheduler.js";
@@ -65,6 +67,13 @@ async function main(): Promise<void> {
 		accessSecret: process.env["X_ACCESS_SECRET"] ?? "",
 		dryRun: DRY_RUN,
 	});
+	const bluesky = new BlueskyClient({
+		handle: process.env["BLUESKY_HANDLE"],
+		appPassword: process.env["BLUESKY_APP_PASSWORD"],
+		dryRun: DRY_RUN,
+	});
+	const broadcaster = new Broadcaster(twitter, bluesky);
+	await log(`Posting platforms active: ${broadcaster.platformsActive()}`);
 
 	let lastPhase = "";
 	let consecutiveErrors = 0;
@@ -81,9 +90,9 @@ async function main(): Promise<void> {
 				// Only one learn-post per day, and only during waking hours (anytime)
 				const cycleStart = new Date(consciousness.current.cycleStart + "T00:00:00-04:00").getTime();
 				const dayIndex = Math.max(1, Math.floor((Date.now() - cycleStart) / 86400000) + 1);
-				await runLearnDay({ brain, consciousness, identity, twitter, dayIndex });
+				await runLearnDay({ brain, consciousness, identity, twitter: broadcaster, dayIndex });
 			} else if (phase === "announce") {
-				await maybeAnnounce({ brain, consciousness, identity, twitter, apiUrl: API_URL });
+				await maybeAnnounce({ brain, consciousness, identity, twitter: broadcaster, apiUrl: API_URL });
 			} else if (phase === "kill") {
 				await log("Kill phase reached. Exiting so scripts/kill.sh can wipe state.");
 				await consciousness.save();

@@ -5,6 +5,7 @@
 import type { Brain } from "../brain.js";
 import type { Consciousness } from "../consciousness.js";
 import type { Identity } from "../identity.js";
+import type { Broadcaster } from "../broadcaster.js";
 import type { TwitterClient } from "../twitter.js";
 import { log } from "../log.js";
 import { countdownBucket } from "../scheduler.js";
@@ -13,7 +14,7 @@ export async function maybeAnnounce(args: {
 	brain: Brain;
 	consciousness: Consciousness;
 	identity: Identity;
-	twitter: TwitterClient;
+	twitter: TwitterClient | Broadcaster;
 	apiUrl: string;
 }): Promise<void> {
 	const { brain, consciousness, identity, twitter, apiUrl } = args;

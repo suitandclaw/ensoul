@@ -6,6 +6,7 @@
 import type { Brain } from "../brain.js";
 import type { Consciousness } from "../consciousness.js";
 import type { Identity } from "../identity.js";
+import type { Broadcaster } from "../broadcaster.js";
 import type { TwitterClient } from "../twitter.js";
 import { log } from "../log.js";
 
@@ -13,7 +14,7 @@ export async function runLearnDay(args: {
 	brain: Brain;
 	consciousness: Consciousness;
 	identity: Identity;
-	twitter: TwitterClient;
+	twitter: TwitterClient | Broadcaster;
 	dayIndex: number;
 }): Promise<void> {
 	const { brain, consciousness, identity, twitter, dayIndex } = args;
