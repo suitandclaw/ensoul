@@ -156,6 +156,22 @@ importers:
         specifier: ^2.0.1
         version: 2.0.1
 
+  packages/ensoul-brand-agent:
+    dependencies:
+      '@atproto/api':
+        specifier: ^0.13.0
+        version: 0.13.35
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/explorer:
     dependencies:
       '@ensoul/anchor':
