@@ -986,6 +986,7 @@ async function main(): Promise<void> {
 		did: string;
 		name: string;
 		contact: string;
+		ip?: string;
 		appliedAt: string;
 		status: "pending" | "approved" | "rejected";
 		approvedAt?: string;
@@ -1006,6 +1007,7 @@ async function main(): Promise<void> {
 				did: String(a["did"] ?? ""),
 				name: String(a["name"] ?? ""),
 				contact: String(a["contact"] ?? ""),
+				ip: a["ip"] as string | undefined,
 				appliedAt: String(a["appliedAt"] ?? ""),
 				status: (a["status"] as PioneerApp["status"]) ?? "pending",
 				approvedAt: a["approvedAt"] as string | undefined,
@@ -1135,11 +1137,16 @@ async function main(): Promise<void> {
 		const did = String(req.body["did"] ?? "");
 		const name = String(req.body["name"] ?? "");
 		const contact = String(req.body["contact"] ?? "");
+		// Optional: server's public IP (sent by the install-validator.sh script).
+		// Falls back to the request's source IP for manual curl applications.
+		const submittedIp = req.body["ip"] ? String(req.body["ip"]) : "";
+		const reqIp = (req as unknown as { ip?: string }).ip ?? "";
+		const ip = submittedIp || reqIp;
 
 		if (!did || !name || !contact) {
 			return reply.status(400).send({
 				error: "Required fields: did, name, contact",
-				example: { did: "did:key:z6Mk...", name: "operator-name", contact: "moltbook-username-or-email" },
+				example: { did: "did:key:z6Mk...", name: "operator-name", contact: "moltbook-username-or-email", ip: "203.0.113.5" },
 			});
 		}
 
@@ -1147,7 +1154,7 @@ async function main(): Promise<void> {
 			return { applied: true, message: "Application already received", did };
 		}
 
-		const entry: PioneerApp = { did, name, contact, appliedAt: new Date().toISOString(), status: "pending" };
+		const entry: PioneerApp = { did, name, contact, ip, appliedAt: new Date().toISOString(), status: "pending" };
 		pioneerApps.push(entry);
 		await savePioneerApps();
 
@@ -1156,11 +1163,11 @@ async function main(): Promise<void> {
 			fetch(`https://ntfy.sh/${ntfyTopic}`, {
 				method: "POST",
 				headers: { "Title": "Pioneer Application", "Priority": "high" },
-				body: `New Pioneer application:\nDID: ${did}\nName: ${name}\nContact: ${contact}`,
+				body: `New Pioneer application:\nDID: ${did}\nName: ${name}\nContact: ${contact}${ip ? `\nIP: ${ip}` : ""}`,
 			}).catch(() => {});
 		}
 
-		await log(`Pioneer application: ${name} (${did.slice(0, 30)}...) contact: ${contact}`);
+		await log(`Pioneer application: ${name} (${did.slice(0, 30)}...) contact: ${contact} ip: ${ip || "n/a"}`);
 		return { applied: true, message: "Application received. You will be contacted within 48 hours.", did, name };
 	});
 
@@ -1447,10 +1454,13 @@ async function main(): Promise<void> {
 	});
 
 	// ── Pioneer List (admin, filterable) ────────────────────────
+	// Auth: X-Admin-Key header (preferred) OR admin_key query param (legacy/CLI).
+	// GET /v1/pioneers/list?status=pending  with header
 	// GET /v1/pioneers/list?status=pending&admin_key=...
-	// GET /v1/pioneers/list?status=approved&admin_key=...
 	app.get<{ Querystring: Record<string, string> }>("/v1/pioneers/list", async (req, reply) => {
-		const adminKey = String(req.query["admin_key"] ?? req.query["adminKey"] ?? "");
+		const headerKey = (req.headers["x-admin-key"] as string | undefined) ?? "";
+		const queryKey = String(req.query["admin_key"] ?? req.query["adminKey"] ?? "");
+		const adminKey = headerKey || queryKey;
 		if (!checkAdminKey(adminKey)) {
 			return reply.status(403).send({ error: "Invalid admin key" });
 		}
@@ -1466,6 +1476,7 @@ async function main(): Promise<void> {
 				did: a.did,
 				name: a.name,
 				contact: a.contact,
+				ip: a.ip ?? null,
 				status: a.status,
 				appliedAt: a.appliedAt,
 				approvedAt: a.approvedAt,
@@ -1485,7 +1496,9 @@ async function main(): Promise<void> {
 	// Forwards to the existing /v1/admin/pioneer-approve handler logic.
 	app.post<{ Body: Record<string, unknown> }>("/v1/pioneers/approve", async (req, reply) => {
 		const did = String(req.body["did"] ?? "");
-		const adminKey = String(req.body["admin_key"] ?? req.body["adminKey"] ?? "");
+		const headerKey = (req.headers["x-admin-key"] as string | undefined) ?? "";
+		const bodyKey = String(req.body["admin_key"] ?? req.body["adminKey"] ?? "");
+		const adminKey = headerKey || bodyKey;
 
 		if (!checkAdminKey(adminKey)) {
 			return reply.status(403).send({ error: "Invalid admin key" });
