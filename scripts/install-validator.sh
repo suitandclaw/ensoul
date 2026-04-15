@@ -1161,11 +1161,15 @@ apply_for_pioneer() {
         contact="not provided (update via ensoul.dev/apply)"
     fi
 
+    # Detect public IP so the admin dashboard can show where the validator runs.
+    local apply_ip
+    apply_ip=$(curl -4 -s -m 5 https://ifconfig.me 2>/dev/null || curl -4 -s -m 5 https://api.ipify.org 2>/dev/null || echo "")
+
     log "Submitting Pioneer validator application..."
     local apply_resp
     apply_resp=$(curl -s -m 10 -X POST "$API_URL/v1/pioneers/apply" \
         -H "Content-Type: application/json" \
-        -d "{\"did\":\"$did\",\"name\":\"$MONIKER\",\"contact\":\"$contact\"}" 2>/dev/null || echo "")
+        -d "{\"did\":\"$did\",\"name\":\"$MONIKER\",\"contact\":\"$contact\",\"ip\":\"$apply_ip\"}" 2>/dev/null || echo "")
 
     local applied
     applied=$(echo "$apply_resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('applied', False))" 2>/dev/null || echo "False")

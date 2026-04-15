@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pioneer Admin - Ensoul</title>
+<meta name="description" content="Admin-only dashboard for reviewing and approving Ensoul Pioneer Validator applications.">
+<meta name="robots" content="noindex,nofollow">
+<link rel="stylesheet" href="/css/design-system.css">
+<link rel="stylesheet" href="/css/style.css">
+<style>
+.nav{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(9,9,11,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+body{padding-top:56px;background:#09090b;color:#a1a1aa}
+.container{max-width:1080px;margin:0 auto;padding:0 24px}
+</style>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>
+.admin-hero{padding:64px 0 24px}
+.admin-hero h1{font-family:var(--font-display);font-size:clamp(1.75rem,4vw,2.25rem);color:#fafafa;font-weight:800;letter-spacing:-0.02em;margin:0 0 12px}
+.admin-hero .meta{font-family:var(--font-mono);color:#52525b;font-size:0.8125rem;display:flex;gap:24px;flex-wrap:wrap;margin-top:8px}
+.admin-hero .meta strong{color:var(--text-2)}
+
+/* Auth gate */
+.auth-card{max-width:420px;margin:80px auto;padding:32px;background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px;text-align:center}
+.auth-card h2{color:#fafafa;font-size:1.25rem;margin:0 0 8px}
+.auth-card p{color:var(--text-3);font-size:0.875rem;margin:0 0 20px}
+.auth-input{width:100%;padding:10px 14px;background:#0c0c0e;border:1px solid rgba(255,255,255,0.06);border-radius:6px;color:#fafafa;font-family:var(--font-mono);font-size:0.875rem;margin-bottom:12px}
+.auth-input:focus{outline:none;border-color:var(--accent)}
+.auth-btn{width:100%;padding:10px 20px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-weight:600;font-size:0.9375rem;cursor:pointer;transition:background 0.2s}
+.auth-btn:hover{background:var(--accent-hover)}
+.auth-error{color:#ef4444;font-size:0.8125rem;margin-top:10px;min-height:18px}
+
+/* Sections */
+.section-h{display:flex;align-items:center;gap:12px;margin:48px 0 16px}
+.section-h h2{font-family:var(--font-display);font-size:1.25rem;color:#fafafa;margin:0;font-weight:700}
+.section-h .count{font-family:var(--font-mono);font-size:0.75rem;color:#52525b;background:rgba(255,255,255,0.04);padding:3px 10px;border-radius:100px}
+
+/* Application card */
+.app-card{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px;padding:20px;margin-bottom:12px;transition:border-color 0.2s}
+.app-card:hover{border-color:rgba(255,255,255,0.08)}
+.app-row{display:grid;grid-template-columns:140px 1fr;gap:8px 16px;font-size:0.875rem;line-height:1.6}
+.app-row .lbl{color:#52525b;font-family:var(--font-mono);font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em}
+.app-row .val{color:var(--text-1);word-break:break-all}
+.app-row .val code{background:#0c0c0e;padding:2px 6px;border-radius:3px;font-size:0.8125rem;color:#fafafa;font-family:var(--font-mono)}
+.app-actions{display:flex;gap:10px;margin-top:16px;align-items:center}
+.btn-approve{background:#22c55e;color:#fff;border:none;padding:8px 20px;border-radius:6px;font-weight:600;font-size:0.875rem;cursor:pointer;transition:all 0.2s}
+.btn-approve:hover{background:#16a34a;transform:translateY(-1px)}
+.btn-approve:disabled{opacity:0.5;cursor:not-allowed}
+.btn-copy{background:transparent;color:var(--text-3);border:1px solid rgba(255,255,255,0.06);padding:3px 10px;border-radius:4px;font-size:0.75rem;font-family:var(--font-mono);cursor:pointer;margin-left:8px;transition:all 0.15s}
+.btn-copy:hover{color:#fafafa;border-color:rgba(255,255,255,0.12)}
+.btn-copy.copied{color:#22c55e;border-color:rgba(34,197,94,0.3)}
+.app-msg{font-size:0.8125rem;margin-left:auto}
+.app-msg.err{color:#ef4444}
+.app-msg.ok{color:#22c55e}
+
+/* Approved badge */
+.badge-pioneer{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;font-size:0.6875rem;font-weight:600;letter-spacing:0.03em;font-family:var(--font-mono);text-transform:uppercase;background:rgba(251,191,36,0.12);color:#fbbf24}
+
+.empty{padding:32px;text-align:center;color:#52525b;font-size:0.875rem;background:#111113;border:1px dashed rgba(255,255,255,0.04);border-radius:12px}
+
+.global-err{background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);color:#ef4444;padding:12px 16px;border-radius:8px;margin:16px 0;font-size:0.875rem}
+
+.logout-btn{background:transparent;color:var(--text-3);border:1px solid rgba(255,255,255,0.06);padding:6px 14px;border-radius:6px;font-size:0.8125rem;cursor:pointer;transition:all 0.2s}
+.logout-btn:hover{color:#fafafa;border-color:rgba(255,255,255,0.12)}
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+<div class="nav-inner">
+	<a href="/" class="nav-logo">
+		<svg viewBox="0 0 110 110" width="20" height="20"><circle cx="55" cy="55" r="42" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="var(--accent)"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>
+		Ensoul
+		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
+	</a>
+	<div class="nav-links">
+		<a href="/genesis">Genesis</a>
+		<a href="/docs/validator.html">Validators</a>
+		<a href="/docs/quickstart.html">Docs</a>
+		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="/try" class="nav-cta">Try It</a>
+	</div>
+</div>
+</nav>
+
+<div class="container">
+
+<!-- Auth gate -->
+<div id="auth-gate" class="auth-card" style="display:none">
+	<h2>Pioneer Admin</h2>
+	<p>Enter the admin key to access pending and approved Pioneer applications.</p>
+	<form onsubmit="return handleAuth(event)">
+		<input type="password" id="auth-key" class="auth-input" placeholder="ENSOUL_ADMIN_KEY" autocomplete="current-password" autofocus required>
+		<button type="submit" class="auth-btn">Unlock</button>
+		<div id="auth-err" class="auth-error"></div>
+	</form>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard" style="display:none">
+	<div class="admin-hero">
+		<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+			<div>
+				<h1>Pioneer Admin</h1>
+				<div class="meta">
+					<span><strong id="d-pending-count">--</strong> pending</span>
+					<span><strong id="d-approved-count">--</strong> approved</span>
+					<span><strong id="d-slots-remaining">--</strong> of 20 slots remaining</span>
+				</div>
+			</div>
+			<button class="logout-btn" onclick="logout()">Lock</button>
+		</div>
+	</div>
+
+	<div id="error-area"></div>
+
+	<div class="section-h">
+		<h2>Pending</h2>
+		<span class="count" id="pending-count">0</span>
+	</div>
+	<div id="pending-list"></div>
+
+	<div class="section-h">
+		<h2>Approved</h2>
+		<span class="count" id="approved-count">0</span>
+	</div>
+	<div id="approved-list"></div>
+</div>
+
+</div>
+
+<script>
+(function(){
+"use strict";
+
+var API = "https://api.ensoul.dev";
+var STORAGE_KEY = "ensoulAdminKey";
+
+function $(id){return document.getElementById(id);}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
+function shortDid(did){return did.length > 40 ? did.slice(0,24) + "..." + did.slice(-8) : did;}
+
+function getKey(){return sessionStorage.getItem(STORAGE_KEY) || "";}
+function setKey(k){sessionStorage.setItem(STORAGE_KEY, k);}
+function clearKey(){sessionStorage.removeItem(STORAGE_KEY);}
+
+function logout(){
+	clearKey();
+	$("dashboard").style.display = "none";
+	$("auth-gate").style.display = "block";
+	$("auth-key").value = "";
+	$("auth-err").textContent = "";
+}
+window.logout = logout;
+
+async function fetchList(status){
+	var key = getKey();
+	if(!key) return null;
+	var url = API + "/v1/pioneers/list?status=" + encodeURIComponent(status);
+	var r = await fetch(url, {
+		method: "GET",
+		headers: { "X-Admin-Key": key },
+	});
+	if(r.status === 403){
+		throw new Error("forbidden");
+	}
+	if(!r.ok){
+		throw new Error("HTTP " + r.status);
+	}
+	return await r.json();
+}
+
+async function approve(did){
+	var key = getKey();
+	var r = await fetch(API + "/v1/pioneers/approve", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"X-Admin-Key": key,
+		},
+		body: JSON.stringify({ did: did }),
+	});
+	var data = await r.json();
+	if(!r.ok && r.status !== 200){
+		throw new Error(data.error || ("HTTP " + r.status));
+	}
+	return data;
+}
+
+function copyToClipboard(text, btn){
+	navigator.clipboard.writeText(text).then(function(){
+		var orig = btn.textContent;
+		btn.textContent = "Copied";
+		btn.classList.add("copied");
+		setTimeout(function(){
+			btn.textContent = orig;
+			btn.classList.remove("copied");
+		}, 1500);
+	});
+}
+window.copyText = function(text, btn){copyToClipboard(text, btn);};
+
+function renderPendingCard(app){
+	var date = app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "?";
+	var ipLine = app.ip ? '<div class="app-row"><span class="lbl">Server IP</span><span class="val"><code>'+esc(app.ip)+'</code></span></div>' : '';
+	return [
+		'<div class="app-card" id="card-' + esc(app.did) + '">',
+			'<div class="app-row"><span class="lbl">Moniker</span><span class="val">' + esc(app.name) + '</span></div>',
+			'<div class="app-row"><span class="lbl">DID</span><span class="val"><code>' + esc(shortDid(app.did)) + '</code><button class="btn-copy" onclick="copyText(\'' + esc(app.did) + '\', this)">Copy</button></span></div>',
+			'<div class="app-row"><span class="lbl">Contact</span><span class="val">' + esc(app.contact) + '</span></div>',
+			ipLine,
+			'<div class="app-row"><span class="lbl">Applied</span><span class="val">' + date + '</span></div>',
+			'<div class="app-actions">',
+				'<button class="btn-approve" onclick="handleApprove(\'' + esc(app.did) + '\', this)">Approve &amp; Delegate 1M ENSL</button>',
+				'<span class="app-msg" id="msg-' + esc(app.did) + '"></span>',
+			'</div>',
+		'</div>',
+	].join('');
+}
+
+function renderApprovedCard(app){
+	var approvedDate = app.approvedAt ? new Date(app.approvedAt).toLocaleDateString() : "?";
+	var lockExpiry = app.lockExpiryDate ? new Date(app.lockExpiryDate).toLocaleDateString() : "?";
+	var daysRemaining = app.lockedUntil ? Math.max(0, Math.ceil((app.lockedUntil - Date.now()) / 86400000)) : 0;
+	return [
+		'<div class="app-card">',
+			'<div class="app-row"><span class="lbl">Moniker</span><span class="val">' + esc(app.name) + ' <span class="badge-pioneer">PIONEER</span></span></div>',
+			'<div class="app-row"><span class="lbl">DID</span><span class="val"><code>' + esc(shortDid(app.did)) + '</code><button class="btn-copy" onclick="copyText(\'' + esc(app.did) + '\', this)">Copy</button></span></div>',
+			'<div class="app-row"><span class="lbl">Contact</span><span class="val">' + esc(app.contact) + '</span></div>',
+			'<div class="app-row"><span class="lbl">Approved</span><span class="val">' + approvedDate + '</span></div>',
+			'<div class="app-row"><span class="lbl">Delegation</span><span class="val">1,000,000 ENSL at block ' + (app.delegationHeight || '?') + '</span></div>',
+			(app.delegationHash ? '<div class="app-row"><span class="lbl">Tx hash</span><span class="val"><code>' + esc(app.delegationHash) + '</code></span></div>' : ''),
+			'<div class="app-row"><span class="lbl">Lock expires</span><span class="val">' + lockExpiry + ' (' + daysRemaining + ' days remaining)</span></div>',
+		'</div>',
+	].join('');
+}
+
+window.handleApprove = async function(did, btn){
+	var msgEl = $("msg-" + did);
+	if(!confirm("Approve this Pioneer? This will send 100 ENSL self-stake and delegate 1,000,000 ENSL locked for 24 months.")) return;
+	btn.disabled = true;
+	btn.textContent = "Approving...";
+	msgEl.textContent = "";
+	msgEl.className = "app-msg";
+	try{
+		var result = await approve(did);
+		msgEl.textContent = result.status === "already_approved" ? "Already approved." : "Approved.";
+		msgEl.className = "app-msg ok";
+		// Refresh both lists after a brief pause so the user sees the success state
+		setTimeout(refreshAll, 800);
+	}catch(e){
+		msgEl.textContent = "Failed: " + e.message;
+		msgEl.className = "app-msg err";
+		btn.disabled = false;
+		btn.textContent = "Approve & Delegate 1M ENSL";
+	}
+};
+
+async function refreshAll(){
+	$("error-area").innerHTML = "";
+	try{
+		var pending = await fetchList("pending");
+		var approved = await fetchList("approved");
+		var pendingApps = pending.applications || [];
+		var approvedApps = approved.applications || [];
+
+		$("d-pending-count").textContent = pendingApps.length;
+		$("d-approved-count").textContent = approvedApps.length;
+		$("d-slots-remaining").textContent = Math.max(0, 20 - approvedApps.length);
+		$("pending-count").textContent = pendingApps.length;
+		$("approved-count").textContent = approvedApps.length;
+
+		if(pendingApps.length === 0){
+			$("pending-list").innerHTML = '<div class="empty">No pending applications.</div>';
+		} else {
+			$("pending-list").innerHTML = pendingApps.map(renderPendingCard).join('');
+		}
+
+		if(approvedApps.length === 0){
+			$("approved-list").innerHTML = '<div class="empty">No approved Pioneers yet.</div>';
+		} else {
+			$("approved-list").innerHTML = approvedApps.map(renderApprovedCard).join('');
+		}
+	}catch(e){
+		if(e.message === "forbidden"){
+			logout();
+			$("auth-err").textContent = "Admin key rejected. Try again.";
+			return;
+		}
+		$("error-area").innerHTML = '<div class="global-err">Could not load applications: ' + esc(e.message) + '</div>';
+	}
+}
+
+window.handleAuth = function(ev){
+	ev.preventDefault();
+	var key = $("auth-key").value.trim();
+	if(!key) return false;
+	setKey(key);
+	$("auth-err").textContent = "Verifying...";
+	fetchList("pending").then(function(){
+		$("auth-gate").style.display = "none";
+		$("dashboard").style.display = "block";
+		refreshAll();
+		// Auto-refresh every 30 seconds while dashboard is open
+		setInterval(refreshAll, 30000);
+	}).catch(function(e){
+		clearKey();
+		if(e.message === "forbidden"){
+			$("auth-err").textContent = "Admin key rejected.";
+		} else {
+			$("auth-err").textContent = "Error: " + e.message;
+		}
+	});
+	return false;
+};
+
+// Boot
+if(getKey()){
+	$("dashboard").style.display = "block";
+	refreshAll().then(function(){
+		setInterval(refreshAll, 30000);
+	}).catch(function(){
+		logout();
+	});
+} else {
+	$("auth-gate").style.display = "block";
+}
+})();
+</script>
+</body>
+</html>
