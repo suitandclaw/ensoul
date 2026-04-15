@@ -140,6 +140,17 @@ const VALIDATORS: Array<{ name: string; url: string }> = VALIDATOR_CONFIGS.map((
 	url: `http://${v.tailscaleIp || v.publicIp || "localhost"}:${v.rpcPort}`,
 }));
 
+// Only foundation validators are shown on the status page.
+// Pioneers and external validators appear on the explorer.
+// The whitelist is the set of CometBFT consensus addresses listed in
+// configs/validators.json. Any validator not in this set is ignored by
+// the monitor: no card, no alerts, no health check output.
+const FOUNDATION_ADDRESSES: Set<string> = new Set(
+	VALIDATOR_CONFIGS
+		.map((v) => (v.cometbftAddress ?? "").toUpperCase())
+		.filter((a) => a.length > 0),
+);
+
 /** Build an SSH command prefix for a validator. */
 function sshCmd(vc: ValidatorConfig): string {
 	if (vc.ssh === "localhost") return "";
@@ -298,12 +309,13 @@ async function checkAgent(): Promise<ServiceStatus> {
 async function pollAll(): Promise<void> {
 	const services: ServiceStatus[] = [];
 
-	// Build the validator list from CometBFT active set (source of truth),
-	// supplemented with connection info from static config and net_info peers.
-	// This ensures ALL active validators appear regardless of config file state.
+	// Build the validator list from CometBFT active set, restricted to the
+	// foundation whitelist (configs/validators.json). Only foundation
+	// validators are shown on the status page; Pioneers and external
+	// validators appear on the explorer.
 	const checkedAddresses = new Set<string>();
 
-	// Step 1: Get active validator set from CometBFT
+	// Step 1: Get active validator set from CometBFT, then filter to foundation only.
 	let activeValidators: Array<{ address: string; votingPower: string }> = [];
 	try {
 		const valResp = await fetch(CMT_RPC, {
@@ -316,7 +328,9 @@ async function pollAll(): Promise<void> {
 			const valData = (await valResp.json()) as { result: { validators: Array<{ address: string; voting_power: string }> } };
 			activeValidators = valData.result.validators
 				.filter(v => Number(v.voting_power) > 0)
-				.map(v => ({ address: v.address, votingPower: v.voting_power }));
+				.map(v => ({ address: v.address.toUpperCase(), votingPower: v.voting_power }))
+				// Foundation whitelist: ignore Pioneers and external validators.
+				.filter(v => FOUNDATION_ADDRESSES.has(v.address));
 		}
 	} catch { /* fall back to static config */ }
 
