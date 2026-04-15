@@ -1,0 +1,21 @@
+{
+	"name": "@ensoul/brand-agent",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Official @ensoul Bluesky agent. Network stats, milestones, educational threads.",
+	"type": "module",
+	"scripts": {
+		"start": "npx tsx src/index.ts",
+		"dry-run": "npx tsx src/index.ts --dry-run",
+		"build": "echo 'no build needed'",
+		"lint": "echo 'no lint'"
+	},
+	"dependencies": {
+		"@atproto/api": "^0.13.0",
+		"dotenv": "^16.4.7"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"typescript": "^5.7.0"
+	}
+}
