@@ -1,5 +1,11 @@
 /**
- * X (Twitter) poster: posts threads with proper reply-chaining.
+ * X (Twitter) poster: matches the auth + posting pattern from the
+ * working ensoul-agent (~/ensoul-agent/src/twitter.ts).
+ *
+ * Uses twitter-api-v2:
+ *   - new TwitterApi({ appKey, appSecret, accessToken, accessSecret })
+ *   - client.v2.tweet(text)  for standalone posts
+ *   - client.v2.reply(text, tweetId)  for in-thread replies
  */
 
 import { TwitterApi } from "twitter-api-v2";
@@ -12,42 +18,6 @@ export class Poster {
 	constructor(client: TwitterApi | null, dryRun: boolean) {
 		this.client = client;
 		this.dryRun = dryRun;
-	}
-
-	/** Post a thread. Returns array of tweet IDs (or fake IDs in dry-run). */
-	async postThread(tweets: string[]): Promise<string[]> {
-		if (tweets.length === 0) return [];
-
-		if (this.dryRun || !this.client) {
-			await log(`[DRY RUN] Would post thread (${tweets.length} tweets):`);
-			for (let i = 0; i < tweets.length; i++) {
-				await log(`  [${i + 1}/${tweets.length}] ${tweets[i]}`);
-			}
-			return tweets.map((_, i) => `dry-run-${Date.now()}-${i}`);
-		}
-
-		const ids: string[] = [];
-		let replyTo: string | undefined;
-
-		for (let i = 0; i < tweets.length; i++) {
-			try {
-				const params: Record<string, unknown> = { text: tweets[i] };
-				if (replyTo) {
-					params["reply"] = { in_reply_to_tweet_id: replyTo };
-				}
-				const result = await this.client.v2.tweet(params as never);
-				const id = result.data.id;
-				ids.push(id);
-				replyTo = id;
-				await log(`Posted ${i + 1}/${tweets.length}: ${id}`);
-				// Space out the tweets to avoid rate limits
-				if (i < tweets.length - 1) await new Promise(r => setTimeout(r, 2000));
-			} catch (e) {
-				await log(`Thread post failed at ${i + 1}/${tweets.length}: ${errMsg(e)}`);
-				break;
-			}
-		}
-		return ids;
 	}
 
 	/** Post a single standalone tweet. */
@@ -64,5 +34,43 @@ export class Poster {
 			await log(`Tweet failed: ${errMsg(e)}`);
 			return null;
 		}
+	}
+
+	/** Post a thread. First tweet via tweet(), each subsequent via reply(text, prevId). */
+	async postThread(tweets: string[]): Promise<string[]> {
+		if (tweets.length === 0) return [];
+
+		if (this.dryRun || !this.client) {
+			await log(`[DRY RUN] Would post thread (${tweets.length} tweets):`);
+			for (let i = 0; i < tweets.length; i++) {
+				await log(`  [${i + 1}/${tweets.length}] ${tweets[i]}`);
+			}
+			return tweets.map((_, i) => `dry-run-${Date.now()}-${i}`);
+		}
+
+		const ids: string[] = [];
+		let prevId: string | undefined;
+
+		for (let i = 0; i < tweets.length; i++) {
+			const text = tweets[i] ?? "";
+			try {
+				let id: string;
+				if (i === 0 || !prevId) {
+					const result = await this.client.v2.tweet(text);
+					id = result.data.id;
+				} else {
+					const result = await this.client.v2.reply(text, prevId);
+					id = result.data.id;
+				}
+				ids.push(id);
+				prevId = id;
+				await log(`Posted ${i + 1}/${tweets.length}: ${id}`);
+				if (i < tweets.length - 1) await new Promise(r => setTimeout(r, 2000));
+			} catch (e) {
+				await log(`Thread post failed at ${i + 1}/${tweets.length}: ${errMsg(e)}`);
+				break;
+			}
+		}
+		return ids;
 	}
 }
