@@ -46,6 +46,9 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 .btn-approve{background:#22c55e;color:#fff;border:none;padding:8px 20px;border-radius:6px;font-weight:600;font-size:0.875rem;cursor:pointer;transition:all 0.2s}
 .btn-approve:hover{background:#16a34a;transform:translateY(-1px)}
 .btn-approve:disabled{opacity:0.5;cursor:not-allowed}
+.btn-reject{background:#ef4444;color:#fff;border:none;padding:8px 18px;border-radius:6px;font-weight:600;font-size:0.875rem;cursor:pointer;transition:all 0.2s}
+.btn-reject:hover{background:#dc2626;transform:translateY(-1px)}
+.btn-reject:disabled{opacity:0.5;cursor:not-allowed}
 .btn-copy{background:transparent;color:var(--text-3);border:1px solid rgba(255,255,255,0.06);padding:3px 10px;border-radius:4px;font-size:0.75rem;font-family:var(--font-mono);cursor:pointer;margin-left:8px;transition:all 0.15s}
 .btn-copy:hover{color:#fafafa;border-color:rgba(255,255,255,0.12)}
 .btn-copy.copied{color:#22c55e;border-color:rgba(34,197,94,0.3)}
@@ -53,8 +56,21 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 .app-msg.err{color:#ef4444}
 .app-msg.ok{color:#22c55e}
 
-/* Approved badge */
+/* Card close (delete/dismiss) button */
+.app-card{position:relative}
+.btn-dismiss{position:absolute;top:10px;right:10px;width:24px;height:24px;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;color:#52525b;border:1px solid rgba(255,255,255,0.06);border-radius:4px;font-size:0.875rem;line-height:1;cursor:pointer;transition:all 0.15s}
+.btn-dismiss:hover{color:#ef4444;border-color:rgba(239,68,68,0.3)}
+.btn-dismiss:disabled{opacity:0.4;cursor:not-allowed}
+
+/* Prominent IP on pending cards */
+.ip-prominent{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:8px 12px;background:#0c0c0e;border:1px solid rgba(255,255,255,0.04);border-radius:6px;font-family:var(--font-mono);font-size:0.8125rem}
+.ip-prominent .ip-lbl{color:#52525b;text-transform:uppercase;font-size:0.6875rem;letter-spacing:0.05em}
+.ip-prominent .ip-val{color:#fafafa}
+.ip-prominent.missing .ip-val{color:#52525b;font-style:italic;text-transform:none;letter-spacing:0}
+
+/* Approved / rejected badges */
 .badge-pioneer{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;font-size:0.6875rem;font-weight:600;letter-spacing:0.03em;font-family:var(--font-mono);text-transform:uppercase;background:rgba(251,191,36,0.12);color:#fbbf24}
+.badge-rejected{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;font-size:0.6875rem;font-weight:600;letter-spacing:0.03em;font-family:var(--font-mono);text-transform:uppercase;background:rgba(239,68,68,0.12);color:#ef4444}
 
 .empty{padding:32px;text-align:center;color:#52525b;font-size:0.875rem;background:#111113;border:1px dashed rgba(255,255,255,0.04);border-radius:12px}
 
@@ -105,6 +121,7 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 				<div class="meta">
 					<span><strong id="d-pending-count">--</strong> pending</span>
 					<span><strong id="d-approved-count">--</strong> approved</span>
+					<span><strong id="d-rejected-count">--</strong> rejected</span>
 					<span><strong id="d-slots-remaining">--</strong> of 20 slots remaining</span>
 				</div>
 			</div>
@@ -125,6 +142,12 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 		<span class="count" id="approved-count">0</span>
 	</div>
 	<div id="approved-list"></div>
+
+	<div class="section-h">
+		<h2>Rejected</h2>
+		<span class="count" id="rejected-count">0</span>
+	</div>
+	<div id="rejected-list"></div>
 </div>
 
 </div>
@@ -187,6 +210,36 @@ async function approve(did){
 	return data;
 }
 
+async function reject(did){
+	var key = getKey();
+	var r = await fetch(API + "/v1/pioneers/reject", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"X-Admin-Key": key,
+		},
+		body: JSON.stringify({ did: did }),
+	});
+	var data = await r.json();
+	if(!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+	return data;
+}
+
+async function del(did){
+	var key = getKey();
+	var r = await fetch(API + "/v1/pioneers/delete", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"X-Admin-Key": key,
+		},
+		body: JSON.stringify({ did: did }),
+	});
+	var data = await r.json();
+	if(!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+	return data;
+}
+
 function copyToClipboard(text, btn){
 	navigator.clipboard.writeText(text).then(function(){
 		var orig = btn.textContent;
@@ -202,18 +255,41 @@ window.copyText = function(text, btn){copyToClipboard(text, btn);};
 
 function renderPendingCard(app){
 	var date = app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "?";
-	var ipLine = app.ip ? '<div class="app-row"><span class="lbl">Server IP</span><span class="val"><code>'+esc(app.ip)+'</code></span></div>' : '';
+	var ipBlock = app.ip
+		? '<div class="ip-prominent"><span class="ip-lbl">Server IP</span><span class="ip-val">' + esc(app.ip) + '</span></div>'
+		: '<div class="ip-prominent missing"><span class="ip-lbl">Server IP</span><span class="ip-val">IP not available (pre-update)</span></div>';
 	return [
 		'<div class="app-card" id="card-' + esc(app.did) + '">',
+			'<button class="btn-dismiss" title="Remove this entry from the dashboard" onclick="handleDismiss(\'' + esc(app.did) + '\', this)">×</button>',
+			ipBlock,
 			'<div class="app-row"><span class="lbl">Moniker</span><span class="val">' + esc(app.name) + '</span></div>',
 			'<div class="app-row"><span class="lbl">DID</span><span class="val"><code>' + esc(shortDid(app.did)) + '</code><button class="btn-copy" onclick="copyText(\'' + esc(app.did) + '\', this)">Copy</button></span></div>',
 			'<div class="app-row"><span class="lbl">Contact</span><span class="val">' + esc(app.contact) + '</span></div>',
-			ipLine,
 			'<div class="app-row"><span class="lbl">Applied</span><span class="val">' + date + '</span></div>',
 			'<div class="app-actions">',
 				'<button class="btn-approve" onclick="handleApprove(\'' + esc(app.did) + '\', this)">Approve &amp; Delegate 1M ENSL</button>',
+				'<button class="btn-reject" onclick="handleReject(\'' + esc(app.did) + '\', this)">Reject</button>',
 				'<span class="app-msg" id="msg-' + esc(app.did) + '"></span>',
 			'</div>',
+		'</div>',
+	].join('');
+}
+
+function renderRejectedCard(app){
+	var rejDate = app.rejectedAt ? new Date(app.rejectedAt).toLocaleDateString() : "?";
+	var appliedDate = app.appliedAt ? new Date(app.appliedAt).toLocaleDateString() : "?";
+	var reasonRow = app.rejectionReason ? '<div class="app-row"><span class="lbl">Reason</span><span class="val">' + esc(app.rejectionReason) + '</span></div>' : '';
+	var ipRow = app.ip ? '<div class="app-row"><span class="lbl">Server IP</span><span class="val"><code>' + esc(app.ip) + '</code></span></div>' : '';
+	return [
+		'<div class="app-card">',
+			'<button class="btn-dismiss" title="Remove this entry from the dashboard" onclick="handleDismiss(\'' + esc(app.did) + '\', this)">×</button>',
+			'<div class="app-row"><span class="lbl">Moniker</span><span class="val">' + esc(app.name) + ' <span class="badge-rejected">REJECTED</span></span></div>',
+			'<div class="app-row"><span class="lbl">DID</span><span class="val"><code>' + esc(shortDid(app.did)) + '</code><button class="btn-copy" onclick="copyText(\'' + esc(app.did) + '\', this)">Copy</button></span></div>',
+			'<div class="app-row"><span class="lbl">Contact</span><span class="val">' + esc(app.contact) + '</span></div>',
+			ipRow,
+			'<div class="app-row"><span class="lbl">Applied</span><span class="val">' + appliedDate + '</span></div>',
+			'<div class="app-row"><span class="lbl">Rejected</span><span class="val">' + rejDate + '</span></div>',
+			reasonRow,
 		'</div>',
 	].join('');
 }
@@ -240,19 +316,48 @@ window.handleApprove = async function(did, btn){
 	if(!confirm("Approve this Pioneer? This will send 100 ENSL self-stake and delegate 1,000,000 ENSL locked for 24 months.")) return;
 	btn.disabled = true;
 	btn.textContent = "Approving...";
-	msgEl.textContent = "";
-	msgEl.className = "app-msg";
+	if(msgEl){msgEl.textContent = ""; msgEl.className = "app-msg";}
 	try{
 		var result = await approve(did);
-		msgEl.textContent = result.status === "already_approved" ? "Already approved." : "Approved.";
-		msgEl.className = "app-msg ok";
+		if(msgEl){
+			msgEl.textContent = result.status === "already_approved" ? "Already approved." : "Approved.";
+			msgEl.className = "app-msg ok";
+		}
 		// Refresh both lists after a brief pause so the user sees the success state
 		setTimeout(refreshAll, 800);
 	}catch(e){
-		msgEl.textContent = "Failed: " + e.message;
-		msgEl.className = "app-msg err";
+		if(msgEl){msgEl.textContent = "Failed: " + e.message; msgEl.className = "app-msg err";}
 		btn.disabled = false;
 		btn.textContent = "Approve & Delegate 1M ENSL";
+	}
+};
+
+window.handleReject = async function(did, btn){
+	var msgEl = $("msg-" + did);
+	if(!confirm("Reject this Pioneer application? They can re-apply later, but this record will be marked rejected.")) return;
+	btn.disabled = true;
+	btn.textContent = "Rejecting...";
+	if(msgEl){msgEl.textContent = ""; msgEl.className = "app-msg";}
+	try{
+		await reject(did);
+		if(msgEl){msgEl.textContent = "Rejected."; msgEl.className = "app-msg ok";}
+		setTimeout(refreshAll, 800);
+	}catch(e){
+		if(msgEl){msgEl.textContent = "Failed: " + e.message; msgEl.className = "app-msg err";}
+		btn.disabled = false;
+		btn.textContent = "Reject";
+	}
+};
+
+window.handleDismiss = async function(did, btn){
+	if(!confirm("Remove this entry from the dashboard? This only deletes the record — approved Pioneers cannot be dismissed.")) return;
+	btn.disabled = true;
+	try{
+		await del(did);
+		setTimeout(refreshAll, 400);
+	}catch(e){
+		btn.disabled = false;
+		alert("Could not delete: " + e.message);
 	}
 };
 
@@ -261,14 +366,18 @@ async function refreshAll(){
 	try{
 		var pending = await fetchList("pending");
 		var approved = await fetchList("approved");
+		var rejected = await fetchList("rejected");
 		var pendingApps = pending.applications || [];
 		var approvedApps = approved.applications || [];
+		var rejectedApps = rejected.applications || [];
 
 		$("d-pending-count").textContent = pendingApps.length;
 		$("d-approved-count").textContent = approvedApps.length;
+		$("d-rejected-count").textContent = rejectedApps.length;
 		$("d-slots-remaining").textContent = Math.max(0, 20 - approvedApps.length);
 		$("pending-count").textContent = pendingApps.length;
 		$("approved-count").textContent = approvedApps.length;
+		$("rejected-count").textContent = rejectedApps.length;
 
 		if(pendingApps.length === 0){
 			$("pending-list").innerHTML = '<div class="empty">No pending applications.</div>';
@@ -280,6 +389,12 @@ async function refreshAll(){
 			$("approved-list").innerHTML = '<div class="empty">No approved Pioneers yet.</div>';
 		} else {
 			$("approved-list").innerHTML = approvedApps.map(renderApprovedCard).join('');
+		}
+
+		if(rejectedApps.length === 0){
+			$("rejected-list").innerHTML = '<div class="empty">No rejected applications.</div>';
+		} else {
+			$("rejected-list").innerHTML = rejectedApps.map(renderRejectedCard).join('');
 		}
 	}catch(e){
 		if(e.message === "forbidden"){
