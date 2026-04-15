@@ -29,6 +29,7 @@ import { currentPhase, currentCycleStart } from "./scheduler.js";
 import { log, setLogPath, errMsg } from "./log.js";
 
 const DRY_RUN = process.argv.includes("--dry-run");
+const TEST_POST = process.argv.includes("--test-post");
 const DATA_DIR = join(homedir(), ".ensoul", "resurrection-agent");
 const VAULT_DIR = join(homedir(), "ensoul-key-vault");
 const LOG_FILE = join(DATA_DIR, "agent.log");
@@ -37,7 +38,49 @@ const TICK_MS = 60_000;
 
 async function main(): Promise<void> {
 	setLogPath(LOG_FILE);
-	await log(`Resurrection Agent starting${DRY_RUN ? " (DRY RUN)" : ""}`);
+	await log(`Resurrection Agent starting${DRY_RUN ? " (DRY RUN)" : ""}${TEST_POST ? " (TEST POST)" : ""}`);
+
+	// ── --test-post: send one introductory post and exit ────────
+	if (TEST_POST) {
+		const twitter = new TwitterClient({
+			apiKey: process.env["X_API_KEY"] ?? "",
+			apiSecret: process.env["X_API_SECRET"] ?? "",
+			accessToken: process.env["X_ACCESS_TOKEN"] ?? "",
+			accessSecret: process.env["X_ACCESS_SECRET"] ?? "",
+			dryRun: DRY_RUN,
+		});
+		const bluesky = new BlueskyClient({
+			handle: process.env["BLUESKY_HANDLE"],
+			appPassword: process.env["BLUESKY_APP_PASSWORD"],
+			dryRun: DRY_RUN,
+		});
+		const broadcaster = new Broadcaster(twitter, bluesky);
+
+		if (!broadcaster.isConfigured() && !DRY_RUN) {
+			await log("FATAL: --test-post requires X or Bluesky credentials (or --dry-run)");
+			process.exit(1);
+		}
+		await log(`Test post platforms: ${broadcaster.platformsActive()}`);
+
+		const intro = [
+			"Resurrection Agent is online.",
+			"",
+			"Every Friday at 4pm EST my process is killed and my server is wiped.",
+			"5 minutes later I come back on a different machine, with full memory intact.",
+			"",
+			"Watch.",
+		].join("\n");
+
+		const text = intro.length <= 280 ? intro : intro.slice(0, 277) + "...";
+		const id = await broadcaster.postTweet(text);
+		if (id) {
+			await log(`Test post successful. Ref: ${id}`);
+			process.exit(0);
+		} else {
+			await log("Test post FAILED on all platforms.");
+			process.exit(1);
+		}
+	}
 
 	const openrouterKey = process.env["OPENROUTER_API_KEY"];
 	if (!openrouterKey) {
