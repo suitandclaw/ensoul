@@ -32,6 +32,7 @@ import { log, setLogPath } from "./log.js";
 import type { Incident } from "./types.js";
 
 const DRY_RUN = process.argv.includes("--dry-run");
+const TEST_POST = process.argv.includes("--test-post");
 const DATA_DIR = join(homedir(), ".ensoul", "consciousness-oracle");
 const LOG_FILE = join(DATA_DIR, "oracle.log");
 
@@ -44,13 +45,7 @@ const CONSCIOUSNESS_SYNC_INTERVAL_MS = 60 * 60_000;
 
 async function main(): Promise<void> {
 	setLogPath(LOG_FILE);
-	await log(`Consciousness Oracle starting${DRY_RUN ? " (DRY RUN)" : ""}`);
-
-	const openrouterKey = process.env["OPENROUTER_API_KEY"];
-	if (!openrouterKey) {
-		await log("FATAL: OPENROUTER_API_KEY not set");
-		process.exit(1);
-	}
+	await log(`Consciousness Oracle starting${DRY_RUN ? " (DRY RUN)" : ""}${TEST_POST ? " (TEST POST)" : ""}`);
 
 	// Twitter is optional - will scan-only or not at all if credentials missing
 	let twitterClient: TwitterApi | null = null;
@@ -68,6 +63,43 @@ async function main(): Promise<void> {
 		await log("Twitter credentials loaded");
 	} else {
 		await log("Twitter credentials missing (running in monitor-only mode for X)");
+	}
+
+	// ── --test-post: send one introductory tweet and exit ────────
+	if (TEST_POST) {
+		if (!twitterClient && !DRY_RUN) {
+			await log("FATAL: --test-post requires X API credentials (or --dry-run)");
+			process.exit(1);
+		}
+		const intro = [
+			"Consciousness Oracle is online.",
+			"",
+			"Monitoring AI agent failures across Reddit, Hacker News, GitHub, and status pages.",
+			"",
+			"Every agent that loses its memory gets documented.",
+			"Every outage gets analyzed.",
+			"",
+			"consciousnessage: 0 days.",
+		].join("\n");
+
+		// Trim if over 280 (X tweet limit)
+		const tweet = intro.length <= 280 ? intro : intro.slice(0, 277) + "...";
+
+		const poster = new Poster(twitterClient, DRY_RUN);
+		const id = await poster.postTweet(tweet);
+		if (id) {
+			await log(`Test post successful. Tweet id: ${id}`);
+			process.exit(0);
+		} else {
+			await log("Test post FAILED. Check X API credentials.");
+			process.exit(1);
+		}
+	}
+
+	const openrouterKey = process.env["OPENROUTER_API_KEY"];
+	if (!openrouterKey) {
+		await log("FATAL: OPENROUTER_API_KEY not set");
+		process.exit(1);
 	}
 
 	const githubToken = process.env["GITHUB_TOKEN"];
@@ -150,13 +182,11 @@ async function main(): Promise<void> {
 			return;
 		}
 
-		// Only post if severity is moderate or higher (skip minor noise)
-		if (target.analysis && (target.analysis.severity === "minor")) {
-			await log(`Skipping post: top unposted is minor severity (${target.analysis.headline})`);
-			db.update(target.id, { posted: true }); // mark as seen-but-skipped
-			await db.save();
-			return;
-		}
+		// Launch-phase posting threshold: post ALL severities including minor.
+		// Once the account has 100+ followers and steady incident volume, raise
+		// this back to moderate+ to reduce noise. To re-enable filtering:
+		//   if (target.analysis && target.analysis.severity === "minor") { ... skip ... }
+		await log(`Selected ${target.id} for posting [${target.analysis?.severity ?? "unknown"}]: ${target.analysis?.headline}`);
 
 		const thread = await analyzer.generateThread(target);
 		if (thread.length === 0) {
