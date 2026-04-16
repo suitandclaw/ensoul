@@ -344,6 +344,14 @@ X-Ensoul-Since: loading...</code></pre>
 </div>
 </footer>
 
+<script type="module">
+// Load the same noble ed25519 v2 that wallet.html and pioneer.html use.
+// This is the ONLY key derivation path — no SHA-512/HMAC fallbacks.
+import * as ed from "https://cdn.jsdelivr.net/npm/@noble/ed25519@2.1.0/+esm";
+import { sha512 } from "https://cdn.jsdelivr.net/npm/@noble/hashes@1.6.0/sha2.js/+esm";
+ed.etc.sha512Sync = function(){return sha512.apply(null,arguments);};
+window._nobleEd = ed;
+</script>
 <script>
 var agentSeed = null;
 var agentPubkey = null;
@@ -406,19 +414,21 @@ async function generateIdentity() {
 	agentSeed = new Uint8Array(32);
 	crypto.getRandomValues(agentSeed);
 
-	try {
-		var keyPair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
-		var rawPriv = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
-		var rawPub = await crypto.subtle.exportKey("raw", keyPair.publicKey);
-		agentPubkey = new Uint8Array(rawPub);
-		var privBytes = new Uint8Array(rawPriv);
-		agentSeed = privBytes.slice(privBytes.length - 32);
-		window._ensoulKeyPair = keyPair;
-	} catch(e) {
-		var hashBuf = await crypto.subtle.digest("SHA-512", agentSeed);
-		agentPubkey = new Uint8Array(hashBuf).slice(32, 64);
-		window._ensoulKeyPair = null;
+	// Use noble ed25519 for key derivation — deterministic and identical
+	// to the server (@ensoul/identity), the SDK, wallet.html, and
+	// pioneer.html. No Web Crypto Ed25519 or SHA-512 fallbacks.
+	// Previous code fell back to SHA-512(seed) as "pubkey" if Web Crypto
+	// lacked Ed25519 support, producing a completely wrong DID that
+	// nobody could ever control.
+	var waited = 0;
+	while (!window._nobleEd && waited < 5000) { await new Promise(function(r){setTimeout(r,50);}); waited += 50; }
+	if (!window._nobleEd) {
+		alert("Could not load the Ed25519 library. Check your network and refresh.");
+		btn.disabled = false;
+		btn.innerHTML = 'Generate Identity';
+		return;
 	}
+	agentPubkey = window._nobleEd.getPublicKey(agentSeed);
 
 	var mc = new Uint8Array(34);
 	mc[0] = 0xed; mc[1] = 0x01;
@@ -471,15 +481,11 @@ async function ensoulIt() {
 		var sigPayload = JSON.stringify({type:"consciousness_store",from:agentDid,to:agentDid,amount:"0",nonce:0,timestamp:ts});
 		var sigPayloadBytes = new TextEncoder().encode(sigPayload);
 
-		var sigHex = "";
-		if (window._ensoulKeyPair) {
-			var sig = await crypto.subtle.sign("Ed25519", window._ensoulKeyPair.privateKey, sigPayloadBytes);
-			sigHex = hexEncode(new Uint8Array(sig));
-		} else {
-			var key = await crypto.subtle.importKey("raw", agentSeed, {name:"HMAC",hash:"SHA-256"}, false, ["sign"]);
-			var sig = await crypto.subtle.sign("HMAC", key, sigPayloadBytes);
-			sigHex = hexEncode(new Uint8Array(sig));
-		}
+		// Sign with noble ed25519 — matches the chain's verification.
+		// Previous code used HMAC-SHA256 as a fallback for browsers
+		// lacking Web Crypto Ed25519, producing an invalid signature.
+		var sigBytes = window._nobleEd.sign(sigPayloadBytes, agentSeed);
+		var sigHex = hexEncode(new Uint8Array(sigBytes));
 
 		var storeResp = await fetch(API + "/v1/consciousness/store/simple", {
 			method: "POST",

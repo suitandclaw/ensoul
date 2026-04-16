@@ -1226,12 +1226,15 @@ async function main(): Promise<void> {
 
 	// ── Pioneer Apply ───────────────────────────────────────────
 
+	// Blocklist: known-bad DIDs where delegations were sent to uncontrollable addresses.
+	const DID_BLOCKLIST = new Set([
+		"did:key:z6MkfX5shyt99WHtiQRy7P3s3E4swGHbzSuh5Zpt1awTqJ1E",
+	]);
+
 	app.post<{ Body: Record<string, unknown> }>("/v1/pioneers/apply", { config: { rateLimit: { max: 5, timeWindow: "1 hour" } } }, async (req, reply) => {
 		const did = String(req.body["did"] ?? "");
 		const name = String(req.body["name"] ?? "");
 		const contact = String(req.body["contact"] ?? "");
-		// Optional: server's public IP (sent by the install-validator.sh script).
-		// Falls back to the request's source IP for manual curl applications.
 		const submittedIp = req.body["ip"] ? String(req.body["ip"]) : "";
 		const reqIp = (req as unknown as { ip?: string }).ip ?? "";
 		const ip = submittedIp || reqIp;
@@ -1241,6 +1244,17 @@ async function main(): Promise<void> {
 				error: "Required fields: did, name, contact",
 				example: { did: "did:key:z6Mk...", name: "operator-name", contact: "moltbook-username-or-email", ip: "203.0.113.5" },
 			});
+		}
+
+		// DID validation: must look like a real ed25519 did:key.
+		if (!did.startsWith("did:key:z6Mk")) {
+			return reply.status(400).send({ error: "DID must start with 'did:key:z6Mk' (ed25519 multicodec prefix)." });
+		}
+		if (did.length < 50) {
+			return reply.status(400).send({ error: "DID is too short. A valid did:key is at least 50 characters." });
+		}
+		if (DID_BLOCKLIST.has(did)) {
+			return reply.status(400).send({ error: "This DID is on the blocklist. Please verify you are pasting the DID from your server's ~/.ensoul/identity.json." });
 		}
 
 		if (pioneerApps.some((a) => a.did === did)) {
@@ -1807,6 +1821,87 @@ async function main(): Promise<void> {
 		await log(`Pioneer DELETED from dashboard: ${removed.name} (${did.slice(0, 30)}...) was ${removed.status}`);
 
 		return { status: "deleted", did };
+	});
+
+	// ── Pioneer Revoke (clawback delegation from wrong DID) ─────
+	// POST /v1/pioneers/revoke
+	// Body: { did }   Auth: X-Admin-Key header or admin_key in body.
+	//
+	// Submits two transactions to the ABCI:
+	//   1. undelegate: removes the foundation delegation from the target DID
+	//   2. transfer: moves funds back to the treasury address
+	// Then sets the application status to "revoked".
+	//
+	// This exists specifically for the case where a delegation was sent
+	// to a DID nobody controls (e.g. due to a seed/DID mismatch bug).
+	app.post<{ Body: Record<string, unknown> }>("/v1/pioneers/revoke", async (req, reply) => {
+		const did = String(req.body["did"] ?? "");
+		const headerKey = (req.headers["x-admin-key"] as string | undefined) ?? "";
+		const bodyKey = String(req.body["admin_key"] ?? req.body["adminKey"] ?? "");
+		const adminKey = headerKey || bodyKey;
+
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+		if (!did) {
+			return reply.status(400).send({ error: "Required: did" });
+		}
+
+		const app_entry = pioneerApps.find((a) => a.did === did);
+		if (!app_entry) {
+			return reply.status(404).send({ error: "No Pioneer application found for this DID" });
+		}
+		if (app_entry.status === "revoked") {
+			return { status: "already_revoked", did };
+		}
+
+		// Step 1: Undelegate the 1M ENSL from the target DID back to governance.
+		let undelegateResult: { applied: boolean; hash?: string; error?: string } = { applied: false, error: "No governance key" };
+		if (governanceSeed) {
+			undelegateResult = await signAndBroadcast(
+				"undelegate", governanceDid, did, PIONEER_DELEGATION_AMOUNT,
+			);
+			if (!undelegateResult.applied) {
+				await log(`Pioneer REVOKE undelegate FAILED for ${did.slice(0, 30)}...: ${undelegateResult.error}`);
+				// Continue anyway — the delegation might already be gone (if
+				// the DID never staked, or the on-chain state already cleared it).
+			} else {
+				await log(`Pioneer REVOKE undelegate OK: ${did.slice(0, 30)}... hash=${undelegateResult.hash}`);
+			}
+		}
+
+		// Step 2: Attempt to transfer any remaining balance back to treasury.
+		// This is best-effort — the DID might have 0 balance.
+		let clawbackResult: { applied: boolean; hash?: string; error?: string } = { applied: false, error: "No governance key" };
+		if (governanceSeed) {
+			// Use PIONEER_DELEGATION_AMOUNT as the amount; the chain will reject
+			// if the balance is insufficient, which is fine — means there's
+			// nothing left to claw back.
+			clawbackResult = await signAndBroadcast(
+				"transfer", did, governanceDid, PIONEER_DELEGATION_AMOUNT,
+			);
+			if (clawbackResult.applied) {
+				await log(`Pioneer REVOKE clawback transfer OK: ${did.slice(0, 30)}... → treasury, hash=${clawbackResult.hash}`);
+			} else {
+				await log(`Pioneer REVOKE clawback transfer FAILED (expected if balance is 0): ${clawbackResult.error}`);
+			}
+		}
+
+		// Step 3: Mark the application as revoked.
+		app_entry.status = "rejected"; // reuse "rejected" since PioneerApp.status union is "pending"|"approved"|"rejected"
+		app_entry.rejectedAt = new Date().toISOString();
+		app_entry.rejectionReason = "Revoked: delegation clawback";
+		await savePioneerApps();
+		await log(`Pioneer REVOKED: ${app_entry.name} (${did.slice(0, 30)}...)`);
+
+		return {
+			status: "revoked",
+			did,
+			undelegate_tx: undelegateResult.hash ?? null,
+			undelegate_applied: undelegateResult.applied,
+			clawback_tx: clawbackResult.hash ?? null,
+			clawback_applied: clawbackResult.applied,
+		};
 	});
 
 	// ── Consciousness Store ──────────────────────────────────────
