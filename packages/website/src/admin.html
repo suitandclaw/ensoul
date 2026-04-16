@@ -308,6 +308,10 @@ function renderApprovedCard(app){
 			'<div class="app-row"><span class="lbl">Delegation</span><span class="val">1,000,000 ENSL at block ' + (app.delegationHeight || '?') + '</span></div>',
 			(app.delegationHash ? '<div class="app-row"><span class="lbl">Tx hash</span><span class="val"><code>' + esc(app.delegationHash) + '</code></span></div>' : ''),
 			'<div class="app-row"><span class="lbl">Lock expires</span><span class="val">' + lockExpiry + ' (' + daysRemaining + ' days remaining)</span></div>',
+			'<div class="app-actions" style="border-top:1px solid rgba(255,255,255,0.04);padding-top:12px">',
+				'<button class="btn-reject" style="background:#7f1d1d;font-size:0.75rem;padding:6px 14px" onclick="handleRevoke(\'' + esc(app.did) + '\', this)">Revoke Delegation</button>',
+				'<span class="app-msg" id="rmsg-' + esc(app.did) + '"></span>',
+			'</div>',
 		'</div>',
 	].join('');
 }
@@ -359,6 +363,33 @@ window.handleDismiss = async function(did, btn){
 	}catch(e){
 		btn.disabled = false;
 		alert("Could not delete: " + e.message);
+	}
+};
+
+window.handleRevoke = async function(did, btn){
+	var msgEl = $("rmsg-" + did);
+	if(!confirm("REVOKE this Pioneer delegation?\n\nThis will:\n1. Undelegate 1,000,000 ENSL from this DID\n2. Transfer funds back to treasury\n3. Mark the application as revoked\n\nThis action is for delegations sent to the WRONG DID. Are you sure?")) return;
+	btn.disabled = true;
+	btn.textContent = "Revoking...";
+	if(msgEl){msgEl.textContent = ""; msgEl.className = "app-msg";}
+	try{
+		var key = getKey();
+		var r = await fetch(API + "/v1/pioneers/revoke", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Admin-Key": key },
+			body: JSON.stringify({ did: did }),
+		});
+		var data = await r.json();
+		if(!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+		var msg = "Revoked.";
+		if(data.undelegate_applied) msg += " Undelegate OK.";
+		if(data.clawback_applied) msg += " Clawback OK.";
+		if(msgEl){msgEl.textContent = msg; msgEl.className = "app-msg ok";}
+		setTimeout(refreshAll, 1000);
+	}catch(e){
+		if(msgEl){msgEl.textContent = "Failed: " + e.message; msgEl.className = "app-msg err";}
+		btn.disabled = false;
+		btn.textContent = "Revoke Delegation";
 	}
 };
 

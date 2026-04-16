@@ -77,11 +77,14 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 	</ul>
 </div>
 
+<div style="background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.3);border-radius:8px;padding:14px 16px;margin-bottom:20px;font-size:0.9em;color:#fbbf24">
+	<strong>Make sure this is YOUR validator's DID from your server.</strong> Run <code style="background:rgba(0,0,0,0.3);padding:1px 6px;border-radius:3px">cat /root/.ensoul/identity.json</code> on your VPS and paste the <code>did</code> field below. Delegating to the wrong DID sends 1,000,000 ENSL to an address nobody controls.
+</div>
 <form id="apply-form" onsubmit="return submitApplication(event)">
 	<div class="form-group">
 		<label>Validator DID</label>
-		<input type="text" id="f-did" placeholder="did:key:z6Mk..." required>
-		<div class="hint">Shown at the end of the installer output. Find it in ~/.ensoul/identity.json</div>
+		<input type="text" id="f-did" placeholder="Paste your DID here (starts with did:key:)" required autocomplete="off" spellcheck="false">
+		<div class="hint">Must start with <code>did:key:z6Mk</code> and be at least 50 characters. Found in ~/.ensoul/identity.json on your server.</div>
 	</div>
 	<div class="form-group">
 		<label>Name / Moniker</label>
@@ -126,6 +129,24 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 </footer>
 
 <script>
+// Blocklist: known bad DIDs (delegations sent to wrong addresses).
+var BLOCKED_DIDS = [
+	"z6MkfX5shyt99WHtiQRy7P3s3E4swGHbzSuh5Zpt1awTqJ1E",
+];
+
+function validateDid(did) {
+	did = (did || "").trim();
+	if (!did.startsWith("did:key:z6Mk")) return "DID must start with did:key:z6Mk";
+	if (did.length < 50) return "DID is too short (expected 50+ characters)";
+	var suffix = did.slice(8); // strip "did:key:"
+	for (var i = 0; i < BLOCKED_DIDS.length; i++) {
+		if (suffix === BLOCKED_DIDS[i]) return "This DID is on the blocklist. Please check you are pasting YOUR validator's DID from ~/.ensoul/identity.json";
+	}
+	return null;
+}
+
+// URL-prefill for ?did=X — still populate but do NOT auto-submit.
+// The user must review and confirm it's their own DID.
 (function(){
 	var params=new URLSearchParams(window.location.search);
 	var prefill=params.get("did");
@@ -136,6 +157,14 @@ function submitApplication(e){
 	e.preventDefault();
 	var btn=document.getElementById("submit-btn");
 	var result=document.getElementById("result");
+
+	var didVal = document.getElementById("f-did").value.trim();
+	var didErr = validateDid(didVal);
+	if (didErr) {
+		result.innerHTML='<div class="result-box error">'+didErr+'</div>';
+		return false;
+	}
+
 	btn.disabled=true;
 	btn.textContent="Submitting...";
 	result.innerHTML="";
