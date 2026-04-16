@@ -25,11 +25,53 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 const ENC = new TextEncoder();
 const DEFAULT_API = "https://api.ensoul.dev";
 
+// Minimal typing for the Node process object so the SDK doesn't need
+// @types/node. At runtime we feature-detect before using it — the SDK
+// stays runtime-agnostic (Deno / browser / Node all work) and only
+// installs signal hooks when `process` looks Node-shaped.
+type NodeLikeProcess = {
+	on(event: string, handler: (sig: string) => void): unknown;
+	removeListener(event: string, handler: (sig: string) => void): unknown;
+	kill(pid: number, sig: string): void;
+	exit(code?: number): void;
+	pid: number;
+};
+function getProcess(): NodeLikeProcess | null {
+	const g = globalThis as unknown as { process?: NodeLikeProcess };
+	const p = g.process;
+	if (!p || typeof p.on !== "function") return null;
+	return p;
+}
+
 // ── Types ───────────────────────────────────────────────────────────
 
 export interface EnsoulConfig {
 	/** API endpoint. Default: https://api.ensoul.dev */
 	apiUrl?: string;
+	/**
+	 * Auto-sync interval in **seconds**. The SDK calls
+	 * `storeConsciousness()` on this interval but only if
+	 * `markDirty()` has been called (or `updateConsciousness()` was
+	 * used) since the last sync.
+	 *
+	 * - Default: `300` (5 minutes).
+	 * - Set to `0` to disable auto-sync entirely.
+	 * - Minimum practical value is `1`; smaller values will still work
+	 *   but burn gas quickly once Phase 2 fees activate.
+	 */
+	syncInterval?: number;
+	/**
+	 * If true (default), the SDK installs SIGINT and SIGTERM handlers
+	 * that perform one final sync before the process exits. Set to
+	 * false if your app already owns shutdown and will call
+	 * `agent.destroy()` / `agent.storeConsciousness()` itself.
+	 */
+	autoSyncOnExit?: boolean;
+	/**
+	 * Optional logger for auto-sync status. Defaults to `console.log`.
+	 * Pass `() => {}` to silence.
+	 */
+	autoSyncLogger?: (msg: string) => void;
 }
 
 export interface AgentIdentity {
@@ -154,9 +196,104 @@ export class Ensoul {
 	private apiUrl: string;
 	private nonce = 0;
 
+	// ── Auto-sync state ─────────────────────────────────────────
+	private dirty = false;
+	private lastPayload: Record<string, unknown> | null = null;
+	private lastVersion = 0;
+	private syncTimer: ReturnType<typeof setInterval> | null = null;
+	private syncIntervalSec = 0;
+	private autoSyncOnExit = true;
+	private autoSyncLogger: (msg: string) => void = (m) => console.log(m);
+	private destroyed = false;
+	private syncInFlight = false;
+	private signalHandler: ((sig: string) => void) | null = null;
+
 	private constructor(identity: AgentIdentity, config: EnsoulConfig = {}) {
 		this.identity = identity;
 		this.apiUrl = config.apiUrl ?? DEFAULT_API;
+		this.syncIntervalSec = config.syncInterval ?? 300;
+		this.autoSyncOnExit = config.autoSyncOnExit ?? true;
+		if (config.autoSyncLogger) this.autoSyncLogger = config.autoSyncLogger;
+		this.initAutoSync();
+	}
+
+	/**
+	 * Install the recurring sync timer and the SIGINT/SIGTERM final-sync
+	 * hook. Called from the constructor; idempotent.
+	 */
+	private initAutoSync(): void {
+		if (this.syncIntervalSec > 0 && !this.syncTimer) {
+			const ms = Math.max(1, this.syncIntervalSec) * 1000;
+			this.syncTimer = setInterval(() => { void this.autoSyncTick(); }, ms);
+			// Don't block process exit on the timer itself — a pending
+			// sync that happens to be in flight will still be awaited
+			// by the signal handler.
+			if (typeof (this.syncTimer as unknown as { unref?: () => void }).unref === "function") {
+				(this.syncTimer as unknown as { unref: () => void }).unref();
+			}
+		}
+		const proc = getProcess();
+		if (this.autoSyncOnExit && !this.signalHandler && proc) {
+			this.signalHandler = (sig: string) => { void this.handleShutdownSignal(sig); };
+			try {
+				proc.on("SIGINT", this.signalHandler);
+				proc.on("SIGTERM", this.signalHandler);
+			} catch { /* non-Node environment (Deno, browser) */ }
+		}
+	}
+
+	private async autoSyncTick(): Promise<void> {
+		if (this.destroyed) return;
+		if (!this.dirty) return;          // nothing changed since last sync
+		if (this.syncInFlight) return;    // avoid overlapping calls
+		if (!this.lastPayload) return;    // no payload set yet
+
+		this.syncInFlight = true;
+		try {
+			const result = await this.storeConsciousness(this.lastPayload, this.lastVersion + 1);
+			if (result.applied) {
+				this.autoSyncLogger(`[ensoul] Auto-sync: consciousness v${this.lastVersion} stored at height ${result.height}`);
+			} else {
+				this.autoSyncLogger(`[ensoul] Auto-sync warning: ${result.error ?? "broadcast failed"}`);
+			}
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			this.autoSyncLogger(`[ensoul] Auto-sync warning: ${msg}`);
+		} finally {
+			this.syncInFlight = false;
+		}
+	}
+
+	private async handleShutdownSignal(sig: string): Promise<void> {
+		if (this.destroyed) return;
+		try {
+			if (this.dirty && this.lastPayload) {
+				const result = await this.storeConsciousness(this.lastPayload, this.lastVersion + 1);
+				if (result.applied) {
+					this.autoSyncLogger(`[ensoul] Graceful shutdown: final consciousness sync complete (v${this.lastVersion}, height ${result.height})`);
+				} else {
+					this.autoSyncLogger(`[ensoul] Graceful shutdown: final sync failed — ${result.error ?? "unknown"}`);
+				}
+			}
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			this.autoSyncLogger(`[ensoul] Graceful shutdown: final sync error — ${msg}`);
+		}
+		// Uninstall our handler and re-raise the signal so the user's
+		// handlers + Node's default shutdown still happen normally. This
+		// avoids stepping on anything the host app wired up.
+		this.destroy();
+		const proc = getProcess();
+		if (this.signalHandler && proc) {
+			try {
+				proc.removeListener("SIGINT", this.signalHandler);
+				proc.removeListener("SIGTERM", this.signalHandler);
+			} catch { /* ignore */ }
+			this.signalHandler = null;
+		}
+		if (proc) {
+			try { proc.kill(proc.pid, sig); } catch { proc.exit(0); }
+		}
 	}
 
 	// ── Factory Methods ─────────────────────────────────────────
@@ -249,22 +386,94 @@ export class Ensoul {
 	 * ```
 	 */
 	async storeConsciousness(
-		payload: Record<string, unknown>,
+		payload?: Record<string, unknown>,
 		version?: number,
 	): Promise<{ applied: boolean; height: number; stateRoot: string; error?: string }> {
-		// Hash the payload to create the state root
-		const payloadJson = JSON.stringify(payload);
+		// If no explicit payload, sync whatever the SDK last saw via
+		// updateConsciousness() — this is what auto-sync uses.
+		const effectivePayload = payload ?? this.lastPayload;
+		if (!effectivePayload) {
+			return { applied: false, height: 0, stateRoot: "", error: "No consciousness payload — call updateConsciousness() first or pass a payload" };
+		}
+
+		const payloadJson = JSON.stringify(effectivePayload);
 		const stateRoot = bytesToHex(blake3(ENC.encode(payloadJson)));
 
 		await this.refreshNonce();
+		const effectiveVersion = version ?? (this.lastVersion + 1);
 		const tx = await this.signTransaction("consciousness_store", this.did, "0", {
 			stateRoot,
-			version: version ?? 1,
+			version: effectiveVersion,
 			shardCount: 0,
 		});
 		const result = await this.broadcast(tx);
+
+		if (result.applied) {
+			// Clear dirty flag and advance version on successful store.
+			this.lastPayload = effectivePayload;
+			this.lastVersion = effectiveVersion;
+			this.dirty = false;
+		}
 		return { applied: result.applied, height: result.height, stateRoot, error: result.error };
 	}
+
+	/**
+	 * Record a new consciousness snapshot without immediately syncing
+	 * on-chain. The auto-sync timer will pick it up on its next tick.
+	 *
+	 * ```typescript
+	 * agent.updateConsciousness({
+	 *   memory: [...],
+	 *   personality: { curiosity: 0.9 },
+	 * });
+	 * // ↑ stored locally, marked dirty. Chain write happens on the
+	 * //   next auto-sync tick, or on graceful shutdown.
+	 * ```
+	 */
+	updateConsciousness(payload: Record<string, unknown>): void {
+		this.lastPayload = payload;
+		this.dirty = true;
+	}
+
+	/**
+	 * Mark consciousness as changed. The next auto-sync tick will
+	 * call `storeConsciousness()` using whatever payload was most
+	 * recently set via `updateConsciousness()`.
+	 *
+	 * Useful if your app mutates the consciousness payload in place
+	 * and the SDK has no way to notice.
+	 */
+	markDirty(): void {
+		this.dirty = true;
+	}
+
+	/** True if there's a pending change waiting for the next auto-sync. */
+	get isDirty(): boolean {
+		return this.dirty;
+	}
+
+	/**
+	 * Stop auto-sync and release the SIGINT/SIGTERM hooks. Alias:
+	 * `disconnect()`. Safe to call multiple times.
+	 */
+	destroy(): void {
+		this.destroyed = true;
+		if (this.syncTimer) {
+			clearInterval(this.syncTimer);
+			this.syncTimer = null;
+		}
+		const proc = getProcess();
+		if (this.signalHandler && proc) {
+			try {
+				proc.removeListener("SIGINT", this.signalHandler);
+				proc.removeListener("SIGTERM", this.signalHandler);
+			} catch { /* ignore */ }
+			this.signalHandler = null;
+		}
+	}
+
+	/** Alias for `destroy()`. */
+	disconnect(): void { this.destroy(); }
 
 	/**
 	 * Get the latest consciousness state for this agent from the chain.
