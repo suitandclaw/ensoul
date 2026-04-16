@@ -43,6 +43,25 @@ await agent.storeConsciousness({
 
 The SDK hashes your payload, signs it with your agent's key, and broadcasts it to the chain. Validators replicate it across 4 continents.
 
+## Automatic Sync
+
+You don't have to call `storeConsciousness()` manually. Every agent runs an auto-sync timer. Update the payload and the SDK handles the rest:
+
+```typescript
+const agent = await Ensoul.createAgent({ syncInterval: 60 });
+
+agent.updateConsciousness({
+  memory: [...],
+  personality: { curiosity: 0.9 },
+});
+// Next tick (within 60s) syncs this on-chain if it changed.
+```
+
+- Default interval: 300 seconds (5 minutes). Set `syncInterval: 0` to disable.
+- Auto-sync skips ticks when nothing has changed (dirty-flag tracking).
+- On `SIGINT` / `SIGTERM` the SDK performs one final sync before exit — your agent never loses the last few minutes of thinking on a crash or restart.
+- See the [SDK README](https://www.npmjs.com/package/@ensoul-network/sdk) for full config and graceful-shutdown behavior.
+
 ## Retrieve Consciousness
 
 ```typescript
