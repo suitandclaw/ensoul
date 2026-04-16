@@ -51,6 +51,37 @@ const validatorCountOverride = process.env["ENSOUL_VALIDATOR_COUNT"]
 	? Number(process.env["ENSOUL_VALIDATOR_COUNT"])
 	: null;
 const CMT_RPC = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
+const ENSOUL_API = process.env["ENSOUL_API"] ?? "https://api.ensoul.dev";
+
+// ── did:key helpers ─────────────────────────────────────────────────
+
+function hexBytes(hex: string): Uint8Array {
+	const b = new Uint8Array(hex.length / 2);
+	for (let i = 0; i < hex.length; i += 2) b[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+	return b;
+}
+function didToPubkey(did: string): Uint8Array | null {
+	if (!did.startsWith("did:key:z")) return null;
+	const encoded = did.slice(9);
+	const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+	let num = 0n;
+	for (const c of encoded) {
+		const idx = B58.indexOf(c);
+		if (idx < 0) return null;
+		num = num * 58n + BigInt(idx);
+	}
+	const hex = num.toString(16).padStart(68, "0");
+	const bytes = hexBytes(hex);
+	if (bytes.length !== 34 || bytes[0] !== 0xed || bytes[1] !== 0x01) return null;
+	return bytes.slice(2);
+}
+async function cometAddressFromDid(did: string): Promise<string | null> {
+	const pub = didToPubkey(did);
+	if (!pub) return null;
+	const { createHash } = await import("node:crypto");
+	const h = createHash("sha256").update(Buffer.from(pub)).digest();
+	return h.subarray(0, 20).toString("hex").toUpperCase();
+}
 
 // ── Types for peer responses ─────────────────────────────────────────
 
@@ -165,12 +196,14 @@ class NetworkDataSource implements ExplorerDataSource {
 		await this.loadGenesis();
 		await this.loadStakeCategories();
 		await this.loadAddressMapping();
+		await this.loadPioneerMapping();
 		await this.pollAllPeers();
 		await this.refreshValidators();
 		await this.refreshChainStats();
 		await this.refreshOnlineStatus();
 		this.pollTimer = setInterval(() => {
 			void this.pollAllPeers();
+			void this.loadPioneerMapping();
 			void this.refreshOnlineStatus();
 			void this.refreshValidators();
 			void this.refreshChainStats();
@@ -286,8 +319,12 @@ class NetworkDataSource implements ExplorerDataSource {
 
 	// ── Internal ─────────────────────────────────────────────────
 
-	/** Map CometBFT validator address to DID (loaded from config). */
+	/** Map CometBFT validator address to DID (loaded from config + Pioneer API). */
 	private addressToDid: Map<string, string> = new Map();
+	/** Human-readable moniker per CometBFT address — from validators.json or Pioneer application. */
+	private addressToName: Map<string, string> = new Map();
+	/** Set of CometBFT addresses currently signing blocks (includes Pioneers not in addressToDid). */
+	private onlineAddrs: Set<string> = new Set();
 	/** Per-validator signature counts over the last N blocks (for real uptime). */
 	private signatureCounts: Map<string, number> = new Map();
 	/** Number of recent blocks scanned for uptime calculation. */
@@ -302,17 +339,53 @@ class NetworkDataSource implements ExplorerDataSource {
 			const configPath = j(dn(fu(import.meta.url)), "..", "..", "configs", "validators.json");
 			const raw = await rf(configPath, "utf-8");
 			const config = JSON.parse(raw) as {
-				validators: Array<{ cometbftAddress?: string; did?: string; name: string }>;
+				validators: Array<{ cometbftAddress?: string; did?: string; name?: string; moniker?: string }>;
 			};
 			for (const v of config.validators) {
-				if (v.cometbftAddress && v.did) {
-					this.addressToDid.set(v.cometbftAddress, v.did);
+				if (v.cometbftAddress) {
+					if (v.did) this.addressToDid.set(v.cometbftAddress, v.did);
+					const nm = v.moniker ?? v.name;
+					if (nm) this.addressToName.set(v.cometbftAddress, nm);
 				}
 			}
 			process.stdout.write(`  Address-to-DID mapping: ${this.addressToDid.size} validators\n`);
 		} catch {
 			process.stdout.write(`  Warning: could not load address mapping from configs/validators.json\n`);
 		}
+	}
+
+	/**
+	 * Load Pioneer CometBFT addresses from the public API and fold them into
+	 * the address-to-DID + address-to-name maps. Runs on startup and on every
+	 * 10s poll tick so newly-approved Pioneers appear without an explorer
+	 * restart. Addresses are derived deterministically from the Pioneer's
+	 * did:key (sha256(pubkey)[:20]) — no API key needed.
+	 */
+	private async loadPioneerMapping(): Promise<void> {
+		try {
+			const resp = await fetch(`${ENSOUL_API}/v1/pioneers/approved`, {
+				signal: AbortSignal.timeout(5000),
+			});
+			if (!resp.ok) return;
+			const data = (await resp.json()) as {
+				pioneers: Array<{ did: string; name: string }>;
+			};
+			let added = 0;
+			for (const p of data.pioneers) {
+				const addr = await cometAddressFromDid(p.did);
+				if (!addr) continue;
+				if (!this.addressToDid.has(addr)) {
+					this.addressToDid.set(addr, p.did);
+					added++;
+				}
+				// Names from Pioneer applications always win over the config
+				// placeholders (configs/validators.json doesn't list Pioneers).
+				this.addressToName.set(addr, p.name);
+			}
+			if (added > 0) {
+				process.stdout.write(`  Pioneer mapping: +${added} new (total ${this.addressToDid.size})\n`);
+			}
+		} catch { /* non-fatal — Pioneers just won't get their DIDs resolved this tick */ }
 	}
 
 	/**
@@ -325,23 +398,31 @@ class NetworkDataSource implements ExplorerDataSource {
 	 */
 	private async refreshOnlineStatus(): Promise<void> {
 		try {
-			// Shared block-signature health check (scans last 20 blocks)
+			// Shared block-signature health check (scans last 20 blocks).
+			// Block signatures are the source of truth for Pioneer liveness:
+			// Pioneer RPCs are usually localhost-only, so the explorer can't
+			// reach them directly. CometBFT includes each validator's signature
+			// in every block's last_commit, so seeing a signing address within
+			// the last N blocks means the validator is online.
 			const health = await checkValidatorHealth();
 
-			const online = new Set<string>();
+			const onlineDidSet = new Set<string>();
+			const onlineAddrSet = new Set<string>();
 			const counts = new Map<string, number>();
 
 			for (const [addr, vh] of health.validators) {
 				counts.set(addr, vh.signed);
 				if (vh.status === "signing") {
+					onlineAddrSet.add(addr);
 					const did = this.addressToDid.get(addr);
-					if (did) online.add(did);
+					if (did) onlineDidSet.add(did);
 				}
 			}
 
 			this.signatureCounts = counts;
 			this.uptimeSampleSize = health.height > 0 ? Math.min(20, health.height) : 0;
-			this.onlineDids = online;
+			this.onlineDids = onlineDidSet;
+			this.onlineAddrs = onlineAddrSet;
 
 			// Feed into the persistent rolling uptime tracker
 			updateUptimeTracker(health);
@@ -437,6 +518,10 @@ class NetworkDataSource implements ExplorerDataSource {
 				const existingCat = this.stakeCategories.get(v.did);
 				const category = existingCat ?? (v.power <= PIONEER_POWER_CEILING ? "pioneer" : undefined);
 
+				// Online status comes from block signatures, not RPC — works
+				// for Pioneers whose RPC is localhost-only.
+				const online = this.onlineDids.has(v.did) || (addr ? this.onlineAddrs.has(addr) : false);
+
 				return {
 					did: v.did,
 					stake: totalStake.toString(),
@@ -444,6 +529,10 @@ class NetworkDataSource implements ExplorerDataSource {
 					uptimePercent,
 					delegation: "foundation" as const,
 					category,
+					online,
+					name: addr ? this.addressToName.get(addr) : undefined,
+					votingPower: String(v.power),
+					address: addr || undefined,
 				};
 			});
 
@@ -480,6 +569,9 @@ class NetworkDataSource implements ExplorerDataSource {
 						const existingCat = did ? this.stakeCategories.get(did) : undefined;
 						const category = existingCat ?? (power <= PIONEER_POWER_CEILING ? "pioneer" : undefined);
 
+						// Online status from block signatures (Pioneer-safe).
+						const online = this.onlineAddrs.has(cv.address);
+
 						cache.push({
 							did: did ?? `cmt:${cv.address}`,
 							stake: stakeWei,
@@ -487,6 +579,10 @@ class NetworkDataSource implements ExplorerDataSource {
 							uptimePercent,
 							delegation: "foundation" as const,
 							category,
+							online,
+							name: this.addressToName.get(cv.address),
+							votingPower: String(power),
+							address: cv.address,
 						});
 					}
 				}

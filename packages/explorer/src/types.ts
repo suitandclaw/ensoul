@@ -42,6 +42,14 @@ export interface ValidatorData {
 	delegation: "foundation" | "self" | "delegated";
 	tier?: "genesis" | "foundation" | "pioneer" | "open" | "standard";
 	category?: "genesis-partners" | "foundation" | "pioneer" | "community";
+	/** Signing blocks in the recent window. Source of truth for the green/red dot. */
+	online?: boolean;
+	/** Human-readable name — moniker from validators.json or Pioneer application. */
+	name?: string;
+	/** Voting power (CometBFT). Pioneers are ~1M; foundation 4M+. */
+	votingPower?: string;
+	/** CometBFT consensus address (uppercase hex, sha256(pubkey)[:20]). */
+	address?: string;
 }
 
 export interface AgentProfile {
