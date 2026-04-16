@@ -246,18 +246,20 @@ The installer sets up launchd services that start automatically on login and res
 
 ## 5. Quick Start (One Command)
 
-The fastest way to get running. One command installs all dependencies, builds everything, generates keys, and starts your validator.
+The fastest way to get running. Two commands install all dependencies, build everything, generate keys, and start your validator. Downloading the script first (rather than piping `curl` into `bash`) avoids quoting and copy-paste issues on certain terminals.
 
 ### Linux (Ubuntu/Debian)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash
+curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh -o install.sh
+bash install.sh
 ```
 
 ### macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash
+curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh -o install.sh
+bash install.sh
 ```
 
 ### What the installer does

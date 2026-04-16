@@ -43,10 +43,11 @@ Add to your character.json plugins array. Zero config needed.
 **Run a validator:**
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash
+curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh -o install.sh
+bash install.sh
 ```
 
-One command installs everything. Works on Ubuntu/Debian 22.04+ and macOS.
+Two steps (download first, then run) to avoid pipe/quoting issues when copy-pasting from PDFs or chat. Works on Ubuntu/Debian 22.04+ and macOS.
 
 ## Links
 

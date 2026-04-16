@@ -7,8 +7,12 @@
 # builds, generates validator keys, downloads genesis, configures networking,
 # and starts everything with a systemd (Linux) or launchd (macOS) service.
 #
-# Usage:
-#   curl -sL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash
+# Usage (two steps — download, then run — to avoid pipe and quoting issues):
+#   curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh -o install.sh
+#   bash install.sh [options]
+#
+# Example:
+#   bash install.sh --pioneer --contact "you@example.com"
 #
 # Options:
 #   --moniker NAME     Set a custom validator name (default: ensoul-$(hostname -s))
