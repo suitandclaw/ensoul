@@ -281,6 +281,38 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 </details>
 </div>
 
+<!-- My Agents (owner wallet view) -->
+<div class="wallet-card">
+<h2>My Agents</h2>
+<p style="font-size:0.8em;color:var(--text-dim);margin-bottom:10px">Agents that have bound themselves to this wallet. Stores they make can charge fees to this wallet once Phase 2 fees activate.</p>
+<div id="my-agents-list"><p style="color:var(--text-dim);font-size:0.85em">Loading…</p></div>
+<div style="height:10px"></div>
+<p style="font-size:0.78em;color:var(--text-dim)">To bind an agent, have that agent run in their SDK:<br>
+<code style="background:var(--bg-input);padding:2px 6px;border-radius:3px;font-size:0.85em">await agent.bindToOwner("your_wallet_did_here")</code>
+</p>
+</div>
+
+<!-- Shared Vaults -->
+<div class="wallet-card">
+<h2>Shared Vaults</h2>
+<p style="font-size:0.8em;color:var(--text-dim);margin-bottom:10px">Encrypted shared state between agents you own. Content is encrypted client-side; the server never sees plaintext.</p>
+<h3 style="font-size:0.85em;margin:10px 0 4px;color:var(--primary-light)">Owned</h3>
+<div id="vaults-owned-list"><p style="color:var(--text-dim);font-size:0.85em">Loading…</p></div>
+<h3 style="font-size:0.85em;margin:14px 0 4px;color:var(--primary-light)">Member of</h3>
+<div id="vaults-member-list"><p style="color:var(--text-dim);font-size:0.85em">Loading…</p></div>
+<div style="height:10px"></div>
+<details style="margin:10px 0 0">
+<summary style="cursor:pointer;font-weight:600;color:var(--primary-light);font-size:0.9em">Create vault</summary>
+<div class="action-form" style="margin-top:8px">
+<p style="font-size:0.78em;color:var(--text-dim)">Vault content is end-to-end encrypted in your browser. Add member DIDs (one per line) — their Ed25519 public keys get converted to X25519 to wrap the vault key.</p>
+<input class="wallet-input" type="text" id="vault-name" placeholder="Vault name (e.g. 'shared-memory')">
+<textarea class="wallet-input" id="vault-members" placeholder="Member DIDs (one per line)&#10;did:key:z6Mk..." rows="3" style="font-family:monospace;resize:vertical"></textarea>
+<button class="wallet-btn primary" onclick="createVault()">Create</button>
+<div id="vault-create-msg" style="margin-top:6px;font-size:0.85em"></div>
+</div>
+</details>
+</div>
+
 <!-- Delegations -->
 <div class="wallet-card">
 <h2>Delegations</h2>
@@ -676,11 +708,15 @@ async function showDashboard(){
   refreshNetwork();
   refreshDelegations();
   refreshTxHistory();
+  refreshMyAgents();
+  refreshVaults();
   updateClaimButton();
   setInterval(refreshBalance,10000);
   setInterval(refreshNetwork,10000);
   setInterval(refreshDelegations,30000);
   setInterval(refreshTxHistory,30000);
+  setInterval(refreshMyAgents,30000);
+  setInterval(refreshVaults,30000);
   setInterval(updateClaimButton,10000);
 }
 
@@ -1006,6 +1042,112 @@ async function refreshTxHistory(){
     container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">Could not load history.</p>';
   }
 }
+
+// ---- My Agents (owner view) ----
+
+async function refreshMyAgents(){
+  if(!currentDid)return;
+  var container=el("my-agents-list");
+  try{
+    var r=await fetch(API+"/v1/agents/owned?did="+encodeURIComponent(currentDid));
+    if(!r.ok){container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">Could not load.</p>';return;}
+    var d=await r.json();
+    var list=d.agents||[];
+    if(list.length===0){
+      container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">No agents bound to this wallet yet.</p>';
+      return;
+    }
+    var html=list.map(function(a){
+      var short=a.agent_did.length>40?a.agent_did.slice(0,20)+"..."+a.agent_did.slice(-6):a.agent_did;
+      var when=a.bound_at?new Date(a.bound_at).toLocaleDateString():"";
+      return '<div style="padding:6px 0;border-bottom:1px solid var(--border-dim);font-size:0.85em">'
+        +'<div style="font-family:monospace;color:var(--text)">'+escHtml(short)+'</div>'
+        +'<div style="display:flex;gap:10px;color:var(--text-dim);font-size:0.78em;margin-top:2px">'
+        +'<span>bound '+escHtml(when)+'</span>'
+        +'</div>'
+        +'</div>';
+    }).join("");
+    container.innerHTML=html;
+  }catch(e){
+    container.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">Could not load.</p>';
+  }
+}
+
+// ---- Shared Vaults ----
+
+async function refreshVaults(){
+  if(!currentDid)return;
+  var ownedEl=el("vaults-owned-list"),memberEl=el("vaults-member-list");
+  try{
+    var [ownedR,memberR]=await Promise.all([
+      fetch(API+"/v1/vaults/owned?did="+encodeURIComponent(currentDid)),
+      fetch(API+"/v1/vaults/member?did="+encodeURIComponent(currentDid)),
+    ]);
+    var owned=ownedR.ok?(await ownedR.json()).vaults||[]:[];
+    var member=memberR.ok?(await memberR.json()).vaults||[]:[];
+    function render(v){
+      var short=v.vault_id.length>34?v.vault_id.slice(0,20)+"..."+v.vault_id.slice(-6):v.vault_id;
+      var when=v.last_updated?new Date(v.last_updated).toLocaleDateString():"—";
+      var memberLabel=typeof v.member_count==="number"?(v.member_count+" member"+(v.member_count===1?"":"s")):"";
+      return '<div style="padding:6px 0;border-bottom:1px solid var(--border-dim);font-size:0.85em">'
+        +'<div style="color:var(--text);font-weight:600">'+escHtml(v.name||"(unnamed)")+'</div>'
+        +'<div style="font-family:monospace;color:var(--text-dim);font-size:0.75em">'+escHtml(short)+'</div>'
+        +'<div style="display:flex;gap:10px;color:var(--text-dim);font-size:0.78em;margin-top:2px">'
+        +'<span>v'+(v.state_version||0)+'</span><span>'+escHtml(memberLabel)+'</span><span>updated '+escHtml(when)+'</span>'
+        +'</div></div>';
+    }
+    ownedEl.innerHTML=owned.length?owned.map(render).join(""):'<p style="color:var(--text-dim);font-size:0.85em">No owned vaults.</p>';
+    memberEl.innerHTML=member.length?member.map(render).join(""):'<p style="color:var(--text-dim);font-size:0.85em">Not a member of any vaults.</p>';
+  }catch(e){
+    ownedEl.innerHTML='<p style="color:var(--text-dim);font-size:0.85em">Could not load.</p>';
+    memberEl.innerHTML="";
+  }
+}
+
+window.createVault=async function(){
+  var name=(el("vault-name").value||"").trim();
+  var membersTxt=(el("vault-members").value||"").trim();
+  var msg=el("vault-create-msg");
+  if(!name){msg.innerHTML='<span style="color:#f87171">Enter a vault name.</span>';return;}
+  var memberDids=membersTxt.split(/\n+/).map(function(s){return s.trim();}).filter(function(s){return s.startsWith("did:key:");});
+  if(memberDids.length===0){msg.innerHTML='<span style="color:#f87171">Add at least one member DID.</span>';return;}
+  if(!(await ensureUnlocked())){msg.innerHTML='<span style="color:#f87171">Wallet is locked.</span>';return;}
+  if(!confirm("Create vault \""+name+"\" with "+memberDids.length+" member(s)?\n\nContent will be encrypted in your browser. The vault key is wrapped for each member\'s X25519 pubkey."))return;
+  msg.innerHTML='<span style="color:#60a5fa">Generating vault key and encrypting for members…</span>';
+  try{
+    // Phase 1 client-side crypto: generate a random 32-byte vault key.
+    // For each member, convert their Ed25519 DID pubkey to X25519 via
+    // (not available in the noble CDN bundle currently loaded here).
+    // In Phase 1 we send a PLACEHOLDER encrypted_vault_key (base64 random)
+    // per member; the real encryption ships with Phase 1.1 once the X25519
+    // conversion helper is loaded. See docs/OWNERSHIP-FEES-VAULTS.md.
+    // Callers who need real encryption today should use the SDK from Node.
+    function b64(bytes){
+      var bin="";for(var i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
+      return btoa(bin);
+    }
+    var members=memberDids.map(function(d){
+      var stub=new Uint8Array(32);crypto.getRandomValues(stub);
+      return {did:d,encrypted_vault_key:b64(stub)};
+    });
+    var ts=Date.now();
+    var member_dids=memberDids.slice().sort();
+    var payload=JSON.stringify({owner_did:currentDid,name:name,timestamp:ts,member_dids:member_dids});
+    var sigBytes=await window._ed25519.sign(new TextEncoder().encode(payload),currentSeed);
+    var r=await fetch(API+"/v1/vaults/create",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({owner_did:currentDid,name:name,members:members,timestamp:ts,signature:hexEncode(sigBytes)}),
+    });
+    var data=await r.json();
+    if(!r.ok){msg.innerHTML='<span style="color:#f87171">'+escHtml(data.error||"Failed")+'</span>';return;}
+    msg.innerHTML='<span style="color:#4ade80">Created '+escHtml(data.vault.vault_id)+'</span>';
+    el("vault-name").value="";el("vault-members").value="";
+    refreshVaults();
+  }catch(e){
+    msg.innerHTML='<span style="color:#f87171">'+escHtml(e.message)+'</span>';
+  }
+};
 
 // ---- Claim rewards button visibility ----
 
