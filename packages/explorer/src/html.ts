@@ -411,9 +411,13 @@ export function renderValidators(validators: ValidatorData[]): string {
 			(v, i) => {
 				const shortDid = v.did.length > 40 ? `${v.did.slice(0, 16)}...${v.did.slice(-6)}` : v.did;
 				const stakeEnsl = formatEnsl(v.stake);
-				const statusDot = v.uptimePercent !== 0 && v.uptimePercent !== -1
-					? '<span class="dot-on"></span>'
-					: '<span class="dot-off"></span>';
+				// Online dot: prefer the block-signature derived flag (works for
+				// Pioneers whose RPC is localhost-only). Fall back to uptime for
+				// legacy records that haven't populated `online` yet.
+				const isOnline = typeof v.online === "boolean"
+					? v.online
+					: (v.uptimePercent !== 0 && v.uptimePercent !== -1);
+				const statusDot = isOnline ? '<span class="dot-on"></span>' : '<span class="dot-off"></span>';
 				const uptimeDisplay = v.uptimePercent < 0
 					? '<span title="Collecting data (need 100+ samples)">N/A</span>'
 					: `${v.uptimePercent.toFixed(1)}%`;
@@ -427,7 +431,9 @@ export function renderValidators(validators: ValidatorData[]): string {
 							: cat === "community"
 								? ' <span class="badge badge-basic" style="margin-left:6px">Community</span>'
 								: "";
-				return `<tr data-stake="${v.stake}" data-blocks="${v.blocksProduced}" data-uptime="${v.uptimePercent}"><td>${i + 1}</td><td><a href="/account/${encodeURIComponent(v.did)}">${shortDid}</a>${catBadge}</td><td>${statusDot}</td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${uptimeDisplay}</td></tr>`;
+				// If we have a Pioneer / moniker name, show it next to the DID.
+				const nameLabel = v.name ? `<span style="color:#e0e0e0;font-weight:600">${v.name}</span> <span style="color:#888;font-size:0.9em">${shortDid}</span>` : shortDid;
+				return `<tr data-stake="${v.stake}" data-blocks="${v.blocksProduced}" data-uptime="${v.uptimePercent}"><td>${i + 1}</td><td><a href="/account/${encodeURIComponent(v.did)}">${nameLabel}</a>${catBadge}</td><td>${statusDot}</td><td>${stakeEnsl}</td><td>${v.blocksProduced}</td><td>${uptimeDisplay}</td></tr>`;
 			},
 		)
 		.join("");
@@ -600,7 +606,7 @@ export function renderAccount(
 	did: string,
 	account: Record<string, string> | null,
 	isValidator: boolean,
-	validatorData: { blocksProduced: number; stake: string } | null,
+	validatorData: ValidatorData | null,
 	txs: Array<{ hash: string; type: string; from: string; to: string; amount: string; timestamp: number; blockHeight: number }>,
 	totalTxs = 0,
 	page = 1,
@@ -616,6 +622,10 @@ export function renderAccount(
 
 	let badges = "";
 	if (isValidator) badges += '<span class="badge badge-verified">VALIDATOR</span> ';
+	const vCat = validatorData?.category;
+	if (vCat === "pioneer") badges += '<span class="badge badge-pioneer">PIONEER</span> ';
+	else if (vCat === "genesis-partners") badges += '<span class="badge badge-genesis">GENESIS PARTNER</span> ';
+	else if (vCat === "foundation") badges += '<span class="badge badge-foundation">FOUNDATION</span> ';
 	// Agent badge would require checking consciousness store
 
 	const txRows = txs.slice(0, 50).map((tx) => {
@@ -635,11 +645,33 @@ export function renderAccount(
 
 	let validatorSection = "";
 	if (isValidator && validatorData) {
+		const isOnline = typeof validatorData.online === "boolean"
+			? validatorData.online
+			: (validatorData.uptimePercent > 0);
+		const onlineCell = isOnline
+			? '<span class="dot-on"></span> Online'
+			: '<span class="dot-off"></span> Offline';
+		const powerCell = validatorData.votingPower
+			? Number(validatorData.votingPower).toLocaleString()
+			: "—";
+		const nameRow = validatorData.name
+			? `<p><strong>Moniker:</strong> ${validatorData.name}</p>`
+			: "";
+		const addrRow = validatorData.address
+			? `<p><strong>CometBFT address:</strong> <code style="font-size:0.85em">${validatorData.address}</code></p>`
+			: "";
+		const uptimeCell = validatorData.uptimePercent < 0
+			? '<span title="Collecting data (need 100+ samples)">N/A</span>'
+			: `${validatorData.uptimePercent.toFixed(1)}%`;
 		validatorSection = `
 		<h2>Validator Stats</h2>
-		<div class="card">
-			<div class="stat"><div class="stat-value">${validatorData.blocksProduced}</div><div class="stat-label">Blocks Produced</div></div>
+		${nameRow}${addrRow}
+		<div class="card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;text-align:center">
+			<div class="stat"><div class="stat-value">${onlineCell}</div><div class="stat-label">Status</div></div>
+			<div class="stat"><div class="stat-value">${validatorData.blocksProduced}</div><div class="stat-label">Blocks Proposed</div></div>
+			<div class="stat"><div class="stat-value">${powerCell}</div><div class="stat-label">Voting Power</div></div>
 			<div class="stat"><div class="stat-value">${formatEnsl(validatorData.stake)}</div><div class="stat-label">Total Stake</div></div>
+			<div class="stat"><div class="stat-value">${uptimeCell}</div><div class="stat-label">Uptime</div></div>
 			<div class="stat"><div class="stat-value">10%</div><div class="stat-label">Commission</div></div>
 		</div>`;
 	}
