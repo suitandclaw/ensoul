@@ -10,6 +10,16 @@
       "source": "/install",
       "destination": "https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh",
       "statusCode": 302
+    },
+    {
+      "source": "/validator-dashboard",
+      "destination": "/pioneer.html",
+      "statusCode": 301
+    },
+    {
+      "source": "/validator-dashboard.html",
+      "destination": "/pioneer.html",
+      "statusCode": 301
     }
   ]
 }

@@ -93,11 +93,10 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
 	</a>
 	<div class="nav-links">
-		<a href="/genesis">Genesis</a>
-		<a href="/docs/validator.html">Validators</a>
 		<a href="/pioneer.html">Pioneer</a>
 		<a href="/docs/quickstart.html">Docs</a>
 		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="/wallet.html">Wallet</a>
 		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
 		<a href="/try" class="nav-cta">Try It</a>
 	</div>
@@ -166,7 +165,7 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 
 <div class="demo-cta">
 	<h2>Don't let your agent die.</h2>
-	<p>30 seconds to ensoul. Your agent's memory, identity, and personality backed up across 21 validators on 4 continents.</p>
+	<p>30 seconds to ensoul. Your agent's memory, identity, and personality backed up across 27 validators on 5 continents.</p>
 	<a href="/try" class="btn">Ensoul Your Agent</a>
 </div>
 
@@ -183,6 +182,8 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 		<a href="/bounties">Bounties</a>
 		<a href="https://explorer.ensoul.dev">Explorer</a>
 		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+	<a href="https://bsky.app/profile/ensoulnetwork.bsky.social">Bluesky</a>
+	<a href="https://x.com/ensoul_network">X</a>
 	</div>
 	<div class="footer-right">the persistence layer for AI agents</div>
 </div>
@@ -232,7 +233,7 @@ var SYNC_MSGS=[
 
 var RECOVERY_STEPS=[
 	{text:"Connecting to Ensoul network...",delay:400},
-	{text:"Found 21 validators across 5 continents",delay:500},
+	{text:"Found 27 validators across 5 continents",delay:500},
 	{text:"Requesting latest consciousness state...",delay:600},
 	{text:"Downloading from validator ashburn-1 (178.156.199.91)...",delay:400},
 	{text:"Verifying BLAKE3 integrity: a4f8c2...e91b",delay:500},
@@ -468,7 +469,7 @@ window.startDemo=async function(){
 	setValClass("conv-right","val-green");
 	setDot("dot-right","panel-dot dot-green");
 
-	setOutcome("outcome-right","Consciousness restored from 21 validators across 5 continents.","outcome-alive");
+	setOutcome("outcome-right","Consciousness restored from 27 validators across 5 continents.","outcome-alive");
 
 	await delay(500);
 	running=false;

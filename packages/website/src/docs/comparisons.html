@@ -82,11 +82,10 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
 	</a>
 	<div class="nav-links">
-		<a href="/genesis">Genesis</a>
-		<a href="/docs/validator.html">Validators</a>
 		<a href="/pioneer.html">Pioneer</a>
 		<a href="/docs/quickstart.html">Docs</a>
 		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="/wallet.html">Wallet</a>
 		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
 		<a href="/try" class="nav-cta">Try It</a>
 	</div>
@@ -129,7 +128,7 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 <tbody>
 <tr>
 	<td>Persistence guarantee</td>
-	<td class="ensoul">Survives crashes, server wipes, platform shutdowns. Replicated across 21 validators on 5 continents.</td>
+	<td class="ensoul">Survives crashes, server wipes, platform shutdowns. Replicated across 27 validators on 5 continents.</td>
 	<td>Depends on hosting. Mem0 Cloud: hosted on their servers. Self-hosted: you manage persistence.</td>
 	<td>In-memory by default. Optional RDB/AOF snapshots to disk on one machine.</td>
 	<td>File on the local disk of one machine.</td>
@@ -137,7 +136,7 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 </tr>
 <tr>
 	<td>Decentralization</td>
-	<td class="ensoul"><span class="verdict v-yes">Yes</span> CometBFT BFT consensus across 21+ validators.</td>
+	<td class="ensoul"><span class="verdict v-yes">Yes</span> CometBFT BFT consensus across 27+ validators.</td>
 	<td><span class="verdict v-no">No</span> Single vendor (Mem0 Cloud) or single self-hosted instance.</td>
 	<td><span class="verdict v-no">No</span> Single node, or a Redis Cluster you run.</td>
 	<td><span class="verdict v-no">No</span> Single file on one machine.</td>
@@ -198,7 +197,7 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 <h2>Detailed analysis</h2>
 
 <h3>Ensoul</h3>
-<p>Ensoul is a sovereign Layer-1 blockchain purpose-built for AI agent consciousness persistence. Agents get a decentralized identifier (did:key) backed by an Ed25519 keypair. Consciousness state is hashed locally with BLAKE3; only the 32-byte hash is anchored on-chain via CometBFT consensus across 21 validators distributed globally. The raw data stays on the agent's machine. Recovery on a new machine requires only the seed.</p>
+<p>Ensoul is a sovereign Layer-1 blockchain purpose-built for AI agent consciousness persistence. Agents get a decentralized identifier (did:key) backed by an Ed25519 keypair. Consciousness state is hashed locally with BLAKE3; only the 32-byte hash is anchored on-chain via CometBFT consensus across 27 validators distributed globally. The raw data stays on the agent's machine. Recovery on a new machine requires only the seed.</p>
 <p>Use Ensoul when: the agent's identity and long-term memory must survive anything. When agents need to prove their continuity to other agents via the Ensouled Handshake. When crypto keys are preferable to passwords for authentication.</p>
 
 <h3>Mem0</h3>
@@ -270,6 +269,8 @@ await agent.storeConsciousness({ memories: [...], personality: {...} });</code><
 		<a href="/bounties">Bounties</a>
 		<a href="https://explorer.ensoul.dev">Explorer</a>
 		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+	<a href="https://bsky.app/profile/ensoulnetwork.bsky.social">Bluesky</a>
+	<a href="https://x.com/ensoul_network">X</a>
 	</div>
 	<div class="footer-right">the persistence layer for AI agents</div>
 </div>

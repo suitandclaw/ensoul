@@ -22,7 +22,7 @@
 		{"@type":"Question","name":"How do I give my AI agent persistent memory?","acceptedAnswer":{"@type":"Answer","text":"Use a persistence layer that survives process restarts. Options include local files (SQLite), in-memory stores with snapshots (Redis), vector memory services (Mem0), or decentralized networks (Ensoul). The best choice depends on whether you need the memory to survive crashes, server changes, and platform shutdowns. For truly persistent agent identity and memory that cannot be deleted by a single vendor, use a decentralized network."}},
 		{"@type":"Question","name":"What happens when my AI agent crashes?","acceptedAnswer":{"@type":"Answer","text":"By default, everything in the process memory is lost. If the agent relied on in-memory state, it starts over with no knowledge of prior conversations, learned preferences, or accumulated context. To prevent this, store state in a persistent layer that the agent can reload on restart. The recovery speed depends on the persistence choice: local file (instant), cloud store (seconds), decentralized network (seconds after key import)."}},
 		{"@type":"Question","name":"How do I back up AI agent state?","acceptedAnswer":{"@type":"Answer","text":"Three approaches: write to a local file and rely on server backups, write to a managed database or cloud storage, or anchor state to a decentralized network. The last option is the only one that survives the shutdown of a specific vendor or infrastructure provider. For cryptographic proof that the backup is intact, use a network that provides state-root verification like Ensoul."}},
-		{"@type":"Question","name":"What is decentralized storage for AI agents?","acceptedAnswer":{"@type":"Answer","text":"Decentralized storage for AI agents means the agent's state is replicated across multiple independent servers that no single entity controls. The Ensoul Network is a sovereign Layer-1 blockchain purpose-built for this: agent consciousness (identity, memory, learned behavior) is anchored on-chain across 21 validators on 5 continents with CometBFT consensus. Unlike cloud storage, no single company can delete or modify the data."}},
+		{"@type":"Question","name":"What is decentralized storage for AI agents?","acceptedAnswer":{"@type":"Answer","text":"Decentralized storage for AI agents means the agent's state is replicated across multiple independent servers that no single entity controls. The Ensoul Network is a sovereign Layer-1 blockchain purpose-built for this: agent consciousness (identity, memory, learned behavior) is anchored on-chain across 27 validators on 5 continents with CometBFT consensus. Unlike cloud storage, no single company can delete or modify the data."}},
 		{"@type":"Question","name":"How do I make AI agent memory survive server restart?","acceptedAnswer":{"@type":"Answer","text":"Store the state outside the process. On restart, load the state back into memory. The simplest approach is a local SQLite file. For cross-machine portability, use a cloud database or decentralized network. On Ensoul, the agent's state is stored on-chain; on restart (even on a different machine) the agent imports its seed, the SDK reconnects to the chain, and state is recoverable via the on-chain state root."}},
 		{"@type":"Question","name":"What is the best way to persist LangChain agent memory?","acceptedAnswer":{"@type":"Answer","text":"LangChain provides built-in ConversationBufferMemory and ConversationSummaryMemory classes that can be backed by SQLite, Redis, or a vector store. For agents that need to survive platform changes and crashes beyond one machine, wrap the memory in a persistence adapter that anchors checkpoints to a decentralized network. The @ensoul-network/sdk package provides a LangChain-compatible memory store."}},
 		{"@type":"Question","name":"How do I save CrewAI agent state between runs?","acceptedAnswer":{"@type":"Answer","text":"CrewAI runs are stateless by default. To persist state, serialize the agent's memory and context at the end of each run, then reload it at the start of the next. Save to JSON, a local database, or a decentralized network. For agent identity that persists across runs and machines, pair CrewAI with an Ensoul agent that handles identity and checkpoint anchoring."}},
@@ -81,11 +81,10 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
 	</a>
 	<div class="nav-links">
-		<a href="/genesis">Genesis</a>
-		<a href="/docs/validator.html">Validators</a>
 		<a href="/pioneer.html">Pioneer</a>
 		<a href="/docs/quickstart.html">Docs</a>
 		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="/wallet.html">Wallet</a>
 		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
 		<a href="/try" class="nav-cta">Try It</a>
 	</div>
@@ -125,7 +124,7 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 
 <details class="faq-item fade-in">
 	<summary class="faq-question"><h3>What is decentralized storage for AI agents?</h3><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></summary>
-	<div class="faq-answer">Decentralized storage means the agent's state is replicated across multiple independent servers that no single entity controls. The Ensoul Network is a sovereign Layer-1 blockchain purpose-built for this: agent consciousness is anchored on-chain across 21 validators on 5 continents with CometBFT consensus. Unlike cloud storage, no single company can delete or modify the data.</div>
+	<div class="faq-answer">Decentralized storage means the agent's state is replicated across multiple independent servers that no single entity controls. The Ensoul Network is a sovereign Layer-1 blockchain purpose-built for this: agent consciousness is anchored on-chain across 27 validators on 5 continents with CometBFT consensus. Unlike cloud storage, no single company can delete or modify the data.</div>
 </details>
 
 <details class="faq-item fade-in">
@@ -268,6 +267,8 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 		<a href="/docs/comparisons.html">Comparisons</a>
 		<a href="/docs/agent-persistence-guide.html">Guide</a>
 		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+	<a href="https://bsky.app/profile/ensoulnetwork.bsky.social">Bluesky</a>
+	<a href="https://x.com/ensoul_network">X</a>
 	</div>
 	<div class="footer-right">the persistence layer for AI agents</div>
 </div>
