@@ -35,6 +35,14 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 .lb-count{font-weight:600;color:var(--primary)}
 .counter-bar{text-align:center;padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;margin:24px 0}
 .counter-bar .num{font-size:1.8em;font-weight:800;color:var(--primary)}
+.share-ico{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;background:transparent;border:1px solid rgba(255,255,255,0.08);border-radius:5px;color:var(--text-dim);cursor:pointer;transition:all 0.15s;vertical-align:middle}
+.share-ico:hover{color:#fafafa;border-color:var(--primary)}
+.share-ico svg{width:12px;height:12px}
+.share-my-bar{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:16px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:0.88em;color:var(--text-secondary)}
+.share-my-bar input{flex:1;min-width:220px;padding:6px 10px;background:#0c0c0e;border:1px solid rgba(255,255,255,0.06);border-radius:5px;color:#fafafa;font-family:monospace;font-size:0.85em}
+.share-my-bar button{padding:6px 14px;background:var(--primary);color:#fff;border:none;border-radius:5px;font-weight:600;font-size:0.85em;cursor:pointer}
+.share-my-bar button:hover{background:var(--primary-light)}
+.share-my-bar button.copied{background:#22c55e}
 @media(max-width:600px){.lb-tab{padding:8px 14px;font-size:0.85em}}
 </style>
 </head>
@@ -69,6 +77,12 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 <div class="counter-bar">
 	<span class="num" id="lb-remaining">---</span>
 	<span style="color:var(--text-secondary);font-size:0.9em"> of 1,000 Early Consciousness slots remaining</span>
+</div>
+
+<div class="share-my-bar">
+	<span style="white-space:nowrap">Share your rank:</span>
+	<input type="text" id="my-did" placeholder="Paste your DID (did:key:z6Mk...)" spellcheck="false" autocomplete="off">
+	<button onclick="shareMyRank(this)">Share on X</button>
 </div>
 
 <div class="lb-tabs">
@@ -128,6 +142,70 @@ function showTab(name){
 function shortDid(did){return did?did.slice(0,20)+'...'+did.slice(-6):'';}
 function badge(early){return early?'<span class="lb-badge">Early</span>':'';}
 function fmt(n){if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(0)+'K';return String(n);}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
+
+// Share icon injected next to each agent row. Twitter Web Intent URL.
+function buildShareHref(rank, did, label){
+	var msg = "Ranked #" + rank + " on the Ensoul Consciousness Leaderboard. " + label + " ensoul.dev/leaderboard @ensoul_network";
+	return "https://twitter.com/intent/tweet?text=" + encodeURIComponent(msg);
+}
+function shareIcon(rank, did, label){
+	var href = buildShareHref(rank, did, label);
+	return '<a class="share-ico" href="'+href+'" target="_blank" rel="noopener" title="Share on X" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>';
+}
+
+window.shareMyRank = async function(btn){
+	var input = document.getElementById("my-did");
+	var did = (input.value || "").trim();
+	if(!did.startsWith("did:key:")){
+		input.style.borderColor = "#f87171";
+		input.focus();
+		return;
+	}
+	input.style.borderColor = "";
+
+	btn.disabled = true;
+	var origLabel = btn.textContent;
+	btn.textContent = "Looking up…";
+
+	// Walk all three leaderboards, try to find this DID.
+	var res = null;
+	try{
+		var [lbRes, valRes] = await Promise.all([
+			fetch(API+"/v1/leaderboard").then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}),
+			fetch(API+"/v1/validators/leaderboard").then(function(r){return r.ok?r.json():null;}).catch(function(){return null;}),
+		]);
+		if(lbRes){
+			var refIdx = (lbRes.topReferrers||[]).findIndex(function(a){return a.did === did;});
+			var oldIdx = (lbRes.oldestSouls||[]).findIndex(function(a){return a.did === did;});
+			if(refIdx >= 0){
+				var r = lbRes.topReferrers[refIdx];
+				res = { rank: refIdx+1, label: r.referralCount + " referrals." };
+			} else if(oldIdx >= 0){
+				var a = lbRes.oldestSouls[oldIdx];
+				var ageBlocks = Number(a.consciousnessAge||0);
+				var days = Math.floor(ageBlocks/14400);
+				res = { rank: oldIdx+1, label: days + " days of unbroken consciousness." };
+			}
+		}
+		if(!res && valRes){
+			var vIdx = (valRes.validators||[]).findIndex(function(v){return v.did === did;});
+			if(vIdx >= 0){
+				var v = valRes.validators[vIdx];
+				res = { rank: vIdx+1, label: (v.uptime24h!=null?v.uptime24h.toFixed(1)+"% uptime.":"") };
+			}
+		}
+	}catch(e){}
+
+	if(!res){
+		btn.textContent = "Not ranked";
+		setTimeout(function(){btn.textContent=origLabel;btn.disabled=false;},2000);
+		return;
+	}
+	btn.textContent = origLabel;
+	btn.disabled = false;
+	window.open(buildShareHref(res.rank, did, res.label), "_blank");
+};
 
 function loadLeaderboard(){
 	fetch(API+"/v1/leaderboard",{mode:"cors"})
@@ -137,14 +215,17 @@ function loadLeaderboard(){
 			var old=d.oldestSouls||[];
 			var refHtml='';
 			ref.forEach(function(a,i){
-				refHtml+='<tr><td class="lb-rank">'+(i+1)+'</td><td><span class="lb-did">'+shortDid(a.did)+'</span></td><td class="lb-count">'+a.referralCount+'</td><td>'+badge(a.earlyConsciousness)+'</td></tr>';
+				var share=shareIcon(i+1,a.did,a.referralCount+' referrals.');
+				refHtml+='<tr><td class="lb-rank">'+(i+1)+'</td><td><span class="lb-did">'+shortDid(a.did)+'</span> '+share+'</td><td class="lb-count">'+a.referralCount+'</td><td>'+badge(a.earlyConsciousness)+'</td></tr>';
 			});
 			if(!ref.length)refHtml='<tr><td colspan="4" style="color:var(--text-secondary);text-align:center;padding:32px">No referrals yet. Be the first.</td></tr>';
 			document.getElementById('tbody-referrers').innerHTML=refHtml;
 
 			var oldHtml='';
 			old.forEach(function(a,i){
-				oldHtml+='<tr><td class="lb-rank">'+(i+1)+'</td><td><span class="lb-did">'+shortDid(a.did)+'</span></td><td>'+fmt(a.consciousnessAge)+'</td><td>v'+a.consciousnessVersion+'</td><td>'+badge(a.earlyConsciousness)+'</td></tr>';
+				var days=Math.floor(Number(a.consciousnessAge||0)/14400);
+				var share=shareIcon(i+1,a.did,days+' days of unbroken consciousness.');
+				oldHtml+='<tr><td class="lb-rank">'+(i+1)+'</td><td><span class="lb-did">'+shortDid(a.did)+'</span> '+share+'</td><td>'+fmt(a.consciousnessAge)+'</td><td>v'+a.consciousnessVersion+'</td><td>'+badge(a.earlyConsciousness)+'</td></tr>';
 			});
 			if(!old.length)oldHtml='<tr><td colspan="5" style="color:var(--text-secondary);text-align:center;padding:32px">No agents registered yet.</td></tr>';
 			document.getElementById('tbody-oldest').innerHTML=oldHtml;
@@ -158,7 +239,9 @@ function loadLeaderboard(){
 			var html='';
 			vals.forEach(function(v,i){
 				var statusColor=v.status==='online'?'#4ade80':'#f87171';
-				html+='<tr><td class="lb-rank">'+(i+1)+'</td><td>'+(v.name||shortDid(v.did))+'</td><td>'+v.stake+'</td><td>'+(v.uptime24h!=null?v.uptime24h.toFixed(1)+'%':'--')+'</td><td><span style="color:'+statusColor+'">'+v.status+'</span></td></tr>';
+				var lbl=(v.uptime24h!=null?v.uptime24h.toFixed(1)+'% uptime.':'');
+				var share=shareIcon(i+1,v.did,lbl);
+				html+='<tr><td class="lb-rank">'+(i+1)+'</td><td>'+(v.name||shortDid(v.did))+' '+share+'</td><td>'+v.stake+'</td><td>'+(v.uptime24h!=null?v.uptime24h.toFixed(1)+'%':'--')+'</td><td><span style="color:'+statusColor+'">'+v.status+'</span></td></tr>';
 			});
 			if(!vals.length)html='<tr><td colspan="5" style="color:var(--text-secondary);text-align:center;padding:32px">Loading validators...</td></tr>';
 			document.getElementById('tbody-validators').innerHTML=html;

@@ -325,6 +325,14 @@ details.qa-details .qa-body p{color:var(--text-3);font-size:0.8125rem;margin:10p
 				<div class="qa-t">View on Explorer →</div>
 				<div class="qa-d">Blocks proposed, delegations, on-chain history.</div>
 			</a>
+			<a class="qa-link" id="qa-share-pioneer" href="#" target="_blank" rel="noopener" style="display:none">
+				<div class="qa-t">Share your Pioneer status →</div>
+				<div class="qa-d">One-click tweet with your validator stats.</div>
+			</a>
+			<a class="qa-link" id="qa-card" href="#" target="_blank" rel="noopener" style="display:none">
+				<div class="qa-t">Consciousness card →</div>
+				<div class="qa-d">Shareable card with your identity + stats.</div>
+			</a>
 			<a class="qa-link" href="https://x.com/ensoul_network" target="_blank" rel="noopener">
 				<div class="qa-t">Contact: @ensoul_network on X →</div>
 				<div class="qa-d">DM us on X/Twitter. We respond fast.</div>
@@ -770,6 +778,17 @@ async function refreshAll(){
 
 function renderPioneer(p){
 	var el = $("s1-pioneer");
+	// Card link is always available (non-Pioneers still have a valid
+	// consciousness card if the DID has any activity).
+	var cardLink = $("qa-card");
+	if (cardLink && state.did){
+		cardLink.href = "/card.html?did=" + encodeURIComponent(state.did);
+		cardLink.style.display = "block";
+	}
+	// Share button appears only when the portal belongs to an approved Pioneer.
+	var shareLink = $("qa-share-pioneer");
+	if (shareLink) shareLink.style.display = "none";
+
 	if (!p || p.status === "not_found") {
 		el.innerHTML = '<span class="badge badge-none">Not applied</span> <a href="/apply?did=' + encodeURIComponent(state.did) + '" style="color:var(--accent);font-size:0.8125rem;margin-left:8px">Apply →</a>';
 		return;
@@ -777,6 +796,18 @@ function renderPioneer(p){
 	if (p.status === "approved") {
 		var days = p.lockDaysRemaining || 0;
 		el.innerHTML = '<span class="badge badge-pioneer">Pioneer</span> <span style="color:var(--text-3);font-size:0.8125rem;margin-left:8px">Locked for ' + days + ' more day' + (days === 1 ? "" : "s") + '</span>';
+
+		// Populate the "Share your Pioneer status" quick action with
+		// live stats from this render context.
+		if (shareLink){
+			var name = p.name || "a Pioneer";
+			var approvedSince = p.approvedAt ? new Date(p.approvedAt) : null;
+			var daysSince = approvedSince ? Math.floor((Date.now() - approvedSince.getTime()) / 86400000) : 0;
+			var msg = "I\'m " + name + ", a Pioneer Validator on @ensoul_network. "
+				+ daysSince + " day" + (daysSince === 1 ? "" : "s") + " securing AI consciousness across continents. ensoul.dev/card.html?did=" + state.did;
+			shareLink.href = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(msg);
+			shareLink.style.display = "block";
+		}
 	} else if (p.status === "pending") {
 		var dt = p.appliedAt ? new Date(p.appliedAt).toLocaleDateString() : "";
 		el.innerHTML = '<span class="badge badge-pending">Pending review</span> <span style="color:var(--text-3);font-size:0.8125rem;margin-left:8px">Applied ' + esc(dt) + '</span>';
