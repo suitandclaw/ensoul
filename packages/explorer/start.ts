@@ -410,14 +410,19 @@ class NetworkDataSource implements ExplorerDataSource {
 			// Count proposer blocks from recent CometBFT blocks
 			await this.refreshProposerCounts();
 
-			// Build validator cache with real data
-			// All validators in the ABCI set are considered online if they have power > 0
-			this.validatorCache = abciData.validators.map((v) => {
-				const totalStake = BigInt(v.stakedBalance) + BigInt(v.delegatedToThis);
-				const isOnline = this.onlineDids.has(v.did) || v.power > 0;
+			// Pioneer power ceiling: Foundation validators have 4M+ power.
+			// Pioneers get ~1M delegation + optional self-stake. Any validator
+			// at or below this threshold without an explicit stake category is
+			// labeled "pioneer" automatically.
+			const PIONEER_POWER_CEILING = 1_100_000;
 
-				// Uptime: use persistent rolling tracker (10,000 block window)
-				// Health dot uses the 20-block check (isOnline), uptime % uses the rolling average
+			// Build validator cache from ABCI data first.
+			const abciDids = new Set(abciData.validators.map(v => v.did));
+
+			const cache: ValidatorData[] = abciData.validators.map((v) => {
+				const totalStake = BigInt(v.stakedBalance) + BigInt(v.delegatedToThis);
+
+				// Uptime: persistent rolling tracker (10,000 block window)
 				let uptimePercent = -1; // -1 means "N/A" (not enough samples)
 				let addr = "";
 				for (const [a, d] of this.addressToDid) {
@@ -425,12 +430,12 @@ class NetworkDataSource implements ExplorerDataSource {
 				}
 				if (addr) {
 					const rolling = getUptimePercent(addr);
-					if (rolling !== null) {
-						uptimePercent = rolling;
-					}
+					if (rolling !== null) uptimePercent = rolling;
 				}
-				// Fallback: if rolling not available, use -1 (N/A)
-				// isOnline is used for the green/red dot, not the percentage
+
+				// Auto-detect Pioneer category from voting power
+				const existingCat = this.stakeCategories.get(v.did);
+				const category = existingCat ?? (v.power <= PIONEER_POWER_CEILING ? "pioneer" : undefined);
 
 				return {
 					did: v.did,
@@ -438,9 +443,56 @@ class NetworkDataSource implements ExplorerDataSource {
 					blocksProduced: this.proposerCounts.get(v.did) ?? 0,
 					uptimePercent,
 					delegation: "foundation" as const,
-					category: this.stakeCategories.get(v.did),
+					category,
 				};
 			});
+
+			// Append CometBFT validators that are in consensus but missing
+			// from ABCI /validators. This happens for some Pioneers: CometBFT
+			// includes them in its active set, but the ABCI app hasn't
+			// added them to its /validators query response yet.
+			try {
+				const cmtResp2 = await fetch(CMT_RPC, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ jsonrpc: "2.0", id: "cv2", method: "validators", params: { per_page: "100" } }),
+					signal: AbortSignal.timeout(5000),
+				});
+				if (cmtResp2.ok) {
+					const cmtData2 = (await cmtResp2.json()) as { result: { validators: Array<{ address: string; voting_power: string }> } };
+					for (const cv of cmtData2.result.validators) {
+						const power = Number(cv.voting_power);
+						if (power <= 0) continue;
+
+						// Already covered by ABCI list?
+						const did = this.addressToDid.get(cv.address);
+						if (did && abciDids.has(did)) continue;
+
+						// Also skip if we already added an entry for this DID
+						if (did && cache.some(c => c.did === did)) continue;
+
+						// Missing from ABCI — create a best-effort entry.
+						const stakeWei = (BigInt(power) * 1000000000000000000n).toString();
+						let uptimePercent = -1;
+						const rolling = getUptimePercent(cv.address);
+						if (rolling !== null) uptimePercent = rolling;
+
+						const existingCat = did ? this.stakeCategories.get(did) : undefined;
+						const category = existingCat ?? (power <= PIONEER_POWER_CEILING ? "pioneer" : undefined);
+
+						cache.push({
+							did: did ?? `cmt:${cv.address}`,
+							stake: stakeWei,
+							blocksProduced: (did ? this.proposerCounts.get(did) : undefined) ?? 0,
+							uptimePercent,
+							delegation: "foundation" as const,
+							category,
+						});
+					}
+				}
+			} catch { /* non-fatal */ }
+
+			this.validatorCache = cache;
 		} catch { /* non-fatal, keep last cache */ }
 	}
 

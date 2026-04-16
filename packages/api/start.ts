@@ -547,9 +547,20 @@ async function queryValidatorStatus(): Promise<{ height: number; validatorCount:
 	const status = await cometRpc("status");
 	const height = Number((status?.["sync_info"] as Record<string, unknown>)?.["latest_block_height"] ?? 0);
 
-	// Get validator count from ABCI stats (authoritative)
-	const stats = await abciQuery("/stats");
-	const validatorCount = Number(stats?.["consensusSetSize"] ?? 0);
+	// Get validator count from CometBFT's live validator set — this is the
+	// source of truth for how many validators are in consensus, including
+	// Pioneers. The ABCI's consensusSetSize may lag behind.
+	let validatorCount = 0;
+	const cmtVals = await cometRpc("validators", { per_page: "100" });
+	if (cmtVals) {
+		const vals = cmtVals["validators"] as Array<{ voting_power: string }> | undefined;
+		if (vals) validatorCount = vals.filter(v => Number(v.voting_power) > 0).length;
+	}
+	// Fall back to ABCI stats if CometBFT call failed
+	if (!validatorCount) {
+		const stats = await abciQuery("/stats");
+		validatorCount = Number(stats?.["consensusSetSize"] ?? 0);
+	}
 
 	// Get peer count from net_info (alive = self + peers)
 	const netInfo = await cometRpc("net_info");
@@ -1533,6 +1544,22 @@ async function main(): Promise<void> {
 
 	app.get("/v1/pioneers/applications", async () => {
 		return { applications: pioneerApps, count: pioneerApps.length };
+	});
+
+	// ── Approved Pioneers (public, no admin key) ─────────────
+	// Returns just the DIDs and names of approved Pioneers. Useful for
+	// the explorer to badge Pioneer validators without needing an admin
+	// key or voting-power heuristics.
+	app.get("/v1/pioneers/approved", async () => {
+		const approved = pioneerApps.filter(a => a.status === "approved");
+		return {
+			count: approved.length,
+			pioneers: approved.map(a => ({
+				did: a.did,
+				name: a.name,
+				approvedAt: a.approvedAt,
+			})),
+		};
 	});
 
 	// ── Pioneer List (admin, filterable) ────────────────────────
