@@ -72,6 +72,23 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 .tx-table th,.tx-table td{padding:5px 4px}
 .tx-col-type,.tx-col-peer{display:none}
 }
+/* Hardware wallet */
+.hw-divider{display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--text-dim);font-size:0.75em;text-transform:uppercase;letter-spacing:0.08em}
+.hw-divider::before,.hw-divider::after{content:"";flex:1;height:1px;background:var(--border-dim)}
+.hw-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px 16px;background:transparent;color:#e0e0e0;border:1px solid var(--border);border-radius:6px;font-weight:600;font-size:0.9em;cursor:pointer;margin:4px 0;transition:all 0.15s}
+.hw-btn:hover{border-color:var(--primary);color:#fff}
+.hw-btn:disabled{opacity:0.5;cursor:not-allowed}
+.hw-icon{width:16px;height:16px;flex-shrink:0}
+.hw-banner{background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:8px;padding:10px 14px;margin:0 0 12px;font-size:0.85em;color:#4ade80;display:flex;align-items:center;gap:10px}
+.hw-banner.mock{background:rgba(251,191,36,0.06);border-color:rgba(251,191,36,0.3);color:#fbbf24}
+.hw-banner .disconnect-btn{margin-left:auto;background:transparent;border:1px solid currentColor;color:currentColor;padding:3px 10px;border-radius:4px;font-size:0.8em;cursor:pointer;opacity:0.8}
+.hw-banner .disconnect-btn:hover{opacity:1}
+.hw-err{background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);color:#f87171;padding:8px 12px;border-radius:6px;font-size:0.82em;margin:8px 0;min-height:0}
+.hw-err:empty{display:none}
+.hw-signing-disabled{background:rgba(251,191,36,0.05);border:1px solid rgba(251,191,36,0.25);border-radius:6px;padding:10px 14px;margin:0 0 12px;font-size:0.82em;color:#fbbf24}
+.hw-signing-disabled strong{color:#fef3c7}
+.hw-pulse{display:inline-block;width:8px;height:8px;background:#4ade80;border-radius:50%;animation:hwpulse 2s infinite}
+@keyframes hwpulse{0%,100%{opacity:1}50%{opacity:0.5}}
 @media(max-width:600px){
 .wallet-actions{grid-template-columns:1fr}
 .network-stats{grid-template-columns:repeat(2,1fr)}
@@ -123,6 +140,11 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 <button class="wallet-btn primary" onclick="showCreate()">Create New Wallet</button>
 <div style="height:8px"></div>
 <button class="wallet-btn secondary" onclick="showImport()">Import Existing Wallet</button>
+<div class="hw-divider">or connect hardware</div>
+<button class="hw-btn" onclick="connectLedger()"><svg class="hw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="10" rx="1"/><line x1="7" y1="11" x2="7" y2="13"/><line x1="11" y1="11" x2="11" y2="13"/><line x1="15" y1="11" x2="15" y2="13"/></svg>Connect Ledger</button>
+<button class="hw-btn" onclick="connectTrezor()"><svg class="hw-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="3" width="14" height="18" rx="3"/><circle cx="12" cy="15" r="1.5"/></svg>Connect Trezor</button>
+<div id="hw-err" class="hw-err"></div>
+<p style="color:var(--text-dim);font-size:0.75em;margin-top:10px;text-align:center">Hardware wallets: read-only mode available now. Signing requires the Ensoul hardware app (in development). Append <code>?mock=ledger</code> to the URL to try the full signing flow with a simulated device.</p>
 </div>
 </div>
 
@@ -167,6 +189,9 @@ body{padding-top:56px;background:#09090b;color:#a1a1aa}
 
 <!-- Dashboard -->
 <div id="dashboard" class="hidden">
+
+<!-- Hardware wallet banner (shown only when HW connected) -->
+<div id="hw-banner-container"></div>
 
 <!-- Network Overview -->
 <div class="wallet-card">
@@ -313,6 +338,126 @@ var currentSeed=null;
 var currentDid=null;
 var currentAddress="";
 var currentPubKeyHex="";
+
+// ── Hardware wallet state ─────────────────────────────────
+// Real Ledger/Trezor signing for Ensoul requires a custom Ed25519-capable
+// hardware app (not yet built). Until then, hardware wallets work in
+// read-only mode: the Ed25519 pubkey is read via the Solana app (Ledger)
+// or Cardano path (Trezor), derives the DID, and balance/history load.
+// Signing is blocked with a clear message. A ?mock=ledger|trezor URL
+// param unlocks a simulated flow using a known test seed so the UX can
+// be exercised end-to-end.
+var HW_TEST_SEED_HEX="fd6bb40ab496f3ae9abd94dfa5b37e93d6b04948fe87bd6d4d05d4f2d1f9c9e6";
+var hwState={connected:false,vendor:null,mock:false,transport:null};
+
+function isMobileDevice(){return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);}
+function mockVendor(){
+  var p=new URLSearchParams(location.search);var m=(p.get("mock")||"").toLowerCase();
+  return (m==="ledger"||m==="trezor")?m:null;
+}
+function setHwErr(msg){var e=document.getElementById("hw-err");if(e)e.textContent=msg||"";}
+
+window.connectLedger=async function(){
+  setHwErr("");
+  if(isMobileDevice()){setHwErr("Hardware wallets require a desktop browser with WebHID (Chrome, Edge, or Brave).");return;}
+  if(mockVendor()){await connectMock(mockVendor());return;}
+  try{
+    setHwErr("Connecting to Ledger...");
+    var [tMod,aMod]=await Promise.all([
+      import("https://esm.sh/@ledgerhq/hw-transport-webhid@6.29.5"),
+      import("https://esm.sh/@ledgerhq/hw-app-solana@8.3.0"),
+    ]);
+    var Transport=tMod.default||tMod.TransportWebHID||tMod;
+    var Solana=aMod.default||aMod.Solana||aMod;
+    var transport=await Transport.create();
+    var app=new Solana(transport);
+    // Solana app uses BIP44 path 44'/501' (Ed25519). This derives a
+    // unique Ensoul DID tied to the user's Ledger seed via the Solana
+    // keypath — distinct from any seed-imported DID.
+    var res=await app.getAddress("44'/501'/0'/0'");
+    var pub=res.address; // 32 bytes Ed25519 pubkey
+    currentDid=makeDid(pub);
+    currentPubKeyHex=hexEncode(pub);
+    currentAddress=await deriveCometAddr(pub);
+    currentSeed=null;
+    hwState={connected:true,vendor:"ledger",mock:false,transport:transport};
+    setHwErr("");
+    hide("onboard");await showDashboard();
+  }catch(e){
+    setHwErr("Could not connect to Ledger: "+(e.message||"unknown")+". Make sure the device is unlocked, the Solana app is open, and WebHID is permitted in browser site settings.");
+  }
+};
+
+window.connectTrezor=async function(){
+  setHwErr("");
+  if(isMobileDevice()){setHwErr("Hardware wallets require a desktop browser.");return;}
+  if(mockVendor()){await connectMock(mockVendor());return;}
+  try{
+    setHwErr("Connecting to Trezor...");
+    var mod=await import("https://esm.sh/@trezor/connect-web@9.3.0");
+    var TrezorConnect=mod.default||mod.TrezorConnect||mod;
+    await TrezorConnect.init({
+      manifest:{email:"support@ensoul.dev",appUrl:"https://ensoul.dev"},
+      lazyLoad:true,
+    });
+    var res=await TrezorConnect.cardanoGetPublicKey({
+      path:"m/1852'/1815'/0'/0/0",
+      showOnTrezor:false,
+    });
+    if(!res.success)throw new Error((res.payload&&res.payload.error)||"Trezor rejected");
+    var pubHex=String(res.payload.publicKey).slice(0,64);
+    var pub=hexDecode(pubHex);
+    currentDid=makeDid(pub);
+    currentPubKeyHex=pubHex;
+    currentAddress=await deriveCometAddr(pub);
+    currentSeed=null;
+    hwState={connected:true,vendor:"trezor",mock:false};
+    setHwErr("");
+    hide("onboard");await showDashboard();
+  }catch(e){
+    setHwErr("Could not connect to Trezor: "+(e.message||"unknown"));
+  }
+};
+
+async function connectMock(vendor){
+  setHwErr("Loading simulated device...");
+  var seed=hexDecode(HW_TEST_SEED_HEX);
+  var pub;
+  try{pub=await createKeypair(seed);}
+  catch(e){setHwErr("Mock connect failed: "+e.message);return;}
+  currentDid=makeDid(pub);
+  currentPubKeyHex=hexEncode(pub);
+  currentAddress=await deriveCometAddr(pub);
+  currentSeed=seed;
+  hwState={connected:true,vendor:vendor,mock:true};
+  setHwErr("");
+  hide("onboard");await showDashboard();
+}
+
+window.disconnectHw=function(){
+  if(hwState.transport&&typeof hwState.transport.close==="function"){
+    try{hwState.transport.close();}catch(e){}
+  }
+  hwState={connected:false,vendor:null,mock:false,transport:null};
+  currentSeed=null;currentDid=null;currentAddress="";currentPubKeyHex="";
+  hide("dashboard");show("onboard");
+};
+
+function renderHwBanner(){
+  var c=document.getElementById("hw-banner-container");
+  if(!c)return;
+  if(!hwState.connected){c.innerHTML="";return;}
+  var label=hwState.vendor==="ledger"?"Ledger":"Trezor";
+  if(hwState.mock){
+    c.innerHTML='<div class="hw-banner mock"><span class="hw-pulse" style="background:#fbbf24"></span>MOCK '+label.toUpperCase()+' — simulated signing with test seed. Do not use for real value.<button class="disconnect-btn" onclick="disconnectHw()">Disconnect</button></div>';
+  }else{
+    c.innerHTML='<div class="hw-banner"><span class="hw-pulse"></span>Connected via '+label+'. Read-only mode — signing requires the Ensoul '+label+' app (in development).<button class="disconnect-btn" onclick="disconnectHw()">Disconnect</button></div>';
+  }
+  var actionMsg=document.getElementById("action-msg");
+  if(hwState.connected&&!hwState.mock&&actionMsg){
+    actionMsg.innerHTML='<div class="hw-signing-disabled"><strong>Signing unavailable.</strong> Real Ledger/Trezor signing for Ensoul requires a custom hardware app (in development). For now, either connect via seed import, or append <code>?mock='+hwState.vendor+'</code> to the URL to preview the full signing flow.</div>';
+  }
+}
 
 // ---- Crypto (Ed25519 via SubtleCrypto fallback + manual DID derivation) ----
 
@@ -512,14 +657,19 @@ async function showDashboard(){
   show("dashboard");
   el("dash-did").textContent=currentDid;
 
-  // Derive and display the CometBFT consensus address from the stored pubKey
-  try{
-    var stored=JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}");
-    if(stored.pubKey){
-      currentPubKeyHex=stored.pubKey;
-      currentAddress=await deriveCometAddr(hexDecode(stored.pubKey));
-    }
-  }catch(e){}
+  renderHwBanner();
+
+  // Derive and display the CometBFT consensus address.
+  // HW mode sets currentAddress during connect; seed mode uses the stored pubKey.
+  if(!currentAddress){
+    try{
+      var stored=JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}");
+      if(stored.pubKey){
+        currentPubKeyHex=stored.pubKey;
+        currentAddress=await deriveCometAddr(hexDecode(stored.pubKey));
+      }
+    }catch(e){}
+  }
   el("dash-addr").textContent=currentAddress||"(unavailable — re-import wallet to refresh)";
 
   refreshBalance();
@@ -597,6 +747,7 @@ window.registerAgent=async function(){
 // ---- Export / Delete ----
 
 window.exportSeed=function(){
+  if(hwState.connected){showActionMsg("No seed to export — this session is using a hardware wallet. The seed stays on your device.","info");return;}
   var pw=prompt("Enter your password to export seed:");
   if(!pw)return;
   var stored=JSON.parse(localStorage.getItem(STORAGE_KEY));
@@ -617,6 +768,10 @@ window.exportSeed=function(){
 };
 
 window.deleteWallet=function(){
+  if(hwState.connected){
+    if(confirm("Disconnect the "+hwState.vendor+" session? The device itself is untouched."))disconnectHw();
+    return;
+  }
   if(!confirm("Delete this wallet from this browser? Make sure you have saved your seed."))return;
   localStorage.removeItem(STORAGE_KEY);
   currentSeed=null;
@@ -642,6 +797,9 @@ setInterval(function(){
 // session seed has been cleared (e.g. after page reload or 30-min timeout).
 async function ensureUnlocked(){
   if(currentSeed)return true;
+  // Hardware wallet: no local seed to unlock. Real HW blocks signing
+  // earlier in buildAndBroadcast; mock HW sets currentSeed on connect.
+  if(hwState.connected){return true;}
   var stored=localStorage.getItem(STORAGE_KEY);
   if(!stored){showActionMsg("No wallet found in this browser.","error");return false;}
   var parsed=JSON.parse(stored);
@@ -662,8 +820,16 @@ async function ensureUnlocked(){
 }
 
 async function buildAndBroadcast(type,to,amount,data){
+  if(hwState.connected&&!hwState.mock){
+    showActionMsg("Signing unavailable on "+hwState.vendor+". The Ensoul "+hwState.vendor+" app is still in development. Append ?mock="+hwState.vendor+" to preview the flow.","error");
+    return null;
+  }
   if(!(await ensureUnlocked()))return null;
   if(!currentSeed){showActionMsg("Wallet locked. Re-enter password.","error");return null;}
+  if(hwState.connected&&hwState.mock){
+    showActionMsg("Confirming on mock "+hwState.vendor+"...","info");
+    await new Promise(function(r){setTimeout(r,1200);}); // simulate device confirmation
+  }
   showActionMsg("Broadcasting transaction...","info");
   try{
     var nonce=0;
