@@ -325,9 +325,9 @@ details.qa-details .qa-body p{color:var(--text-3);font-size:0.8125rem;margin:10p
 				<div class="qa-t">View on Explorer →</div>
 				<div class="qa-d">Blocks proposed, delegations, on-chain history.</div>
 			</a>
-			<a class="qa-link" href="https://bsky.app/profile/ensoul.bsky.social" target="_blank" rel="noopener">
-				<div class="qa-t">Contact support →</div>
-				<div class="qa-d">DM @ensoul on Bluesky. We respond fast.</div>
+			<a class="qa-link" href="https://x.com/ensoul_network" target="_blank" rel="noopener">
+				<div class="qa-t">Contact: @ensoul_network on X →</div>
+				<div class="qa-d">DM us on X/Twitter. We respond fast.</div>
 			</a>
 		</div>
 
@@ -753,16 +753,17 @@ async function refreshAll(){
 	var encodedDid = encodeURIComponent(did);
 
 	// Fire in parallel
-	var [acct, pioneer, stats, badge, netStatus] = await Promise.all([
+	var [acct, pioneer, stats, badge, netStatus, txHistory] = await Promise.all([
 		state.seed ? fetchJson(API + "/v1/account/" + encodedDid) : Promise.resolve(null),
 		fetchJson(API + "/v1/pioneers/status?did=" + encodedDid),
 		fetchJson(API + "/v1/validators/" + encodedDid + "/stats"),
 		fetchJson(API + "/v1/badge/" + encodedDid),
 		fetchJson(API + "/v1/network/status"),
+		fetchJson(API + "/v1/account/" + encodedDid + "/transactions?limit=100"),
 	]);
 
 	renderPioneer(pioneer);
-	renderAge(badge);
+	renderAge({ badge: badge, pioneer: pioneer, txs: txHistory, net: netStatus });
 	renderHealth(stats, netStatus);
 	if (state.seed) renderStake(acct, pioneer);
 }
@@ -786,11 +787,73 @@ function renderPioneer(p){
 	}
 }
 
-function renderAge(badge){
-	if (!badge) { $("s1-age").textContent = "—"; return; }
-	if (badge.registered === false) { $("s1-age").textContent = "Not registered"; return; }
-	var d = Number(badge.consciousnessAge || 0);
-	$("s1-age").textContent = d + " day" + (d === 1 ? "" : "s");
+function formatAgeFromMs(ms){
+	var now = Date.now();
+	var elapsed = Math.max(0, now - ms);
+	if (elapsed < 3600_000){
+		var m = Math.max(1, Math.floor(elapsed / 60_000));
+		return m + " minute" + (m === 1 ? "" : "s");
+	}
+	if (elapsed < 86400_000){
+		var h = Math.floor(elapsed / 3600_000);
+		return h + " hour" + (h === 1 ? "" : "s");
+	}
+	var d = Math.floor(elapsed / 86400_000);
+	return d + " day" + (d === 1 ? "" : "s");
+}
+
+function renderAge(ctx){
+	var el = $("s1-age");
+	if (!el) return;
+	var badge = ctx && ctx.badge;
+	var pioneer = ctx && ctx.pioneer;
+	var txs = ctx && ctx.txs && ctx.txs.transactions;
+	var net = ctx && ctx.net;
+
+	// Priority 1: on-chain agent registration (badge.registeredAt, block height).
+	// The badge API returns `consciousnessAge` in blocks; convert at 14,400
+	// blocks per day (6s block time). Fall back to the days value directly.
+	if (badge && badge.registered) {
+		if (typeof badge.registeredAt === "number" && badge.registeredAt > 0 && net && net.blockHeight){
+			var blocksSince = Math.max(0, Number(net.blockHeight) - Number(badge.registeredAt));
+			var days = Math.floor(blocksSince / 14400);
+			if (days >= 1){ el.textContent = days + " day" + (days === 1 ? "" : "s"); return; }
+			var hours = Math.max(1, Math.floor(blocksSince / 600)); // 600 blocks ≈ 1 hour at 6s
+			el.textContent = hours + " hour" + (hours === 1 ? "" : "s");
+			return;
+		}
+		var d = Number(badge.consciousnessAge || 0);
+		if (d > 0){ el.textContent = d + " day" + (d === 1 ? "" : "s"); return; }
+	}
+
+	// Priority 2: approved Pioneers use the approval timestamp as their
+	// identity age, even if the badge endpoint hasn't picked them up yet.
+	if (pioneer && pioneer.status === "approved" && pioneer.approvedAt){
+		el.textContent = formatAgeFromMs(new Date(pioneer.approvedAt).getTime()) + ' <span style="color:var(--text-3);font-size:0.8125rem">(since approval)</span>';
+		el.innerHTML = el.textContent; // allow the span to render
+		return;
+	}
+
+	// Priority 3: earliest transaction involving this DID — works for any
+	// account that has ever transacted on-chain.
+	if (txs && txs.length > 0){
+		var oldest = txs[txs.length - 1]; // API returns newest-first
+		if (oldest && oldest.timestamp){
+			el.innerHTML = formatAgeFromMs(Number(oldest.timestamp)) + ' <span style="color:var(--text-3);font-size:0.8125rem">(since first tx)</span>';
+			return;
+		}
+	}
+
+	// Priority 4: if the local node is still syncing, don't claim the
+	// account is unregistered — the badge index may simply not have
+	// caught up yet.
+	if (net && net.catching_up){
+		el.textContent = "Syncing…";
+		return;
+	}
+
+	// Priority 5: genuinely not seen on chain yet.
+	el.innerHTML = 'Not yet registered <span style="color:var(--text-3);font-size:0.8125rem">(your validator needs to finish syncing before registration appears on chain)</span>';
 }
 
 function renderStake(acct, pioneer){
