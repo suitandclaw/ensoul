@@ -252,8 +252,9 @@ scp root@YOUR_SERVER_IP:/root/.cometbft-ensoul/node/config/node_key.json ./</cod
 <!-- One-Command Installer -->
 <h2>Quick start</h2>
 <div class="install-box">
-	<p style="font-size:1.1em;font-weight:600;margin:0">One command. Ubuntu, Debian, or macOS.</p>
-	<pre><code>curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash</code></pre>
+	<p style="font-size:1.1em;font-weight:600;margin:0">Two steps. Ubuntu, Debian, or macOS.</p>
+	<pre><code>curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh -o install.sh
+bash install.sh</code></pre>
 	<p style="font-size:0.9em;color:var(--text-secondary);margin:0">Installs Go, Node.js, CometBFT, Cosmovisor. Builds the ABCI server. Generates validator keys. Downloads genesis. Configures networking. Starts everything with auto-restart.</p>
 </div>
 
@@ -332,9 +333,10 @@ DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node ~/go/bin/cosmovisor ver
 </ul>
 
 <!-- Full Guide -->
-<h2>Linux/Ubuntu one-command install</h2>
-<p>For Linux/Ubuntu validators, the fastest path is the one-command installer. It handles Go, Node.js, pnpm, CometBFT, Cosmovisor, genesis download, key generation, and auto-start:</p>
-<pre><code>curl -sSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash</code></pre>
+<h2>Linux/Ubuntu two-step install</h2>
+<p>For Linux/Ubuntu validators, the fastest path is the two-step installer. Downloading first (instead of piping <code>curl</code> into <code>bash</code>) avoids quoting and copy-paste problems — particularly with terminal emulators that mangle continuation flags. It handles Go, Node.js, pnpm, CometBFT, Cosmovisor, genesis download, key generation, and auto-start:</p>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh -o install.sh
+bash install.sh</code></pre>
 
 <h2 id="pioneer">Pioneer Validator Program</h2>
 <p>19 of 20 slots remaining. Hand-selected operators only.</p>
@@ -358,9 +360,11 @@ DAEMON_NAME=cometbft DAEMON_HOME=~/.cometbft-ensoul/node ~/go/bin/cosmovisor ver
 <h3>How to apply</h3>
 <ol>
 	<li>Install your validator:
-		<pre><code>curl -sSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash</code></pre>
+		<pre><code>curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh -o install.sh
+bash install.sh</code></pre>
 		Or auto-apply during install:
-		<pre><code>curl -sSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash -s -- --pioneer --contact "your@email.com"</code></pre>
+		<pre><code>curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh -o install.sh
+bash install.sh --pioneer --contact "your@email.com"</code></pre>
 	</li>
 	<li>If you did not use <code>--pioneer</code>, submit your application at <a href="/apply" style="color:var(--primary)">ensoul.dev/apply</a>. Your DID is shown at the end of the installer output and saved in <code>~/.ensoul/identity.json</code>.</li>
 	<li>Bookmark your <a href="/pioneer.html" style="color:var(--primary)">Pioneer Portal</a> — it is the one page you need after setup: identity, stake &amp; rewards, validator health, key backup, quick actions. Applications are reviewed within 48 hours.</li>

@@ -21,10 +21,11 @@ A $5/month VPS works. No GPU needed.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh | bash
+curl -fsSL https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/install-validator.sh -o install.sh
+bash install.sh
 ```
 
-This installs Go, Node.js, CometBFT, Cosmovisor, builds the ABCI server, downloads the genesis, and starts everything with auto-restart.
+Two steps (download, then run) avoid pipe and quoting issues when copy-pasting from PDFs or chat. This installs Go, Node.js, CometBFT, Cosmovisor, builds the ABCI server, downloads the genesis, and starts everything with auto-restart.
 
 ---
 
