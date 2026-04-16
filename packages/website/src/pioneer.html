@@ -172,6 +172,7 @@ details.qa-details .qa-body p{color:var(--text-3);font-size:0.8125rem;margin:10p
 	<div class="entry-tabs" role="tablist">
 		<button type="button" class="entry-tab active" id="tab-seed" onclick="switchTab('seed')">Paste Seed</button>
 		<button type="button" class="entry-tab" id="tab-did" onclick="switchTab('did')">Read-only (DID)</button>
+		<button type="button" class="entry-tab" id="tab-hw" onclick="switchTab('hw')">Hardware</button>
 	</div>
 
 	<div id="pane-seed">
@@ -188,6 +189,13 @@ details.qa-details .qa-body p{color:var(--text-3);font-size:0.8125rem;margin:10p
 		<div class="entry-note">Read-only mode shows validator health and Pioneer status — no balances or staking. Import your seed later for full access.</div>
 		<input type="text" id="did-in" class="entry-input" placeholder="did:key:z6Mk..." autocomplete="off" spellcheck="false">
 		<button type="button" class="entry-btn" onclick="submitDid()">View Validator</button>
+	</div>
+
+	<div id="pane-hw" style="display:none">
+		<div class="entry-note">Connect a hardware wallet for read-only access (identity, stake, health, Pioneer status). Signing transactions on the device requires the Ensoul hardware app, which is in development. Append <code>?mock=ledger</code> or <code>?mock=trezor</code> to the URL to preview the full signing flow with a simulated device.</div>
+		<button type="button" class="entry-btn" style="margin-bottom:8px" onclick="hwConnectLedger()">Connect Ledger</button>
+		<button type="button" class="entry-btn" style="background:transparent;border:1px solid rgba(255,255,255,0.12);color:var(--text-1)" onclick="hwConnectTrezor()">Connect Trezor</button>
+		<p style="color:var(--text-3);font-size:0.75rem;margin-top:10px">Desktop browser only (Chrome, Edge, Brave). Ledger uses the Solana app for Ed25519 pubkey derivation; Trezor uses the Cardano path.</p>
 	</div>
 
 	<div id="entry-err" class="entry-err"></div>
@@ -404,11 +412,115 @@ var state = {
 	addr: null,
 	refresher: null,
 	edReady: !!window._ed25519,
+	hw: null,          // { vendor: "ledger"|"trezor", mock: bool, transport }
 };
 
 if (!state.edReady) {
 	window.addEventListener("ed25519-ready", function(){ state.edReady = true; });
 }
+
+// ─── Hardware wallet helpers ──────────────────────────────
+
+// Real Ledger/Trezor signing for Ensoul requires a custom Ed25519 app on
+// each vendor (in development). Until then, hardware wallets work here
+// in read-only mode: the Ed25519 pubkey is read via the Solana app on
+// Ledger (path 44'/501'/0'/0') or the Cardano path on Trezor
+// (m/1852'/1815'/0'/0/0), derives the DID, and all non-signing data
+// loads. ?mock=ledger|trezor unlocks a simulated flow with a known test
+// seed so the full UX can be exercised end-to-end.
+var HW_TEST_SEED_HEX = "fd6bb40ab496f3ae9abd94dfa5b37e93d6b04948fe87bd6d4d05d4f2d1f9c9e6";
+
+function isMobileDevice(){ return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent); }
+function mockVendor(){
+	var p = new URLSearchParams(location.search);
+	var m = (p.get("mock") || "").toLowerCase();
+	return (m === "ledger" || m === "trezor") ? m : null;
+}
+
+window.hwConnectLedger = async function(){
+	$("entry-err").textContent = "";
+	if (isMobileDevice()){ $("entry-err").textContent = "Hardware wallets require a desktop browser (Chrome, Edge, Brave)."; return; }
+	if (mockVendor()){ await hwConnectMock(mockVendor()); return; }
+	try {
+		$("entry-err").textContent = "Connecting to Ledger...";
+		var [tMod, aMod] = await Promise.all([
+			import("https://esm.sh/@ledgerhq/hw-transport-webhid@6.29.5"),
+			import("https://esm.sh/@ledgerhq/hw-app-solana@8.3.0"),
+		]);
+		var Transport = tMod.default || tMod.TransportWebHID || tMod;
+		var Solana = aMod.default || aMod.Solana || aMod;
+		var transport = await Transport.create();
+		var app = new Solana(transport);
+		var res = await app.getAddress("44'/501'/0'/0'");
+		var pub = res.address; // 32-byte Ed25519 pubkey
+		state.seed = null;
+		state.did = makeDid(pub);
+		state.pubKeyHex = hexEncode(pub);
+		state.addr = await addressFromPubKey(pub);
+		state.hw = { vendor: "ledger", mock: false, transport: transport };
+		$("entry-err").textContent = "";
+		enterPortal();
+	} catch (e) {
+		$("entry-err").textContent = "Ledger connect failed: " + (e.message || "unknown") + ". Make sure the device is unlocked, the Solana app is open, and WebHID is permitted.";
+	}
+};
+
+window.hwConnectTrezor = async function(){
+	$("entry-err").textContent = "";
+	if (isMobileDevice()){ $("entry-err").textContent = "Hardware wallets require a desktop browser."; return; }
+	if (mockVendor()){ await hwConnectMock(mockVendor()); return; }
+	try {
+		$("entry-err").textContent = "Connecting to Trezor...";
+		var mod = await import("https://esm.sh/@trezor/connect-web@9.3.0");
+		var TrezorConnect = mod.default || mod.TrezorConnect || mod;
+		await TrezorConnect.init({
+			manifest: { email: "support@ensoul.dev", appUrl: "https://ensoul.dev" },
+			lazyLoad: true,
+		});
+		var res = await TrezorConnect.cardanoGetPublicKey({
+			path: "m/1852'/1815'/0'/0/0",
+			showOnTrezor: false,
+		});
+		if (!res.success) throw new Error((res.payload && res.payload.error) || "Trezor rejected");
+		var pubHex = String(res.payload.publicKey).slice(0, 64);
+		var pub = hexDecode(pubHex);
+		state.seed = null;
+		state.did = makeDid(pub);
+		state.pubKeyHex = pubHex;
+		state.addr = await addressFromPubKey(pub);
+		state.hw = { vendor: "trezor", mock: false };
+		$("entry-err").textContent = "";
+		enterPortal();
+	} catch (e) {
+		$("entry-err").textContent = "Trezor connect failed: " + (e.message || "unknown");
+	}
+};
+
+async function hwConnectMock(vendor){
+	$("entry-err").textContent = "Loading simulated device...";
+	var seed = hexDecode(HW_TEST_SEED_HEX);
+	if (!state.edReady){
+		var waited = 0;
+		while (!state.edReady && waited < 5000){ await new Promise(function(r){ setTimeout(r, 100); }); waited += 100; }
+	}
+	if (!state.edReady){ $("entry-err").textContent = "Could not load ed25519 library."; return; }
+	var pub = window._ed25519.getPublicKey(seed);
+	state.seed = seed;
+	state.did = makeDid(pub);
+	state.pubKeyHex = hexEncode(pub);
+	state.addr = await addressFromPubKey(pub);
+	state.hw = { vendor: vendor, mock: true };
+	$("entry-err").textContent = "";
+	enterPortal();
+}
+
+window.hwDisconnect = function(){
+	if (state.hw && state.hw.transport && typeof state.hw.transport.close === "function"){
+		try { state.hw.transport.close(); } catch (e) {}
+	}
+	state.hw = null;
+	switchIdentity();
+};
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -472,11 +584,11 @@ function shortDid(d){ return d && d.length > 40 ? d.slice(0,24) + "…" + d.slic
 // ─── Entry gate ────────────────────────────────────────────
 
 window.switchTab = function(which){
-	var s = which === "seed";
-	$("tab-seed").classList.toggle("active", s);
-	$("tab-did").classList.toggle("active", !s);
-	$("pane-seed").style.display = s ? "block" : "none";
-	$("pane-did").style.display = s ? "none" : "block";
+	var tabs = ["seed", "did", "hw"];
+	tabs.forEach(function(t){
+		$("tab-" + t).classList.toggle("active", which === t);
+		$("pane-" + t).style.display = which === t ? "block" : "none";
+	});
 	$("entry-err").textContent = "";
 };
 
@@ -541,8 +653,14 @@ function enterPortal(){
 	// Meta
 	$("m-did").textContent = shortDid(state.did);
 	$("m-did").title = state.did || "";
-	$("mode-pill").textContent = state.seed ? "Full access" : "Read-only";
-	$("clear-btn").style.display = localStorage.getItem(STORAGE_KEY) ? "inline-flex" : "none";
+	var pill;
+	if (state.hw){
+		pill = state.hw.mock ? ("MOCK " + state.hw.vendor.toUpperCase()) : ("VIA " + state.hw.vendor.toUpperCase());
+	} else {
+		pill = state.seed ? "Full access" : "Read-only";
+	}
+	$("mode-pill").textContent = pill;
+	$("clear-btn").style.display = (!state.hw && localStorage.getItem(STORAGE_KEY)) ? "inline-flex" : "none";
 
 	// Section 1
 	$("s1-did").textContent = state.did;
@@ -550,13 +668,27 @@ function enterPortal(){
 	$("s1-explorer").href = EXPLORER + "/?q=" + encodeURIComponent(state.did);
 	$("qa-explorer").href = EXPLORER + "/?q=" + encodeURIComponent(state.did);
 
-	// Read-only handling in Section 2
-	if (state.seed) {
+	// Section 2 visibility:
+	// - seed present AND not real HW → full signing UI
+	// - real HW connected → read-only notice explaining signing is in dev
+	// - DID-only read-only → read-only notice
+	var hasSigning = !!state.seed;
+	var realHw = state.hw && !state.hw.mock;
+	if (hasSigning) {
 		$("stake-readonly").style.display = "none";
 		$("stake-full").style.display = "block";
+		if (state.hw && state.hw.mock){
+			$("stake-readonly").innerHTML = '';
+		}
 	} else {
-		$("stake-readonly").style.display = "block";
 		$("stake-full").style.display = "none";
+		var readOnlyEl = $("stake-readonly");
+		if (realHw){
+			readOnlyEl.innerHTML = '<strong>Signing unavailable on ' + esc(state.hw.vendor) + '.</strong> The Ensoul ' + esc(state.hw.vendor) + ' app (custom Ed25519 signer) is in development. Use <code style="color:#fbbf24">?mock=' + esc(state.hw.vendor) + '</code> in the URL to preview the full signing flow with a simulated device.';
+		} else {
+			readOnlyEl.innerHTML = 'Import your seed for full access including balance, staking, and delegation actions. <a href="#" onclick="event.preventDefault();switchIdentity()">Switch identity &rarr;</a>';
+		}
+		readOnlyEl.style.display = "block";
 	}
 
 	refreshBackupCmds();
@@ -567,7 +699,10 @@ function enterPortal(){
 
 window.switchIdentity = function(){
 	if (state.refresher) { clearInterval(state.refresher); state.refresher = null; }
-	state.seed = null; state.did = null; state.pubKeyHex = null; state.addr = null;
+	if (state.hw && state.hw.transport && typeof state.hw.transport.close === "function"){
+		try { state.hw.transport.close(); } catch (e) {}
+	}
+	state.seed = null; state.did = null; state.pubKeyHex = null; state.addr = null; state.hw = null;
 	$("portal").style.display = "none";
 	$("entry-gate").style.display = "block";
 	$("seed-in").value = "";
@@ -789,7 +924,15 @@ function showTx(msg, cls){
 }
 
 async function sendTx(type, to, amount){
+	if (state.hw && !state.hw.mock){
+		showTx("Signing unavailable on " + state.hw.vendor + ". The Ensoul " + state.hw.vendor + " app is in development. Append ?mock=" + state.hw.vendor + " to preview the flow.", "err");
+		return null;
+	}
 	if (!state.seed || !state.edReady) { showTx("Wallet locked — re-import your seed.", "err"); return null; }
+	if (state.hw && state.hw.mock){
+		showTx("Confirm on simulated " + state.hw.vendor + "…", "info");
+		await new Promise(function(r){ setTimeout(r, 1200); });
+	}
 	showTx("Broadcasting transaction…", "info");
 	try {
 		var nonce = 0;
