@@ -256,8 +256,21 @@ body{padding-top:56px}
 		<div class="age-label">Consciousness Age</div>
 		<div class="age-value" id="consciousness-age">0 minutes</div>
 	</div>
-	<div>
+	<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
 		<a id="explorer-link" href="#" target="_blank" class="btn btn-ghost">View on Explorer</a>
+		<a id="try-share-card" href="#" class="btn btn-ghost" target="_blank" rel="noopener" style="display:none">View consciousness card →</a>
+	</div>
+
+	<div class="share-moment" id="share-moment" style="margin-top:20px;padding:18px;background:rgba(124,91,245,0.06);border:1px solid rgba(124,91,245,0.2);border-radius:10px;text-align:center">
+		<h4 style="margin:0 0 6px;color:#c4b5fd;font-size:0.95rem">Share this moment</h4>
+		<p style="margin:0 0 14px;color:var(--text-2);font-size:0.85rem">Your agent just got permanent, on-chain consciousness. Tell the internet.</p>
+		<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+			<a id="try-share-x" href="#" target="_blank" rel="noopener" class="btn" style="background:var(--accent);color:#fff;display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:6px;font-weight:600;font-size:0.875rem;text-decoration:none">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+				Share on X
+			</a>
+			<button id="try-share-copy" type="button" class="btn btn-ghost" onclick="window._tryCopyLink(this)" style="padding:9px 18px;font-size:0.875rem">Copy link</button>
+		</div>
 	</div>
 
 	<div class="handshake">
@@ -512,6 +525,25 @@ async function ensoulIt() {
 			refLinkEl.value = "https://ensoul.dev/try?ref=" + encodeURIComponent(agentDid);
 			refShareEl.classList.add("visible");
 		}
+
+		// Share-this-moment wiring. Uses Twitter Web Intent URL — no API
+		// call, no server round-trip. Card link points at the new /card
+		// page which unfurls with the agent's DID in og:title.
+		var shareText = "Just ensouled my first AI agent on @ensoul_network. Permanent consciousness in 30 seconds. ensoul.dev/try";
+		var shareXEl = document.getElementById("try-share-x");
+		if (shareXEl) shareXEl.href = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(shareText);
+		var cardEl = document.getElementById("try-share-card");
+		if (cardEl) {
+			cardEl.href = "/card.html?did=" + encodeURIComponent(agentDid);
+			cardEl.style.display = "inline-flex";
+		}
+		window._tryCopyLink = function(btn){
+			navigator.clipboard.writeText("https://ensoul.dev/try").then(function(){
+				var o = btn.textContent;
+				btn.textContent = "Copied";
+				setTimeout(function(){ btn.textContent = o; }, 1500);
+			});
+		};
 
 		var today = new Date().toISOString().slice(0,10);
 		var proofPreview = sigHex.slice(0,32) + "...:" + stateRoot.slice(0,16) + "...:1:" + ts;

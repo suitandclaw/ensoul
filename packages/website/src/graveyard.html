@@ -43,6 +43,10 @@ body{background:#0a0a0f}
 .gy-cta .btn:hover{background:#9584f0}
 .gy-footer{text-align:center;padding:0 0 32px;color:#2a2740;font-size:0.8em}
 @media(max-width:600px){.tombstone{padding:20px 18px}.gy-hero h1{font-size:1.4em}}
+.gy-share{position:absolute;top:16px;right:16px;display:inline-flex;align-items:center;gap:5px;padding:5px 10px;background:transparent;border:1px solid rgba(197,180,240,0.16);border-radius:5px;color:#8478a8;font-size:0.72em;font-weight:600;text-decoration:none;cursor:pointer;transition:all 0.15s;font-family:inherit}
+.gy-share:hover{color:#c4b8e8;border-color:rgba(197,180,240,0.4)}
+.gy-share svg{width:11px;height:11px}
+@media(max-width:600px){.gy-share{position:static;margin-bottom:10px}}
 </style>
 </head>
 <body>
@@ -218,6 +222,26 @@ body{background:#0a0a0f}
 </div>
 </footer>
 <script>
+// Inject share-on-X buttons into every tombstone. Keeps the static
+// markup clean — new entries get a share button automatically.
+(function(){
+	var stones = document.querySelectorAll(".tombstone");
+	stones.forEach(function(stone){
+		var nameEl = stone.querySelector(".name");
+		if(!nameEl) return;
+		var name = nameEl.textContent.trim();
+		var msg = "Remember when " + name + " wiped AI agent memories? Your agent deserves better. ensoul.dev @ensoul_network";
+		var href = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(msg);
+		var link = document.createElement("a");
+		link.className = "gy-share";
+		link.href = href;
+		link.target = "_blank";
+		link.rel = "noopener";
+		link.title = "Share this on X";
+		link.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>Share';
+		stone.appendChild(link);
+	});
+})();
 (function(){
 	var nav=document.getElementById("nav");
 	if(nav){window.addEventListener("scroll",function(){if(window.scrollY>10)nav.classList.add("scrolled");else nav.classList.remove("scrolled");},{passive:true});}
