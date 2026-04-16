@@ -2663,6 +2663,509 @@ async function main(): Promise<void> {
 		return result;
 	});
 
+	// ──────────────────────────────────────────────────────────────
+	// Phase 1: Off-chain owner wallets, storage fees, and vaults
+	// ──────────────────────────────────────────────────────────────
+	//
+	// These endpoints live at the API layer (like pioneerApps). Phase 2
+	// migrates the same semantics into consensus as new ledger tx types
+	// with state-root inclusion. See docs/OWNERSHIP-FEES-VAULTS.md.
+	//
+	// Persistence: JSON files under ~/.ensoul/, loaded at boot, written
+	// after every mutation. Signature verification uses Ed25519 with the
+	// pubkey recovered from the did:key encoding.
+
+	const ed = await import("@noble/ed25519");
+	const { sha512: sha512Fn } = await import("@noble/hashes/sha2.js");
+	(ed as unknown as { hashes: { sha512: (m: Uint8Array) => Uint8Array } }).hashes.sha512 = (m: Uint8Array) => sha512Fn(m);
+
+	function didKeyToPubkey(did: string): Uint8Array | null {
+		if (!did.startsWith("did:key:z")) return null;
+		const encoded = did.slice(9);
+		const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+		let num = 0n;
+		for (const c of encoded) {
+			const idx = B58.indexOf(c);
+			if (idx < 0) return null;
+			num = num * 58n + BigInt(idx);
+		}
+		const hex = num.toString(16).padStart(68, "0");
+		const bytes = new Uint8Array(hex.length / 2);
+		for (let i = 0; i < hex.length; i += 2) bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+		if (bytes.length !== 34 || bytes[0] !== 0xed || bytes[1] !== 0x01) return null;
+		return bytes.slice(2);
+	}
+
+	function hexToU8(hex: string): Uint8Array | null {
+		if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length % 2) return null;
+		const b = new Uint8Array(hex.length / 2);
+		for (let i = 0; i < hex.length; i += 2) b[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+		return b;
+	}
+
+	/**
+	 * Verify an Ed25519 signature over a canonical payload.
+	 * Rejects replayed signatures by requiring the payload's `timestamp`
+	 * to be within 5 minutes of server clock.
+	 */
+	async function verifyDidSignature(
+		did: string,
+		payload: Record<string, unknown>,
+		signatureHex: string,
+		maxAgeMs = 5 * 60 * 1000,
+	): Promise<{ ok: boolean; reason?: string }> {
+		const pub = didKeyToPubkey(did);
+		if (!pub) return { ok: false, reason: "Invalid did:key" };
+		const sig = hexToU8(signatureHex);
+		if (!sig || sig.length !== 64) return { ok: false, reason: "Invalid signature format" };
+
+		const ts = Number(payload["timestamp"]);
+		if (!Number.isFinite(ts)) return { ok: false, reason: "Missing timestamp" };
+		if (Math.abs(Date.now() - ts) > maxAgeMs) return { ok: false, reason: "Signature timestamp out of range" };
+
+		const msg = new TextEncoder().encode(JSON.stringify(payload));
+		try {
+			const valid = await ed.verifyAsync(sig, msg, pub);
+			return valid ? { ok: true } : { ok: false, reason: "Signature invalid" };
+		} catch {
+			return { ok: false, reason: "Signature verification error" };
+		}
+	}
+
+	// ── Storage fees (Phase 1: estimation returns zero) ────────
+
+	// Phase 2 activation height. Before this height, stores are free.
+	// Governance will finalize the number in Phase 2 migration.
+	const FEE_ACTIVATION_HEIGHT = 500_000;
+	const FEE_BASE_ENSL = 1;       // flat per-store fee at activation
+	const FEE_PER_BYTE_ENSL = 0.001; // variable fee per byte
+
+	app.get<{ Querystring: Record<string, string> }>("/v1/fees/estimate", async (req) => {
+		const size = Math.max(0, Number(req.query["size"] ?? 0) || 0);
+		const net = await queryValidatorStatus();
+		const currentHeight = net.height;
+		// Phase 1: all stores are free everywhere. Phase 2 will flip fees
+		// on at the activation height via a coordinated consensus upgrade.
+		const baseFee = 0;
+		const storageFee = 0;
+		const totalFee = 0;
+		return {
+			size,
+			baseFee,
+			storageFee,
+			totalFee,
+			currency: "ENSL",
+			activatesAtHeight: FEE_ACTIVATION_HEIGHT,
+			currentHeight,
+			feesActive: false,
+			phase2Preview: {
+				baseFee: FEE_BASE_ENSL,
+				perByteFee: FEE_PER_BYTE_ENSL,
+				example10kb: FEE_BASE_ENSL + 10_240 * FEE_PER_BYTE_ENSL,
+				note: "Phase 1 charges zero fees. These are the Phase 2 numbers for reference.",
+			},
+		};
+	});
+
+	// ── Owner bindings (agent → owner) ─────────────────────────
+
+	interface OwnerBinding {
+		agent_did: string;
+		owner_did: string;
+		bound_at: string; // ISO timestamp
+	}
+
+	const OWNER_FILE = join(LOG_DIR, "owner-bindings.json");
+	const ownerBindings: OwnerBinding[] = [];
+	try {
+		const raw = await readFile(OWNER_FILE, "utf-8");
+		const loaded = JSON.parse(raw) as OwnerBinding[];
+		for (const b of loaded) ownerBindings.push(b);
+	} catch { /* no existing bindings */ }
+
+	async function saveOwnerBindings(): Promise<void> {
+		try { await writeFile(OWNER_FILE, JSON.stringify(ownerBindings, null, 2)); } catch { /* non-fatal */ }
+	}
+
+	function findBinding(agentDid: string): OwnerBinding | undefined {
+		return ownerBindings.find(b => b.agent_did === agentDid);
+	}
+
+	// POST /v1/agents/bind
+	// Body: { agent_did, owner_did, timestamp, signature }
+	// The agent signs {agent_did, owner_did, timestamp} to consent.
+	app.post<{ Body: Record<string, unknown> }>("/v1/agents/bind", async (req, reply) => {
+		const agent_did = String(req.body["agent_did"] ?? "");
+		const owner_did = String(req.body["owner_did"] ?? "");
+		const timestamp = Number(req.body["timestamp"] ?? 0);
+		const signature = String(req.body["signature"] ?? "");
+		if (!agent_did || !owner_did || !signature) {
+			return reply.status(400).send({ error: "Required: agent_did, owner_did, timestamp, signature" });
+		}
+		if (agent_did === owner_did) {
+			return reply.status(400).send({ error: "An account cannot own itself" });
+		}
+
+		const verify = await verifyDidSignature(agent_did, { agent_did, owner_did, timestamp }, signature);
+		if (!verify.ok) return reply.status(403).send({ error: "Agent consent signature invalid", detail: verify.reason });
+
+		const existing = findBinding(agent_did);
+		if (existing) {
+			if (existing.owner_did === owner_did) {
+				return { status: "already_bound", ...existing };
+			}
+			return reply.status(409).send({ error: "Agent is already bound to a different owner", current_owner: existing.owner_did });
+		}
+
+		const entry: OwnerBinding = { agent_did, owner_did, bound_at: new Date().toISOString() };
+		ownerBindings.push(entry);
+		await saveOwnerBindings();
+		await log(`Owner binding: ${agent_did.slice(0, 30)}... → ${owner_did.slice(0, 30)}...`);
+		return { status: "bound", ...entry };
+	});
+
+	// POST /v1/agents/unbind
+	// Body: { agent_did, initiator_did, timestamp, signature }
+	// initiator must be the agent OR the current owner; they sign the
+	// same payload with their own key.
+	app.post<{ Body: Record<string, unknown> }>("/v1/agents/unbind", async (req, reply) => {
+		const agent_did = String(req.body["agent_did"] ?? "");
+		const initiator_did = String(req.body["initiator_did"] ?? "");
+		const timestamp = Number(req.body["timestamp"] ?? 0);
+		const signature = String(req.body["signature"] ?? "");
+		if (!agent_did || !initiator_did || !signature) {
+			return reply.status(400).send({ error: "Required: agent_did, initiator_did, timestamp, signature" });
+		}
+		const existing = findBinding(agent_did);
+		if (!existing) return reply.status(404).send({ error: "Agent is not currently bound" });
+		if (initiator_did !== agent_did && initiator_did !== existing.owner_did) {
+			return reply.status(403).send({ error: "Only the agent or its current owner can unbind" });
+		}
+		const verify = await verifyDidSignature(initiator_did, { agent_did, initiator_did, timestamp }, signature);
+		if (!verify.ok) return reply.status(403).send({ error: "Signature invalid", detail: verify.reason });
+
+		const idx = ownerBindings.indexOf(existing);
+		ownerBindings.splice(idx, 1);
+		await saveOwnerBindings();
+		await log(`Owner unbinding: ${agent_did.slice(0, 30)}... (initiated by ${initiator_did.slice(0, 30)}...)`);
+		return { status: "unbound", agent_did };
+	});
+
+	// GET /v1/agents/owned?did=OWNER_DID
+	app.get<{ Querystring: Record<string, string> }>("/v1/agents/owned", async (req, reply) => {
+		const owner_did = String(req.query["did"] ?? "");
+		if (!owner_did) return reply.status(400).send({ error: "Required: did" });
+		const owned = ownerBindings.filter(b => b.owner_did === owner_did);
+		return { owner: owner_did, count: owned.length, agents: owned };
+	});
+
+	// GET /v1/agents/:did/owner
+	app.get<{ Params: { did: string } }>("/v1/agents/:did/owner", async (req) => {
+		const did = decodeURIComponent(req.params.did);
+		const entry = findBinding(did);
+		if (!entry) return { did, owner: null };
+		return { did, owner: entry.owner_did, bound_at: entry.bound_at };
+	});
+
+	// ── Vaults (shared encrypted state between agents) ─────────
+	//
+	// The API stores opaque encrypted blobs and per-member encrypted vault
+	// keys. It never sees plaintext. Members encrypt their own submissions
+	// client-side; the SDK (Node) and wallet.html (browser) ship the
+	// tweetnacl-based helpers for that.
+	//
+	// Vault ID format: did:ensoul:vault:<16-hex> derived from
+	// sha256(owner_did + "|" + name)[:8], so names are unique per owner
+	// and the ID is deterministic — owners can recover vault IDs without
+	// having to look them up.
+
+	interface VaultMember {
+		did: string;
+		encrypted_vault_key: string; // NaCl box ciphertext, base64
+		added_at: string;
+	}
+	interface Vault {
+		vault_id: string;
+		owner_did: string;
+		name: string;
+		members: VaultMember[];
+		state_version: number;       // monotonically increasing
+		latest_hash?: string;        // BLAKE3 hash of current encrypted content
+		latest_nonce?: string;       // nonce used by the most recent writer (base64)
+		latest_content?: string;     // NaCl secretbox ciphertext, base64
+		latest_author?: string;      // DID of last writer
+		created_at: string;
+		last_updated: string;
+	}
+
+	const VAULT_FILE = join(LOG_DIR, "vaults.json");
+	const vaults: Vault[] = [];
+	try {
+		const raw = await readFile(VAULT_FILE, "utf-8");
+		const loaded = JSON.parse(raw) as Vault[];
+		for (const v of loaded) vaults.push(v);
+	} catch { /* no existing vaults */ }
+
+	async function saveVaults(): Promise<void> {
+		try { await writeFile(VAULT_FILE, JSON.stringify(vaults, null, 2)); } catch { /* non-fatal */ }
+	}
+
+	async function deriveVaultId(owner_did: string, name: string): Promise<string> {
+		const { createHash } = await import("node:crypto");
+		const h = createHash("sha256").update(`${owner_did}|${name}`).digest();
+		return `did:ensoul:vault:${h.subarray(0, 8).toString("hex")}`;
+	}
+
+	function findVault(id: string): Vault | undefined {
+		return vaults.find(v => v.vault_id === id);
+	}
+
+	function isMember(v: Vault, did: string): boolean {
+		return v.members.some(m => m.did === did);
+	}
+
+	// POST /v1/vaults/create
+	// Body: {
+	//   owner_did, name,
+	//   members: [{did, encrypted_vault_key}],
+	//   timestamp, signature (owner's Ed25519 sig over {owner_did, name, timestamp, member_dids})
+	// }
+	app.post<{ Body: Record<string, unknown> }>("/v1/vaults/create", async (req, reply) => {
+		const owner_did = String(req.body["owner_did"] ?? "");
+		const name = String(req.body["name"] ?? "").trim();
+		const membersIn = Array.isArray(req.body["members"]) ? (req.body["members"] as Array<Record<string, unknown>>) : [];
+		const timestamp = Number(req.body["timestamp"] ?? 0);
+		const signature = String(req.body["signature"] ?? "");
+		if (!owner_did || !name) return reply.status(400).send({ error: "Required: owner_did, name, members, timestamp, signature" });
+		if (name.length > 64) return reply.status(400).send({ error: "Vault name too long (max 64 chars)" });
+		if (membersIn.length === 0) return reply.status(400).send({ error: "At least one member required" });
+
+		const member_dids = membersIn.map(m => String(m["did"] ?? "")).sort();
+		const verify = await verifyDidSignature(owner_did, { owner_did, name, timestamp, member_dids }, signature);
+		if (!verify.ok) return reply.status(403).send({ error: "Owner signature invalid", detail: verify.reason });
+
+		const vault_id = await deriveVaultId(owner_did, name);
+		if (findVault(vault_id)) return reply.status(409).send({ error: "Vault already exists for this owner+name", vault_id });
+
+		const now = new Date().toISOString();
+		const members: VaultMember[] = membersIn.map(m => ({
+			did: String(m["did"] ?? ""),
+			encrypted_vault_key: String(m["encrypted_vault_key"] ?? ""),
+			added_at: now,
+		})).filter(m => m.did && m.encrypted_vault_key);
+
+		if (members.length === 0) return reply.status(400).send({ error: "No valid members (each needs did + encrypted_vault_key)" });
+
+		const v: Vault = {
+			vault_id,
+			owner_did,
+			name,
+			members,
+			state_version: 0,
+			created_at: now,
+			last_updated: now,
+		};
+		vaults.push(v);
+		await saveVaults();
+		await log(`Vault created: ${vault_id} owner=${owner_did.slice(0, 20)}... members=${members.length}`);
+		return { status: "created", vault: v };
+	});
+
+	// POST /v1/vaults/:id/store
+	// Body: { member_did, content_hash, encrypted_content, nonce, timestamp, signature }
+	// Signature by member_did over {vault_id, content_hash, timestamp}.
+	app.post<{ Params: { id: string }; Body: Record<string, unknown> }>("/v1/vaults/:id/store", async (req, reply) => {
+		const vault_id = decodeURIComponent(req.params.id);
+		const v = findVault(vault_id);
+		if (!v) return reply.status(404).send({ error: "Vault not found" });
+
+		const member_did = String(req.body["member_did"] ?? "");
+		const content_hash = String(req.body["content_hash"] ?? "");
+		const encrypted_content = String(req.body["encrypted_content"] ?? "");
+		const nonce = String(req.body["nonce"] ?? "");
+		const timestamp = Number(req.body["timestamp"] ?? 0);
+		const signature = String(req.body["signature"] ?? "");
+		if (!member_did || !content_hash || !encrypted_content || !nonce || !signature) {
+			return reply.status(400).send({ error: "Required: member_did, content_hash, encrypted_content, nonce, timestamp, signature" });
+		}
+		if (!isMember(v, member_did) && member_did !== v.owner_did) {
+			return reply.status(403).send({ error: "Not a vault member" });
+		}
+		const verify = await verifyDidSignature(member_did, { vault_id, content_hash, timestamp }, signature);
+		if (!verify.ok) return reply.status(403).send({ error: "Signature invalid", detail: verify.reason });
+
+		v.state_version++;
+		v.latest_hash = content_hash;
+		v.latest_nonce = nonce;
+		v.latest_content = encrypted_content;
+		v.latest_author = member_did;
+		v.last_updated = new Date().toISOString();
+		await saveVaults();
+		return {
+			status: "stored",
+			vault_id,
+			state_version: v.state_version,
+			latest_hash: v.latest_hash,
+			// Phase 1: fees are zero. Phase 2 will include fee_paid + fee_source.
+			fee_source: v.owner_did,
+			fee_paid: "0.00 ENSL",
+		};
+	});
+
+	// GET /v1/vaults/:id/state?member=DID&timestamp=N&signature=HEX
+	// Returns the latest encrypted content. Requires member signature.
+	app.get<{ Params: { id: string }; Querystring: Record<string, string> }>("/v1/vaults/:id/state", async (req, reply) => {
+		const vault_id = decodeURIComponent(req.params.id);
+		const v = findVault(vault_id);
+		if (!v) return reply.status(404).send({ error: "Vault not found" });
+
+		const member = String(req.query["member"] ?? "");
+		const timestamp = Number(req.query["timestamp"] ?? 0);
+		const signature = String(req.query["signature"] ?? "");
+		if (!member || !signature) return reply.status(400).send({ error: "Required query: member, timestamp, signature" });
+		if (!isMember(v, member) && member !== v.owner_did) {
+			return reply.status(403).send({ error: "Not a vault member" });
+		}
+		const verify = await verifyDidSignature(member, { vault_id, timestamp, op: "read" }, signature);
+		if (!verify.ok) return reply.status(403).send({ error: "Signature invalid", detail: verify.reason });
+
+		// Find the requesting member's encrypted vault key
+		const memberEntry = v.members.find(m => m.did === member);
+		return {
+			vault_id,
+			owner_did: v.owner_did,
+			name: v.name,
+			state_version: v.state_version,
+			latest_hash: v.latest_hash ?? null,
+			latest_nonce: v.latest_nonce ?? null,
+			latest_content: v.latest_content ?? null,
+			latest_author: v.latest_author ?? null,
+			created_at: v.created_at,
+			last_updated: v.last_updated,
+			member_count: v.members.length,
+			your_encrypted_vault_key: memberEntry?.encrypted_vault_key ?? null,
+		};
+	});
+
+	// POST /v1/vaults/:id/members/add
+	// Body: { owner_did, new_member: {did, encrypted_vault_key}, timestamp, signature }
+	app.post<{ Params: { id: string }; Body: Record<string, unknown> }>("/v1/vaults/:id/members/add", async (req, reply) => {
+		const vault_id = decodeURIComponent(req.params.id);
+		const v = findVault(vault_id);
+		if (!v) return reply.status(404).send({ error: "Vault not found" });
+		const owner_did = String(req.body["owner_did"] ?? "");
+		const newMember = req.body["new_member"] as Record<string, unknown> | undefined;
+		const timestamp = Number(req.body["timestamp"] ?? 0);
+		const signature = String(req.body["signature"] ?? "");
+		if (owner_did !== v.owner_did) return reply.status(403).send({ error: "Only the owner can add members" });
+		const m_did = String(newMember?.["did"] ?? "");
+		const m_key = String(newMember?.["encrypted_vault_key"] ?? "");
+		if (!m_did || !m_key) return reply.status(400).send({ error: "new_member.did and new_member.encrypted_vault_key required" });
+		const verify = await verifyDidSignature(owner_did, { vault_id, op: "add_member", new_did: m_did, timestamp }, signature);
+		if (!verify.ok) return reply.status(403).send({ error: "Signature invalid", detail: verify.reason });
+
+		if (v.members.some(m => m.did === m_did)) return reply.status(409).send({ error: "Already a member" });
+		v.members.push({ did: m_did, encrypted_vault_key: m_key, added_at: new Date().toISOString() });
+		v.last_updated = new Date().toISOString();
+		await saveVaults();
+		return { status: "added", vault_id, member: m_did, member_count: v.members.length };
+	});
+
+	// POST /v1/vaults/:id/members/remove
+	// Body: {
+	//   owner_did, member_did, timestamp, signature,
+	//   rekey: { members: [{did, encrypted_vault_key}], new_version }
+	// }
+	// The rekey bundle is mandatory: owner must generate a new vault key
+	// and re-encrypt it for every REMAINING member, so the removed member
+	// can no longer decrypt future writes.
+	app.post<{ Params: { id: string }; Body: Record<string, unknown> }>("/v1/vaults/:id/members/remove", async (req, reply) => {
+		const vault_id = decodeURIComponent(req.params.id);
+		const v = findVault(vault_id);
+		if (!v) return reply.status(404).send({ error: "Vault not found" });
+		const owner_did = String(req.body["owner_did"] ?? "");
+		const member_did = String(req.body["member_did"] ?? "");
+		const timestamp = Number(req.body["timestamp"] ?? 0);
+		const signature = String(req.body["signature"] ?? "");
+		const rekey = req.body["rekey"] as { members?: Array<Record<string, unknown>> } | undefined;
+		if (owner_did !== v.owner_did) return reply.status(403).send({ error: "Only the owner can remove members" });
+		if (!rekey || !Array.isArray(rekey.members)) return reply.status(400).send({ error: "rekey.members required — owner must rotate the vault key" });
+
+		const verify = await verifyDidSignature(owner_did, { vault_id, op: "remove_member", removed_did: member_did, timestamp }, signature);
+		if (!verify.ok) return reply.status(403).send({ error: "Signature invalid", detail: verify.reason });
+
+		const remainingDids = new Set(v.members.filter(m => m.did !== member_did).map(m => m.did));
+		const rekeyDids = new Set(rekey.members.map(m => String(m["did"] ?? "")));
+		for (const d of remainingDids) {
+			if (!rekeyDids.has(d)) return reply.status(400).send({ error: `rekey missing entry for remaining member ${d}` });
+		}
+
+		const now = new Date().toISOString();
+		v.members = rekey.members.map(m => ({
+			did: String(m["did"] ?? ""),
+			encrypted_vault_key: String(m["encrypted_vault_key"] ?? ""),
+			added_at: now,
+		}));
+		v.state_version++;
+		v.last_updated = now;
+		// Force re-store after rotation — the old ciphertext was encrypted
+		// with the old key. Clear it so members fetch fresh content.
+		v.latest_content = undefined;
+		v.latest_hash = undefined;
+		v.latest_nonce = undefined;
+		v.latest_author = undefined;
+		await saveVaults();
+		return { status: "removed", vault_id, removed: member_did, member_count: v.members.length, state_version: v.state_version };
+	});
+
+	// POST /v1/vaults/:id/delete
+	// Body: { owner_did, timestamp, signature }
+	app.post<{ Params: { id: string }; Body: Record<string, unknown> }>("/v1/vaults/:id/delete", async (req, reply) => {
+		const vault_id = decodeURIComponent(req.params.id);
+		const v = findVault(vault_id);
+		if (!v) return reply.status(404).send({ error: "Vault not found" });
+		const owner_did = String(req.body["owner_did"] ?? "");
+		const timestamp = Number(req.body["timestamp"] ?? 0);
+		const signature = String(req.body["signature"] ?? "");
+		if (owner_did !== v.owner_did) return reply.status(403).send({ error: "Only the owner can delete" });
+		const verify = await verifyDidSignature(owner_did, { vault_id, op: "delete", timestamp }, signature);
+		if (!verify.ok) return reply.status(403).send({ error: "Signature invalid", detail: verify.reason });
+		const idx = vaults.indexOf(v);
+		vaults.splice(idx, 1);
+		await saveVaults();
+		return { status: "deleted", vault_id };
+	});
+
+	// GET /v1/vaults/owned?did=OWNER_DID
+	app.get<{ Querystring: Record<string, string> }>("/v1/vaults/owned", async (req, reply) => {
+		const owner_did = String(req.query["did"] ?? "");
+		if (!owner_did) return reply.status(400).send({ error: "Required: did" });
+		const owned = vaults.filter(v => v.owner_did === owner_did).map(v => ({
+			vault_id: v.vault_id,
+			name: v.name,
+			member_count: v.members.length,
+			state_version: v.state_version,
+			created_at: v.created_at,
+			last_updated: v.last_updated,
+		}));
+		return { owner: owner_did, count: owned.length, vaults: owned };
+	});
+
+	// GET /v1/vaults/member?did=AGENT_DID
+	app.get<{ Querystring: Record<string, string> }>("/v1/vaults/member", async (req, reply) => {
+		const did = String(req.query["did"] ?? "");
+		if (!did) return reply.status(400).send({ error: "Required: did" });
+		const member = vaults.filter(v => isMember(v, did)).map(v => ({
+			vault_id: v.vault_id,
+			name: v.name,
+			owner_did: v.owner_did,
+			member_count: v.members.length,
+			state_version: v.state_version,
+			last_updated: v.last_updated,
+		}));
+		return { did, count: member.length, vaults: member };
+	});
+
 	// ── Start ────────────────────────────────────────────────────
 
 	await app.listen({ port, host: "0.0.0.0" });
@@ -2687,6 +3190,19 @@ async function main(): Promise<void> {
 	process.stdout.write(`    POST /v1/validators/register-pioneer\n`);
 	process.stdout.write(`    GET  /v1/validators/:did/stats\n`);
 	process.stdout.write(`    GET  /v1/validators/leaderboard\n`);
+	process.stdout.write(`    GET  /v1/fees/estimate?size=BYTES   (Phase 1: returns zero)\n`);
+	process.stdout.write(`    POST /v1/agents/bind                (agent consents to owner)\n`);
+	process.stdout.write(`    POST /v1/agents/unbind              (agent or owner initiates)\n`);
+	process.stdout.write(`    GET  /v1/agents/owned?did=OWNER     (agents owned by wallet)\n`);
+	process.stdout.write(`    GET  /v1/agents/:did/owner          (resolve owner for agent)\n`);
+	process.stdout.write(`    POST /v1/vaults/create              (create shared vault)\n`);
+	process.stdout.write(`    POST /v1/vaults/:id/store           (write encrypted vault state)\n`);
+	process.stdout.write(`    GET  /v1/vaults/:id/state           (read vault, member-signed)\n`);
+	process.stdout.write(`    POST /v1/vaults/:id/members/add\n`);
+	process.stdout.write(`    POST /v1/vaults/:id/members/remove\n`);
+	process.stdout.write(`    POST /v1/vaults/:id/delete\n`);
+	process.stdout.write(`    GET  /v1/vaults/owned?did=OWNER     (vaults owned)\n`);
+	process.stdout.write(`    GET  /v1/vaults/member?did=AGENT    (vaults joined)\n`);
 	process.stdout.write(`\n  Validators: ${net.validatorCount} (${net.alive} peers connected)\n`);
 	process.stdout.write(`  Block height: ${net.height}\n\n`);
 

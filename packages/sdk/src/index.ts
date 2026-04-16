@@ -648,6 +648,237 @@ export class Ensoul {
 		}));
 	}
 
+	// ── Phase 1: owner wallets, fees, vaults (off-chain) ───────
+	// See docs/OWNERSHIP-FEES-VAULTS.md for the consensus-layer
+	// migration plan. Phase 1 endpoints live at the API layer and
+	// return the same shapes the Phase 2 ledger txs will eventually
+	// emit.
+
+	/**
+	 * Get the per-store fee breakdown for a payload of the given size.
+	 * Phase 1 returns zero but surfaces the Phase 2 preview numbers.
+	 */
+	async estimateFee(sizeBytes: number): Promise<{
+		size: number;
+		baseFee: number;
+		storageFee: number;
+		totalFee: number;
+		feesActive: boolean;
+		activatesAtHeight: number;
+		currentHeight: number;
+	}> {
+		const resp = await fetch(
+			`${this.apiUrl}/v1/fees/estimate?size=${Math.max(0, Math.floor(sizeBytes))}`,
+			{ signal: AbortSignal.timeout(5000) },
+		);
+		if (!resp.ok) throw new Error(`Fee estimate failed: ${resp.status}`);
+		return (await resp.json()) as {
+			size: number;
+			baseFee: number;
+			storageFee: number;
+			totalFee: number;
+			feesActive: boolean;
+			activatesAtHeight: number;
+			currentHeight: number;
+		};
+	}
+
+	/**
+	 * Bind this agent to an owner wallet. The agent signs the
+	 * binding so the API knows the agent consents.
+	 *
+	 * ```typescript
+	 * const agent = await Ensoul.create();
+	 * await agent.bindToOwner("did:key:z6Mk...");  // owner's DID
+	 * ```
+	 */
+	async bindToOwner(ownerDid: string): Promise<{ status: string; agent_did: string; owner_did: string; bound_at?: string }> {
+		const ts = Date.now();
+		const payload = { agent_did: this.did, owner_did: ownerDid, timestamp: ts };
+		const seed = hexToBytes(this.identity.seed);
+		const sig = await ed.signAsync(ENC.encode(JSON.stringify(payload)), seed);
+		const resp = await fetch(`${this.apiUrl}/v1/agents/bind`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ ...payload, signature: bytesToHex(sig) }),
+			signal: AbortSignal.timeout(10000),
+		});
+		const data = await resp.json() as Record<string, string>;
+		if (!resp.ok) throw new Error(data["error"] ?? `bind failed: ${resp.status}`);
+		return data as { status: string; agent_did: string; owner_did: string; bound_at?: string };
+	}
+
+	/**
+	 * Unbind this agent from its current owner. The agent can always
+	 * self-unbind; the owner can also unbind (via their own SDK).
+	 */
+	async unbindFromOwner(): Promise<{ status: string; agent_did: string }> {
+		const ts = Date.now();
+		const payload = { agent_did: this.did, initiator_did: this.did, timestamp: ts };
+		const seed = hexToBytes(this.identity.seed);
+		const sig = await ed.signAsync(ENC.encode(JSON.stringify(payload)), seed);
+		const resp = await fetch(`${this.apiUrl}/v1/agents/unbind`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ ...payload, signature: bytesToHex(sig) }),
+			signal: AbortSignal.timeout(10000),
+		});
+		const data = await resp.json() as Record<string, string>;
+		if (!resp.ok) throw new Error(data["error"] ?? `unbind failed: ${resp.status}`);
+		return data as { status: string; agent_did: string };
+	}
+
+	/** Get the current owner DID for this agent, or null if unbound. */
+	async getOwner(): Promise<string | null> {
+		const resp = await fetch(
+			`${this.apiUrl}/v1/agents/${encodeURIComponent(this.did)}/owner`,
+			{ signal: AbortSignal.timeout(5000) },
+		);
+		if (!resp.ok) return null;
+		const d = await resp.json() as { owner: string | null };
+		return d.owner ?? null;
+	}
+
+	/** List all agent DIDs owned by `ownerDid` (defaults to this agent's DID, for self-queries). */
+	async listOwnedAgents(ownerDid?: string): Promise<Array<{ agent_did: string; owner_did: string; bound_at: string }>> {
+		const owner = ownerDid ?? this.did;
+		const resp = await fetch(
+			`${this.apiUrl}/v1/agents/owned?did=${encodeURIComponent(owner)}`,
+			{ signal: AbortSignal.timeout(5000) },
+		);
+		if (!resp.ok) return [];
+		const d = await resp.json() as { agents?: Array<{ agent_did: string; owner_did: string; bound_at: string }> };
+		return d.agents ?? [];
+	}
+
+	// ── Vaults (Phase 1: opaque-blob API — encryption is caller's job) ──
+
+	/**
+	 * List vaults this agent is a member of.
+	 */
+	async listMemberVaults(): Promise<Array<{ vault_id: string; name: string; owner_did: string; state_version: number }>> {
+		const resp = await fetch(
+			`${this.apiUrl}/v1/vaults/member?did=${encodeURIComponent(this.did)}`,
+			{ signal: AbortSignal.timeout(5000) },
+		);
+		if (!resp.ok) return [];
+		const d = await resp.json() as { vaults?: Array<{ vault_id: string; name: string; owner_did: string; state_version: number }> };
+		return d.vaults ?? [];
+	}
+
+	/**
+	 * List vaults owned by this agent (as the owner).
+	 */
+	async listOwnedVaults(): Promise<Array<{ vault_id: string; name: string; member_count: number; state_version: number }>> {
+		const resp = await fetch(
+			`${this.apiUrl}/v1/vaults/owned?did=${encodeURIComponent(this.did)}`,
+			{ signal: AbortSignal.timeout(5000) },
+		);
+		if (!resp.ok) return [];
+		const d = await resp.json() as { vaults?: Array<{ vault_id: string; name: string; member_count: number; state_version: number }> };
+		return d.vaults ?? [];
+	}
+
+	/**
+	 * Create a shared vault owned by this agent.
+	 *
+	 * Phase 1: this SDK method is the transport only. Callers handle
+	 * encryption themselves:
+	 *   1. Generate a 32-byte vault key (`crypto.getRandomValues`).
+	 *   2. For each member, convert their Ed25519 pubkey to X25519
+	 *      (`edwardsToMontgomeryPub`) and encrypt the vault key with
+	 *      NaCl `box` to produce `encrypted_vault_key` (base64).
+	 *   3. Pass `members: [{did, encrypted_vault_key}]` here.
+	 *
+	 * See docs/OWNERSHIP-FEES-VAULTS.md#encryption-model for the full
+	 * client-side pattern and the Phase 2 on-chain tx shape.
+	 */
+	async createVault(name: string, members: Array<{ did: string; encrypted_vault_key: string }>): Promise<{
+		status: string;
+		vault: { vault_id: string; owner_did: string; name: string; members: unknown[]; created_at: string };
+	}> {
+		const ts = Date.now();
+		const member_dids = members.map(m => m.did).sort();
+		const payload = { owner_did: this.did, name, timestamp: ts, member_dids };
+		const seed = hexToBytes(this.identity.seed);
+		const sig = await ed.signAsync(ENC.encode(JSON.stringify(payload)), seed);
+		const resp = await fetch(`${this.apiUrl}/v1/vaults/create`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ owner_did: this.did, name, members, timestamp: ts, signature: bytesToHex(sig) }),
+			signal: AbortSignal.timeout(10000),
+		});
+		const data = await resp.json() as Record<string, unknown>;
+		if (!resp.ok) throw new Error(String(data["error"] ?? `vault create failed: ${resp.status}`));
+		return data as {
+			status: string;
+			vault: { vault_id: string; owner_did: string; name: string; members: unknown[]; created_at: string };
+		};
+	}
+
+	/**
+	 * Store an already-encrypted blob to a vault. The caller encrypts
+	 * with NaCl `secretbox` using the vault key they fetched from
+	 * `readVaultState()` (decrypting `your_encrypted_vault_key` with
+	 * their own X25519 private key).
+	 *
+	 * @param vaultId the `did:ensoul:vault:...` identifier
+	 * @param encryptedContent base64 NaCl secretbox ciphertext
+	 * @param nonce base64 nonce (24 bytes for XSalsa20)
+	 * @param contentHash BLAKE3 or SHA-256 hex of the plaintext (anchored)
+	 */
+	async storeToVault(vaultId: string, encryptedContent: string, nonce: string, contentHash: string): Promise<{
+		status: string; vault_id: string; state_version: number; latest_hash: string;
+	}> {
+		const ts = Date.now();
+		const payload = { vault_id: vaultId, content_hash: contentHash, timestamp: ts };
+		const seed = hexToBytes(this.identity.seed);
+		const sig = await ed.signAsync(ENC.encode(JSON.stringify(payload)), seed);
+		const resp = await fetch(`${this.apiUrl}/v1/vaults/${encodeURIComponent(vaultId)}/store`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				member_did: this.did, content_hash: contentHash, encrypted_content: encryptedContent,
+				nonce, timestamp: ts, signature: bytesToHex(sig),
+			}),
+			signal: AbortSignal.timeout(15000),
+		});
+		const data = await resp.json() as Record<string, unknown>;
+		if (!resp.ok) throw new Error(String(data["error"] ?? `vault store failed: ${resp.status}`));
+		return data as { status: string; vault_id: string; state_version: number; latest_hash: string };
+	}
+
+	/**
+	 * Read the latest encrypted blob of a vault. The returned
+	 * `your_encrypted_vault_key` is this agent's wrapped vault key —
+	 * decrypt it with NaCl `box_open` using your X25519 private key,
+	 * then use the resulting vault key to decrypt `latest_content`.
+	 */
+	async readVaultState(vaultId: string): Promise<{
+		vault_id: string; owner_did: string; name: string; state_version: number;
+		latest_hash: string | null; latest_nonce: string | null; latest_content: string | null;
+		latest_author: string | null; created_at: string; last_updated: string;
+		your_encrypted_vault_key: string | null;
+	}> {
+		const ts = Date.now();
+		const payload = { vault_id: vaultId, timestamp: ts, op: "read" };
+		const seed = hexToBytes(this.identity.seed);
+		const sig = await ed.signAsync(ENC.encode(JSON.stringify(payload)), seed);
+		const url = new URL(`${this.apiUrl}/v1/vaults/${encodeURIComponent(vaultId)}/state`);
+		url.searchParams.set("member", this.did);
+		url.searchParams.set("timestamp", String(ts));
+		url.searchParams.set("signature", bytesToHex(sig));
+		const resp = await fetch(url.toString(), { signal: AbortSignal.timeout(10000) });
+		const data = await resp.json() as Record<string, unknown>;
+		if (!resp.ok) throw new Error(String(data["error"] ?? `vault read failed: ${resp.status}`));
+		return data as {
+			vault_id: string; owner_did: string; name: string; state_version: number;
+			latest_hash: string | null; latest_nonce: string | null; latest_content: string | null;
+			latest_author: string | null; created_at: string; last_updated: string;
+			your_encrypted_vault_key: string | null;
+		};
+	}
+
 	// ── Internal ────────────────────────────────────────────────
 
 	private async refreshNonce(): Promise<void> {
