@@ -1540,6 +1540,69 @@ async function main(): Promise<void> {
 		return { topReferrers: [], oldestSouls: [] };
 	});
 
+	// ── Referral Rewards ────────────────────────────────────────
+	// Per-agent referral view + dedicated leaderboard. The on-chain
+	// reward payout (1,000 ENSL per referral, doubled for Pioneers)
+	// is handled at the ABCI layer during agent_register; these
+	// endpoints are read-only views for clients.
+
+	const REFERRAL_BONUS_ENSL = 1000;
+	const PIONEER_REFERRAL_BONUS_ENSL = 2000;
+	const SHARE_REFERRAL_BONUS_ENSL = 500; // Phase 2 activation; documented in OWNERSHIP-FEES-VAULTS.md
+
+	app.get<{ Params: { did: string } }>("/v1/referrals/:did", async (req) => {
+		const did = decodeURIComponent(req.params.did);
+		const agentData = await abciQuery(`agent/${did}`);
+		const referralCount = Number((agentData as Record<string, unknown> | null)?.["referralCount"] ?? 0);
+
+		// Pioneer check — if this DID has an approved Pioneer application,
+		// it earns 2000 ENSL per referral instead of 1000.
+		const pioneer = pioneerApps.find(a => a.did === did && a.status === "approved");
+		const perReferralEnsl = pioneer ? PIONEER_REFERRAL_BONUS_ENSL : REFERRAL_BONUS_ENSL;
+
+		return {
+			did,
+			referralCount,
+			perReferralEnsl,
+			totalEarnedEnsl: referralCount * perReferralEnsl,
+			isPioneer: !!pioneer,
+			pioneerName: pioneer?.name ?? null,
+			// Share-to-earn bonus (Phase 2) — surfaced so UIs can render
+			// the "Share and earn X ENSL" copy consistently with the rate.
+			shareBonusEnsl: SHARE_REFERRAL_BONUS_ENSL,
+			shareBonusActive: false,
+			// Canonical referral links. The `src=share` variant is the
+			// one the /try page should generate when the user clicks the
+			// share button; it lets the chain distinguish direct from
+			// social-origin referrals when Phase 2 activates.
+			referralLink: `https://ensoul.dev/try?ref=${encodeURIComponent(did)}`,
+			shareReferralLink: `https://ensoul.dev/try?ref=${encodeURIComponent(did)}&src=share`,
+		};
+	});
+
+	app.get("/v1/referrals/leaderboard", async () => {
+		const data = await abciQuery("leaderboard");
+		const topReferrers = (data as Record<string, unknown> | null)?.["topReferrers"];
+		const list = Array.isArray(topReferrers) ? (topReferrers as Array<Record<string, unknown>>) : [];
+		const pioneerDids = new Set(pioneerApps.filter(p => p.status === "approved").map(p => p.did));
+		return {
+			count: list.length,
+			referrers: list.map(r => {
+				const did = String(r["did"] ?? "");
+				const count = Number(r["referralCount"] ?? 0);
+				const isPioneer = pioneerDids.has(did);
+				const per = isPioneer ? PIONEER_REFERRAL_BONUS_ENSL : REFERRAL_BONUS_ENSL;
+				return {
+					did,
+					referralCount: count,
+					totalEarnedEnsl: count * per,
+					isPioneer,
+					earlyConsciousness: Boolean(r["earlyConsciousness"]),
+				};
+			}),
+		};
+	});
+
 	// ── Pioneer List ────────────────────────────────────────────
 
 	app.get("/v1/pioneers/applications", async () => {
@@ -3190,6 +3253,8 @@ async function main(): Promise<void> {
 	process.stdout.write(`    POST /v1/validators/register-pioneer\n`);
 	process.stdout.write(`    GET  /v1/validators/:did/stats\n`);
 	process.stdout.write(`    GET  /v1/validators/leaderboard\n`);
+	process.stdout.write(`    GET  /v1/referrals/:did             (per-agent referral count + earnings)\n`);
+	process.stdout.write(`    GET  /v1/referrals/leaderboard      (top referrers, Pioneer rate aware)\n`);
 	process.stdout.write(`    GET  /v1/fees/estimate?size=BYTES   (Phase 1: returns zero)\n`);
 	process.stdout.write(`    POST /v1/agents/bind                (agent consents to owner)\n`);
 	process.stdout.write(`    POST /v1/agents/unbind              (agent or owner initiates)\n`);

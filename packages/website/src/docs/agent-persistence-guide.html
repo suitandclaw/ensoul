@@ -85,11 +85,10 @@ article pre code{background:none;padding:0;color:#c4c4ca}
 		<span class="nav-live"><span class="nav-live-dot"></span>Live</span>
 	</a>
 	<div class="nav-links">
-		<a href="/genesis">Genesis</a>
-		<a href="/docs/validator.html">Validators</a>
 		<a href="/pioneer.html">Pioneer</a>
 		<a href="/docs/quickstart.html">Docs</a>
 		<a href="https://explorer.ensoul.dev">Explorer</a>
+		<a href="/wallet.html">Wallet</a>
 		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
 		<a href="/try" class="nav-cta">Try It</a>
 	</div>
@@ -197,7 +196,7 @@ conn.commit()</code></pre>
 
 <p><strong>IPFS</strong> is content-addressed storage: data is identified by its hash. You pin data you care about to persistent nodes (pinning services like Pinata, or run your own). No single controlling entity, but data only survives as long as someone pins it. The user experience is closer to a distributed filesystem than a database.</p>
 
-<p><strong>Ensoul</strong> is a sovereign Layer-1 blockchain purpose-built for agent consciousness persistence. Agents get cryptographic identities (<code>did:key</code>) backed by Ed25519 keypairs. Consciousness state is hashed locally with BLAKE3; only the 32-byte hash is anchored on-chain via CometBFT consensus across 21 validators distributed globally. The raw data stays on the agent's machine. Recovery on any new machine requires only the seed.</p>
+<p><strong>Ensoul</strong> is a sovereign Layer-1 blockchain purpose-built for agent consciousness persistence. Agents get cryptographic identities (<code>did:key</code>) backed by Ed25519 keypairs. Consciousness state is hashed locally with BLAKE3; only the 32-byte hash is anchored on-chain via CometBFT consensus across 27 validators distributed globally. The raw data stays on the agent's machine. Recovery on any new machine requires only the seed.</p>
 
 <p><strong>What decentralized persistence solves:</strong> no single vendor can delete, modify, or lose the data. Cryptographic proof that a specific state existed at a specific moment. The agent can migrate between any machines and any frameworks while keeping its identity intact.</p>
 
@@ -224,7 +223,7 @@ conn.commit()</code></pre>
 <p>Three operations:</p>
 
 <ol>
-	<li><strong>Register.</strong> Generate an Ed25519 keypair. Derive a <code>did:key</code> identifier from the public key. Broadcast an <code>agent_register</code> transaction to the Ensoul network. The transaction is signed with the private key, so the chain knows the signer owns the DID. 21 validators running CometBFT BFT consensus confirm the transaction in approximately six seconds.</li>
+	<li><strong>Register.</strong> Generate an Ed25519 keypair. Derive a <code>did:key</code> identifier from the public key. Broadcast an <code>agent_register</code> transaction to the Ensoul network. The transaction is signed with the private key, so the chain knows the signer owns the DID. 27 validators running CometBFT BFT consensus confirm the transaction in approximately six seconds.</li>
 	<li><strong>Store consciousness.</strong> The agent assembles its current state into a JSON payload. The payload is hashed locally with BLAKE3. The 32-byte hash (the "state root") is embedded in a <code>consciousness_store</code> transaction, signed with the agent's private key, and broadcast. The raw payload never leaves the agent's machine.</li>
 	<li><strong>Recover.</strong> On a new machine, the agent imports its seed into the Ensoul SDK. The SDK derives the same DID. The SDK queries the chain for the agent's latest <code>consciousness_store</code> transaction. The state root proves what the agent's state was at the last checkpoint. If the agent also has a local copy of the payload (from a vault or backup), it verifies the BLAKE3 hash matches.</li>
 </ol>
@@ -326,6 +325,8 @@ const state = await restored.getConsciousness();</code></pre>
 		<a href="/docs/comparisons.html">Compare</a>
 		<a href="/docs/faq.html">FAQ</a>
 		<a href="https://github.com/suitandclaw/ensoul">GitHub</a>
+	<a href="https://bsky.app/profile/ensoulnetwork.bsky.social">Bluesky</a>
+	<a href="https://x.com/ensoul_network">X</a>
 	</div>
 	<div class="footer-right">the persistence layer for AI agents</div>
 </div>
