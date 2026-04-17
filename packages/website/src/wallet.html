@@ -672,10 +672,30 @@ window.importWallet=async function(){
   var pubKey;
   try{pubKey=await createKeypair(seed);}
   catch(e){el("import-msg").innerHTML='<div class="msg error">'+e.message+'</div>';return;}
+  var pubHex=hexEncode(pubKey);
   var did=makeDid(pubKey);
+
+  console.log("[ensoul] Seed:      ", seedHex);
+  console.log("[ensoul] PubKey:    ", pubHex);
+  console.log("[ensoul] Derived DID:", did);
+
+  // Cross-check against the API's derivation to catch any mismatch early
+  try{
+    var vr=await fetch(API+"/v1/verify-did?publicKey="+pubHex,{signal:AbortSignal.timeout(5000)});
+    if(vr.ok){
+      var vd=await vr.json();
+      if(vd.did&&vd.did!==did){
+        console.error("[ensoul] DID MISMATCH! Browser:",did,"API:",vd.did);
+        el("import-msg").innerHTML='<div class="msg error">DID mismatch between browser and server! Browser: '+did.slice(0,30)+'… API: '+vd.did.slice(0,30)+'… — report to support.</div>';
+        return;
+      }
+      console.log("[ensoul] API cross-check: DID matches ✓");
+    }
+  }catch(e){/* API unreachable — skip check */}
+
   var encrypted=await encryptSeed(seed,pw);
 
-  localStorage.setItem(STORAGE_KEY,JSON.stringify({encrypted:encrypted,pubKey:hexEncode(pubKey),did:did}));
+  localStorage.setItem(STORAGE_KEY,JSON.stringify({encrypted:encrypted,pubKey:pubHex,did:did}));
 
   currentSeed=seed;
   currentDid=did;

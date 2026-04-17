@@ -637,11 +637,33 @@ window.submitSeed = async function(){
 
 	try {
 		var pubKey = window._ed25519.getPublicKey(seed);
+		var pubHex = hexEncode(pubKey);
 		var did = makeDid(pubKey);
 		var addr = await addressFromPubKey(pubKey);
 
+		console.log("[ensoul] Seed:      ", raw);
+		console.log("[ensoul] PubKey:    ", pubHex);
+		console.log("[ensoul] Derived DID:", did);
+		console.log("[ensoul] CometBFT:  ", addr);
+
+		// Cross-check: ask the API to derive the DID from the same pubkey.
+		// If it disagrees with our browser derivation, warn the user
+		// rather than proceeding with the wrong identity.
+		try {
+			var verifyResp = await fetch("https://api.ensoul.dev/v1/verify-did?publicKey=" + pubHex, { signal: AbortSignal.timeout(5000) });
+			if (verifyResp.ok) {
+				var verifyData = await verifyResp.json();
+				if (verifyData.did && verifyData.did !== did) {
+					console.error("[ensoul] DID MISMATCH! Browser:", did, "API:", verifyData.did);
+					$("entry-err").textContent = "DID mismatch between browser and server. Browser: " + did.slice(0, 30) + "… API: " + verifyData.did.slice(0, 30) + "… — this means the Ed25519 library diverges. Report this to support.";
+					return;
+				}
+				console.log("[ensoul] API cross-check: DID matches ✓");
+			}
+		} catch (e) { /* non-fatal: API unreachable just skips the check */ }
+
 		state.seed = seed;
-		state.pubKeyHex = hexEncode(pubKey);
+		state.pubKeyHex = pubHex;
 		state.did = did;
 		state.addr = addr;
 
