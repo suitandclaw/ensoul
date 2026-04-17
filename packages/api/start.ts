@@ -1904,6 +1904,55 @@ async function main(): Promise<void> {
 		};
 	});
 
+	// ── Remove Validator from Consensus Set ─────────────────────
+	// POST /v1/admin/remove-validator
+	// Body: { did, admin_key } (or X-Admin-Key header)
+	//
+	// Submits a consensus_leave tx signed by the GOVERNANCE key with
+	// from=targetDid. The ABCI (from GOVERNANCE_LEAVE_HEIGHT onward)
+	// accepts governance-signed consensus_leave, so the tx passes
+	// CheckTx, enters a block, and triggers a ValidatorUpdate with
+	// power=0 — CometBFT removes the validator at height H+2.
+	//
+	// NOTE: this requires the ABCI update to be deployed to ALL
+	// validators before use. If any validator is running old code,
+	// their CheckTx will reject the tx with "signature failed" and
+	// it won't propagate through gossip.
+	app.post<{ Body: Record<string, unknown> }>("/v1/admin/remove-validator", async (req, reply) => {
+		const did = String(req.body["did"] ?? "");
+		const headerKey = (req.headers["x-admin-key"] as string | undefined) ?? "";
+		const bodyKey = String(req.body["admin_key"] ?? req.body["adminKey"] ?? "");
+		const adminKey = headerKey || bodyKey;
+
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+		if (!did) {
+			return reply.status(400).send({ error: "Required: did" });
+		}
+
+		if (!governanceSeed) {
+			return reply.status(500).send({ error: "Governance key not loaded" });
+		}
+
+		// Sign a consensus_leave tx with from=targetDid but using the
+		// governance key. The ABCI accepts this at GOVERNANCE_LEAVE_HEIGHT.
+		const result = await signAndBroadcast(
+			"consensus_leave" as never, did, did, "0",
+		);
+
+		if (result.applied) {
+			await log(`ADMIN remove-validator: ${did.slice(0, 30)}... removed from consensus, hash=${result.hash}`);
+			return { status: "removed", did, tx_hash: result.hash, height: result.height };
+		}
+		return reply.status(500).send({
+			error: "consensus_leave tx failed",
+			detail: result.error,
+			did,
+			note: "If this says 'signature failed', the ABCI update has not been deployed to all validators yet. The governance-signed consensus_leave activates at GOVERNANCE_LEAVE_HEIGHT (345000).",
+		});
+	});
+
 	// ── Consciousness Store ──────────────────────────────────────
 
 	/**
