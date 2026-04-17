@@ -21,5 +21,6 @@
       "destination": "/pioneer.html",
       "statusCode": 301
     }
-  ]
+  ],
+  "outputDirectory": "src"
 }
