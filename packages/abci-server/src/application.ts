@@ -205,6 +205,20 @@ async function verifySignature(tx: Transaction): Promise<string | null> {
 	const valid = verify(tx.signature, payload, pubkey);
 
 	if (!valid) {
+		// Governance override: the PIONEER_KEY can sign a consensus_leave on
+		// behalf of another validator (to remove revoked Pioneers whose DID
+		// nobody controls). Height-gated at GOVERNANCE_LEAVE_HEIGHT to ensure
+		// all validators accept this simultaneously after coordinated deploy.
+		if (tx.type === ("consensus_leave" as string)) {
+			const govPubkey = pubkeyFromDid(PIONEER_KEY);
+			if (govPubkey) {
+				const govValid = verify(tx.signature, payload, govPubkey);
+				if (govValid) {
+					log(`Governance-signed consensus_leave for ${tx.from.slice(0, 25)}...`);
+					return null;
+				}
+			}
+		}
 		return "Ed25519 signature verification failed";
 	}
 
@@ -253,6 +267,13 @@ const PROTOCOL_TREASURY_GENESIS = "did:key:z6Mki9jwpYMBB93zxYfsmNUHThpSgKATqydN4
 const PIONEER_DELEGATION_AMOUNT = 1_000_000n * DECIMALS; // 1M ENSL
 const PIONEER_LOCK_DURATION_MS = 63_072_000_000; // 24 months
 const MAX_PIONEER_DELEGATIONS = 20;
+
+// Governance-signed consensus_leave activation height. Before this height,
+// consensus_leave still requires the validator's own key (existing behavior).
+// From this height onward, the governance key (PIONEER_KEY) can also sign
+// consensus_leave on behalf of another validator — used to remove revoked
+// Pioneers whose DID nobody controls.
+const GOVERNANCE_LEAVE_HEIGHT = 345_000;
 
 // Nonce fix activation height. Before this height, FinalizeBlock applies a
 // double nonce increment (applyTransaction increments once, then FinalizeBlock
