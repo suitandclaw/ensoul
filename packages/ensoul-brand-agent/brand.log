@@ -1,0 +1,25 @@
+
+> @ensoul/brand-agent@0.1.0 start
+> npx tsx src/index.ts
+
+[2026-04-15T03:51:54.485Z] Brand Agent starting
+[2026-04-15T03:51:54.492Z] Bluesky configured
+[2026-04-15T03:51:54.722Z] Brand Agent running. Stats slot 9:00 EST, educational 14:00 EST, max 4 posts/day.
+[2026-04-15T13:00:57.687Z] Bluesky logged in as ensoulnetwork.bsky.social
+[2026-04-15T13:00:58.032Z] Posted: at://did:plc:2r3qttjasu4iqdebsbs35vjd/app.bsky.feed.post/3mjjxbdao7f2e
+[2026-04-15T13:00:58.033Z] Stats posted (posts 1/4, slots: [stats-2026-04-15])
+[2026-04-15T18:00:56.065Z] Educational pick: agent-identity-with-did.md (2 skeets)
+[2026-04-15T18:00:56.838Z] Posted 1/2: at://did:plc:2r3qttjasu4iqdebsbs35vjd/app.bsky.feed.post/3mjkhzqayci25
+[2026-04-15T18:00:57.961Z] Posted 2/2: at://did:plc:2r3qttjasu4iqdebsbs35vjd/app.bsky.feed.post/3mjkhzrd5wj2e
+[2026-04-15T18:00:57.961Z] Educational posted (posts 2/4, slots: [stats-2026-04-15, edu-2026-04-15])
+[2026-04-15T18:11:06.088Z] network/status fetch failed: The operation was aborted due to timeout
+[2026-04-16T13:01:03.453Z] Posted: at://did:plc:2r3qttjasu4iqdebsbs35vjd/app.bsky.feed.post/3mjmhqfhmku2k
+[2026-04-16T13:01:03.455Z] Stats posted (posts 1/4, slots: [stats-2026-04-16])
+[2026-04-16T18:00:57.388Z] Educational pick: consciousness-age-explained.md (2 skeets)
+[2026-04-16T18:00:58.138Z] Posted 1/2: at://did:plc:2r3qttjasu4iqdebsbs35vjd/app.bsky.feed.post/3mjmyiox2rl2m
+[2026-04-16T18:00:59.296Z] Posted 2/2: at://did:plc:2r3qttjasu4iqdebsbs35vjd/app.bsky.feed.post/3mjmyipzi5f26
+[2026-04-16T18:00:59.298Z] Educational posted (posts 2/4, slots: [stats-2026-04-16, edu-2026-04-16])
+[2026-04-17T13:01:00.590Z] Posted: at://did:plc:2r3qttjasu4iqdebsbs35vjd/app.bsky.feed.post/3mjoy7ammxs2f
+[2026-04-17T13:01:00.593Z] Stats posted (posts 1/4, slots: [stats-2026-04-17])
+[2026-04-17T14:53:58.802Z] Posted: at://did:plc:2r3qttjasu4iqdebsbs35vjd/app.bsky.feed.post/3mjp6jat42e2t
+[2026-04-17T14:53:58.804Z] Block milestone posted: 350,000
