@@ -516,15 +516,17 @@ curl -s https://api.ensoul.dev/v1/network/status | python3 -c \
    print(f'Current: {h}  Remaining: {remain} blocks (~{mins:.0f} min)')"
 ```
 
-When height >= 380,000, execute:
+When height >= 380,000, execute removal #1 (ghost validator):
 
 ```bash
+ADMIN_KEY=$(cat ~/ensoul-shares/ADMIN-KEY.txt | grep ENSOUL_ADMIN_KEY | cut -d= -f2)
+
 curl -X POST https://api.ensoul.dev/v1/admin/force-remove-validator \
   -H "Content-Type: application/json" \
-  -H "X-Admin-Key: $(cat ~/ensoul-shares/ADMIN-KEY.txt | grep ENSOUL_ADMIN_KEY | cut -d= -f2)" \
+  -H "X-Admin-Key: $ADMIN_KEY" \
   -d '{
     "pub_key_b64": "D9aCrEsI5X4yOmL7E8Dyim1FAVWBSMqitY47jdlu8ZE=",
-    "reason": "Ghost validator from DID derivation bug, April 2026. Address 9ADF6FFE5B52A6936EBD6F4E193BC071807F5C38, 1M power, 0 blocks, no private key."
+    "reason": "Ghost validator from DID derivation bug. Address 9ADF6FFE5B52A6936EBD6F4E193BC071807F5C38, 1M power, 0 blocks, no private key."
   }'
 ```
 
@@ -538,24 +540,47 @@ Expected response:
 }
 ```
 
-### Post-Removal Verification
-
-Wait ~15 seconds (2 blocks), then:
+**Wait at least 2 blocks (~15 seconds)** for the ValidatorUpdate to take effect, then verify:
 
 ```bash
-# 1. Confirm validator count dropped from 27 to 26
-curl -s https://api.ensoul.dev/v1/network/status | python3 -c \
-  "import sys,json; d=json.load(sys.stdin); \
-   print(f'Validators: {d[\"validatorCount\"]}')"
-# PASS: 26
-
-# 2. Confirm ghost address is gone
 ssh -p 2222 ensoul@178.156.199.91 "curl -s http://localhost:26657/validators?per_page=50 | python3 -c \
   \"import sys,json; vs=json.load(sys.stdin)['result']['validators']; \
    ghost=[v for v in vs if v['address']=='9ADF6FFE5B52A6936EBD6F4E193BC071807F5C38']; \
-   print(f'Ghost present: {len(ghost) > 0}'); \
+   print(f'Ghost present: {len(ghost) > 0}  Total: {len(vs)}')\""
+# PASS: Ghost present: False, Total: 26
+```
+
+**Wait at least 1 more block** (rate limit: max 1 force_remove per block), then execute removal #2 (Batman's old validator):
+
+```bash
+curl -X POST https://api.ensoul.dev/v1/admin/force-remove-validator \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Key: $ADMIN_KEY" \
+  -d '{
+    "pub_key_b64": "9BkSZXmn5e7pycX4d12wmhtx4/u/ONKhrSE5C3VKfw0=",
+    "reason": "Batman old validator. DID did:key:z6Mkvt7hQMWtEHsDP1tqbiBXppLWrS7csmsTgkLfVFFskrPN, address F0885A9008947986A040EC8A45068795EE5F4C5E, 1M power, inactive."
+  }'
+```
+
+### Post-Removal Verification
+
+Wait ~15 seconds (2 blocks after the second removal), then:
+
+```bash
+# 1. Confirm validator count dropped from 27 to 25 (both removed)
+curl -s https://api.ensoul.dev/v1/network/status | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); \
+   print(f'Validators: {d[\"validatorCount\"]}')"
+# PASS: 25
+
+# 2. Confirm both addresses are gone
+ssh -p 2222 ensoul@178.156.199.91 "curl -s http://localhost:26657/validators?per_page=50 | python3 -c \
+  \"import sys,json; vs=json.load(sys.stdin)['result']['validators']; \
+   gone=['9ADF6FFE5B52A6936EBD6F4E193BC071807F5C38','F0885A9008947986A040EC8A45068795EE5F4C5E']; \
+   found=[v['address'] for v in vs if v['address'] in gone]; \
+   print(f'Ghosts still present: {found if found else \"none\"}'); \
    print(f'Total validators: {len(vs)}')\""
-# PASS: Ghost present: False, Total validators: 26
+# PASS: Ghosts still present: none, Total validators: 25
 
 # 3. Confirm chain still producing blocks
 curl -s https://api.ensoul.dev/v1/network/status | python3 -c \
@@ -591,5 +616,5 @@ The height gate (380,000) means the new code is dormant until activation. A reve
 
 - **Do NOT skip the CometBFT-first-stop / ABCI-first-start order.** Reversing it risks corrupted consensus WAL (Rule 19).
 - **Do NOT kill cloudflared, explorer, monitor, or API processes.** Only restart ABCI + CometBFT (Rule 14).
-- **Pioneer validators (external operators) do NOT need to update** for this change. The force_remove tx is submitted by the governance key. Pioneers running old code will see the ValidatorUpdate in the FinalizeBlock response and apply it normally (CometBFT handles it, not the ABCI).
+- **Pioneer validators MUST also update before Phase 6.** Each Pioneer runs their own ABCI instance. On old code, the `consensus_force_remove` tx hits `applyTransaction`'s `default: throw` case, which means `validatorUpdates` is empty for that block. New-code validators emit `power=0`. The AppHash is identical (no state mutation on either path), so there is no consensus halt. But the **validator set diverges**: new-code nodes drop the ghost, old-code nodes keep it. This causes voting-power math to differ across nodes. Contact each Pioneer operator and have them pull + rebuild before height 380,000. The update is backward-compatible (the new code is dormant below the activation height).
 - **The ghost validator's Pioneer application was already revoked** in the API layer (status = rejected, reason = "Revoked: delegation clawback"). This deployment removes it from CometBFT's active consensus set.
