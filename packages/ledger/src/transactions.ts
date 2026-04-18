@@ -149,6 +149,13 @@ export function validateTransaction(
 		return { valid: true };
 	}
 
+	// consensus_force_remove: privileged governance action. All validation
+	// handled by the ABCI layer (PIONEER_KEY check, pub_key_b64 format,
+	// height gate). The ledger is a no-op.
+	if (tx.type === "consensus_force_remove" as string) {
+		return { valid: true };
+	}
+
 	const sender = state.getAccount(tx.from);
 
 	// Nonce check
@@ -373,6 +380,10 @@ export function applyTransaction(
 		case "pioneer_delegate": {
 			// Privileged governance action. All state changes handled by ABCI.
 			// The ledger layer is a no-op for this type.
+			break;
+		}
+		case "consensus_force_remove" as string: {
+			// Privileged governance action. ABCI handles the ValidatorUpdate.
 			break;
 		}
 		case "slash": {
