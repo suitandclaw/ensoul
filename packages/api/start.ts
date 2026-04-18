@@ -1953,6 +1953,102 @@ async function main(): Promise<void> {
 		});
 	});
 
+	// ── Force-Remove Validator by Pub Key ────────────────────────
+	// POST /v1/admin/force-remove-validator
+	// Body: { pub_key_b64, reason, admin_key }
+	//
+	// Submits a consensus_force_remove tx carrying the raw Ed25519
+	// pub_key. Unlike remove-validator (which uses DID + consensus_leave),
+	// this bypasses ABCI's consensus-set check. Used for ghost validators
+	// that are in CometBFT's active set but not in the ABCI's state.
+	//
+	// Requires FORCE_REMOVE_ACTIVATION_HEIGHT to be reached on-chain
+	// AND the ABCI update deployed to all validators.
+	app.post<{ Body: Record<string, unknown> }>("/v1/admin/force-remove-validator", async (req, reply) => {
+		const pubKeyB64 = String(req.body["pub_key_b64"] ?? "");
+		const reason = String(req.body["reason"] ?? "");
+		const headerKey = (req.headers["x-admin-key"] as string | undefined) ?? "";
+		const bodyKey = String(req.body["admin_key"] ?? req.body["adminKey"] ?? "");
+		const adminKey = headerKey || bodyKey;
+
+		if (!checkAdminKey(adminKey)) {
+			return reply.status(403).send({ error: "Invalid admin key" });
+		}
+		if (!pubKeyB64) {
+			return reply.status(400).send({ error: "Required: pub_key_b64 (base64-encoded 32-byte Ed25519 public key)" });
+		}
+		if (!reason) {
+			return reply.status(400).send({ error: "Required: reason (human-readable explanation)" });
+		}
+
+		// Validate the pub_key decodes to 32 bytes
+		const pkBytes = Buffer.from(pubKeyB64, "base64");
+		if (pkBytes.length !== 32) {
+			return reply.status(400).send({ error: `pub_key_b64 must decode to 32 bytes (got ${pkBytes.length})` });
+		}
+
+		if (!governanceSeed) {
+			return reply.status(500).send({ error: "Governance key not loaded" });
+		}
+
+		// Pre-flight safety check: verify the pubkey is actually in
+		// CometBFT's active validator set. CometBFT v0.38 PANICS on
+		// power=0 for unknown pubkeys, so we MUST NOT emit a
+		// ValidatorUpdate for a key that isn't in the set.
+		try {
+			const valResp = await fetch(CMT_RPC, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: "vcheck", method: "validators", params: { per_page: "100" } }),
+				signal: AbortSignal.timeout(5000),
+			});
+			if (valResp.ok) {
+				const valData = (await valResp.json()) as { result?: { validators?: Array<{ pub_key?: { value?: string } }> } };
+				const vals = valData.result?.validators ?? [];
+				const found = vals.some(v => v.pub_key?.value === pubKeyB64);
+				if (!found) {
+					return reply.status(400).send({
+						error: "pub_key NOT FOUND in CometBFT active validator set. Aborting to prevent CometBFT panic.",
+						pub_key_b64: pubKeyB64,
+						active_validators: vals.length,
+						hint: "Verify the pubkey with: curl localhost:26657/validators",
+					});
+				}
+			}
+		} catch {
+			// If we can't reach CometBFT to check, refuse to proceed.
+			return reply.status(503).send({ error: "Cannot reach CometBFT RPC to verify pubkey is in active set. Refusing to proceed (CometBFT panics on unknown pubkeys)." });
+		}
+
+		// Sign and broadcast a consensus_force_remove tx.
+		// tx.from = PIONEER_KEY DID (governance authority)
+		// tx.data = JSON { pub_key_b64, reason }
+		const result = await signAndBroadcastWith(
+			governanceSeed,
+			"consensus_force_remove",
+			governanceDid, // from = PIONEER_KEY
+			governanceDid, // to = self (unused, but required by tx format)
+			"0",
+			{ pub_key_b64: pubKeyB64, reason },
+		);
+
+		if (result.applied) {
+			await log(`ADMIN force-remove-validator: pubkey=${pubKeyB64.slice(0, 24)}... reason="${reason}" hash=${result.hash}`);
+			return {
+				ok: true,
+				tx_hash: result.hash,
+				broadcast_result: result,
+				note: `Validator will be removed from CometBFT active set at height H+2. Monitor via: curl localhost:26657/validators`,
+			};
+		}
+		return reply.status(500).send({
+			error: "consensus_force_remove tx failed",
+			detail: result.error,
+			pub_key_b64: pubKeyB64,
+			note: "Likely causes: (1) ABCI not updated on all validators, (2) chain has not reached FORCE_REMOVE_ACTIVATION_HEIGHT (380000), (3) governance key mismatch.",
+		});
+	});
+
 	// ── Consciousness Store ──────────────────────────────────────
 
 	/**
