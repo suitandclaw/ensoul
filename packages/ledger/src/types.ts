@@ -17,6 +17,7 @@ export type TransactionType =
 	| "redelegate"
 	| "consensus_join"
 	| "consensus_leave"
+	| "consensus_force_remove"
 	| "pioneer_delegate";
 
 /**

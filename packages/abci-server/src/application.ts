@@ -275,6 +275,12 @@ const MAX_PIONEER_DELEGATIONS = 20;
 // Pioneers whose DID nobody controls.
 const GOVERNANCE_LEAVE_HEIGHT = 345_000;
 
+// consensus_force_remove activation height. Before this height, the tx type
+// is rejected. Allows rolling deployment: validators can upgrade at any time,
+// but the new code path is dormant until all nodes have the update and the
+// chain reaches this height. ~15,000 blocks ahead of current tip (364,330).
+const FORCE_REMOVE_ACTIVATION_HEIGHT = 380_000;
+
 // Nonce fix activation height. Before this height, FinalizeBlock applies a
 // double nonce increment (applyTransaction increments once, then FinalizeBlock
 // again). At and after this height, only applyTransaction increments.
@@ -749,6 +755,40 @@ async function handleCheckTx(
 		return { checkTx: { code: 0, log: "ok", sender: tx.from, priority: 1 } };
 	}
 
+	// consensus_force_remove: governance-only, carries raw pub_key in data
+	if (tx.type === "consensus_force_remove" as TransactionType) {
+		if (tx.from !== PIONEER_KEY) {
+			return { checkTx: { code: 40, log: "consensus_force_remove requires governance key (PIONEER_KEY)" } };
+		}
+		if (!tx.data) {
+			return { checkTx: { code: 50, log: "consensus_force_remove requires data with pub_key_b64 and reason" } };
+		}
+		try {
+			const payload = JSON.parse(new TextDecoder().decode(tx.data)) as Record<string, unknown>;
+			const pkB64 = String(payload["pub_key_b64"] ?? "");
+			const reason = String(payload["reason"] ?? "");
+			const pkBytes = Buffer.from(pkB64, "base64");
+			if (pkBytes.length !== 32) {
+				return { checkTx: { code: 51, log: `pub_key_b64 must decode to exactly 32 bytes (got ${pkBytes.length})` } };
+			}
+			if (!reason || reason.length === 0) {
+				return { checkTx: { code: 52, log: "reason is required" } };
+			}
+			if (reason.length > 500) {
+				return { checkTx: { code: 53, log: "reason max 500 chars" } };
+			}
+		} catch {
+			return { checkTx: { code: 54, log: "consensus_force_remove data must be valid JSON with pub_key_b64 and reason" } };
+		}
+		// Height gate: reject before activation so the tx can't enter the mempool
+		// on validators that have upgraded but haven't reached the activation height.
+		const currentHeight = state.height;
+		if (currentHeight < FORCE_REMOVE_ACTIVATION_HEIGHT) {
+			return { checkTx: { code: 55, log: `consensus_force_remove activates at height ${FORCE_REMOVE_ACTIVATION_HEIGHT} (current: ${currentHeight})` } };
+		}
+		return { checkTx: { code: 0, log: "ok" } };
+	}
+
 	// Pioneer delegate: governance-only privileged transaction
 	if (tx.type === "pioneer_delegate" as TransactionType) {
 		if (tx.from !== PIONEER_KEY) {
@@ -829,6 +869,8 @@ async function handleFinalizeBlock(
 	// Execute each transaction
 	const txResults: Array<{ code: number; log: string }> = [];
 	let validTxCount = 0;
+	// Collected during the tx loop; emitted after validatorUpdates is initialized.
+	const forceRemovePubkeys: Array<{ pkBytes: Buffer; pkB64: string; reason: string }> = [];
 
 	for (const txBytes of rawTxs) {
 		const tx = decodeTx(txBytes as Buffer);
@@ -884,6 +926,53 @@ async function handleFinalizeBlock(
 				txResults.push({ code: 0, log: "upgrade cancelled" });
 			} else {
 				txResults.push({ code: 17, log: "no matching upgrade to cancel" });
+			}
+			continue;
+		}
+
+		// consensus_force_remove: governance-privileged validator removal
+		// by raw pub_key. Validation happens here; the ValidatorUpdate
+		// emission happens below AFTER validatorUpdates is initialized,
+		// alongside the other consensus_join/leave updates.
+		if (tx.type === "consensus_force_remove" as TransactionType) {
+			if (tx.from !== PIONEER_KEY) {
+				txResults.push({ code: 10, log: "unauthorized" });
+				continue;
+			}
+			if (height < FORCE_REMOVE_ACTIVATION_HEIGHT) {
+				txResults.push({ code: 55, log: `activates at height ${FORCE_REMOVE_ACTIVATION_HEIGHT}` });
+				continue;
+			}
+			try {
+				const dataBytes = tx.data instanceof Uint8Array ? tx.data : new Uint8Array(tx.data ?? []);
+				const payload = JSON.parse(new TextDecoder().decode(dataBytes)) as Record<string, unknown>;
+				const pkB64 = String(payload["pub_key_b64"] ?? "");
+				const reason = String(payload["reason"] ?? "");
+				const pkBytes = Buffer.from(pkB64, "base64");
+				if (pkBytes.length !== 32) {
+					txResults.push({ code: 51, log: `pub_key_b64 must decode to 32 bytes (got ${pkBytes.length})` });
+					continue;
+				}
+				if (!reason) {
+					txResults.push({ code: 52, log: "reason required" });
+					continue;
+				}
+				if (reason.length > 500) {
+					txResults.push({ code: 53, log: "reason max 500 chars" });
+					continue;
+				}
+				// Rate limit: max 1 force_remove per block
+				if (forceRemovePubkeys.length > 0) {
+					txResults.push({ code: 56, log: "max 1 consensus_force_remove per block" });
+					continue;
+				}
+				forceRemovePubkeys.push({ pkBytes, pkB64, reason });
+				log(`consensus_force_remove: pubkey=${pkB64} reason="${reason}" height=${height}`);
+				validTxCount++;
+				txResults.push({ code: 0, log: `force_remove: validator ${pkB64.slice(0, 16)}... will be removed at height ${height + 2}` });
+			} catch (e) {
+				const errMsg = e instanceof Error ? e.message : String(e);
+				txResults.push({ code: 54, log: `invalid force_remove data: ${errMsg}` });
 			}
 			continue;
 		}
@@ -1338,6 +1427,17 @@ async function handleFinalizeBlock(
 			updatedValidators.add(valDid);
 			log(`Power correction: ${valDid.slice(0, 25)}... power=${power}`);
 		}
+	}
+
+	// Emit force-remove ValidatorUpdates collected during the tx loop.
+	// These bypass the ABCI's consensus set tracking because the target
+	// validator was never consensus_join'd through ABCI state.
+	for (const fr of forceRemovePubkeys) {
+		validatorUpdates.push({
+			pubKey: { ed25519: fr.pkBytes },
+			power: "0",
+		});
+		log(`consensus_force_remove EMITTED: ${fr.pkB64.slice(0, 24)}... power=0 at height ${height} (effective H+2)`);
 	}
 
 	// Compute new app hash (include upgrade plan in the hash for determinism)
