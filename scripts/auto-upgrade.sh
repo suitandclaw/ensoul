@@ -139,9 +139,15 @@ cd "$REPO_DIR" || fail "Cannot cd to $REPO_DIR"
 # ── Step 1: Fetch tags from origin ──────────────────────────────────
 
 log "Fetching tags from origin..."
-if ! git fetch origin --tags 2>> "$LOG_FILE"; then
-    fail "git fetch origin --tags failed. Network issue or remote unreachable."
-fi
+fetch_attempt=0
+while ! git fetch origin --tags 2>> "$LOG_FILE"; do
+    fetch_attempt=$((fetch_attempt + 1))
+    if [ "$fetch_attempt" -ge 2 ]; then
+        fail "git fetch origin --tags failed after 2 attempts. Network issue or remote unreachable."
+    fi
+    log "git fetch failed, retrying in 10s..."
+    sleep 10
+done
 
 # ── Step 2: Force-reset to the target tag ───────────────────────────
 # git reset --hard is the correct primitive for automated upgrades:
@@ -178,13 +184,20 @@ log "Verified: HEAD is at $GIT_TAG ($(git rev-parse --short HEAD))"
 # ── Step 4: Rebuild ─────────────────────────────────────────────────
 
 if ! command -v pnpm >/dev/null 2>&1; then
-    # Try common pnpm locations
-    for p in "$HOME/.local/share/pnpm/pnpm" "/usr/local/bin/pnpm" "$HOME/.nvm/versions/node/*/bin/pnpm"; do
+    # Try common pnpm locations (fixed paths only, no globs in quotes)
+    for p in "$HOME/.local/share/pnpm/pnpm" "/usr/local/bin/pnpm"; do
         if [ -x "$p" ] 2>/dev/null; then
             export PATH="$(dirname "$p"):$PATH"
             break
         fi
     done
+    if ! command -v pnpm >/dev/null 2>&1; then
+        # Check nvm paths separately to allow glob expansion
+        nvm_pnpm=$(ls $HOME/.nvm/versions/node/*/bin/pnpm 2>/dev/null | head -1)
+        if [ -n "$nvm_pnpm" ] && [ -x "$nvm_pnpm" ]; then
+            export PATH="$(dirname "$nvm_pnpm"):$PATH"
+        fi
+    fi
     if ! command -v pnpm >/dev/null 2>&1; then
         fail "pnpm not found in PATH. Cannot rebuild. Install with: npm install -g pnpm"
     fi
