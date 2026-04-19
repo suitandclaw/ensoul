@@ -36,8 +36,6 @@ Existing blockchain validator observability falls into two camps:
   "height": 378000,
   "catching_up": false,
   "peers": 12,
-  "voting_power": 4285714,
-  "moniker": "ensoul-pioneer-jd",
   "cometbft_version": "0.38.17",
   "abci_version": "1.4.91",
   "uptime_seconds": 604800,
@@ -48,26 +46,44 @@ Existing blockchain validator observability falls into two camps:
 }
 ```
 
+The receiver enriches each heartbeat with chain-sourced data (moniker,
+voting power) looked up by DID at receipt time. The validator only
+reports what only it can know.
+
 ### Field justification
 
 | Field | Type | Required | Why |
 |---|---|---|---|
-| `version` | int | yes | Schema versioning for backward compat. |
+| `version` | int | yes | Must be exactly `1`. Receiver rejects any other value with 400. |
 | `chain_id` | string | yes | Prevents cross-chain replay. Signing domain. |
 | `did` | string | yes | On-chain identity. Lookup key for everything. |
 | `timestamp` | int (ms) | yes | Replay resistance. Unix epoch milliseconds. |
 | `height` | int | yes | Core health signal. Detects sync stall (height not increasing across heartbeats). |
 | `catching_up` | bool | yes | Detects regression from synced to catching-up. Direct from CometBFT `/status`. |
 | `peers` | int | yes | Detects peer isolation (peers=0 is the #1 failure mode we've seen). |
-| `voting_power` | int | yes | Detects removal from active set (power drops to 0). |
-| `moniker` | string | yes | Human-readable name for dashboards and alerts. |
-| `cometbft_version` | string | yes | Detects version drift from network consensus. |
-| `abci_version` | string | yes | Detects operators running old ABCI code (the exact problem we just spent days fixing). |
+| `cometbft_version` | string | yes | Detects version drift from network consensus. Self-reported, unverified (see note below). |
+| `abci_version` | string | yes | Detects operators running old ABCI code. Self-reported, unverified (see note below). |
 | `uptime_seconds` | int | optional | Detects frequent restarts. Seconds since ABCI process started. |
 | `restart_count` | int | optional | Number of ABCI restarts since wrapper started. Spikes indicate instability. |
 | `disk_used_pct` | int | optional | Detects impending disk-full crash. Integer 0-100. |
 | `mem_used_pct` | int | optional | Detects memory pressure. Integer 0-100. |
 | `signature` | string | yes | Ed25519 hex signature over all fields except `signature` itself. |
+
+**Note on self-reported versions:** `cometbft_version` and `abci_version`
+are read from the local CometBFT `/status` endpoint and the local
+`version.ts` file respectively. A compromised or modified validator could
+lie about these. This is acceptable for observability (version drift
+detection is a hint, not a security boundary). The chain itself is the
+source of truth for what code a validator actually runs.
+
+### Fields sourced from the chain (NOT in the payload)
+
+The receiver looks these up by DID from on-chain state at receipt time:
+
+| Field | Source | Why not self-reported |
+|---|---|---|
+| `moniker` | CometBFT validator set / Pioneer application | Trust the chain. Operator could claim any name. |
+| `voting_power` | CometBFT validator set | Trust the chain. A removed validator could lie about having power. |
 
 ### Fields explicitly excluded
 
@@ -82,7 +98,7 @@ Existing blockchain validator observability falls into two camps:
 
 ### Size budget
 
-Typical payload: ~600 bytes JSON. With signature: ~730 bytes. Well under the 1KB target at 1/minute.
+Typical payload: ~500 bytes JSON. With signature: ~630 bytes. Well under the 1KB target at 1/minute.
 
 ---
 
@@ -224,11 +240,24 @@ HEALTHY:
   None of the above conditions apply.
 ```
 
-### State transitions
+### State transitions and alerting
 
-State changes are logged. Transitions from healthy/degraded to unhealthy/offline trigger alerts (if contact is registered). Transitions back to healthy trigger a recovery notification.
+State changes are logged. Alert dispatch rules:
 
-Debounce: no more than 1 alert per DID per 30 minutes. Prevents alert storms during flapping.
+1. **First transition to unhealthy/offline fires immediately.** When a
+   DID transitions from healthy or degraded to unhealthy or offline for
+   the first time (or for the first time after 30 minutes of silence),
+   the alert fires with zero delay. An operator whose validator just
+   went dark needs to know in seconds, not minutes.
+
+2. **Subsequent transitions within the same 30-minute window are
+   debounced.** If the same DID transitions again within 30 minutes of
+   the last alert (e.g., flapping between unhealthy and degraded), no
+   additional alert fires. This prevents spam loops.
+
+3. **Recovery notifications always fire.** A transition back to healthy
+   always sends a notification regardless of debounce state. Operators
+   need positive confirmation that the problem resolved.
 
 ---
 
@@ -294,8 +323,6 @@ NET_INFO=$(curl -s -m 5 http://localhost:26657/net_info)
 HEIGHT=$(echo "$STATUS" | python3 -c "...")
 CATCHING_UP=$(echo "$STATUS" | python3 -c "...")
 PEERS=$(echo "$NET_INFO" | python3 -c "...")
-VOTING_POWER=$(echo "$STATUS" | python3 -c "...")
-MONIKER=$(echo "$STATUS" | python3 -c "...")
 CMT_VERSION=$(echo "$STATUS" | python3 -c "...")
 
 # System metrics
@@ -348,16 +375,17 @@ Log rotation: keep last 1000 lines (truncate on startup if larger).
 Every heartbeat and contact registration includes a `version` field.
 
 **Receiver behavior:**
-- Known version: accept and process.
-- Unknown version > current: accept but store raw (future-proof). Log a warning.
-- Version 0 or missing: reject with 400 and body `{"error": "version field required", "current_version": 1}`.
+- Version `1`: accept and process.
+- Any other value (including 0, missing, or values > 1): reject with 400 and body `{"error": "unsupported version", "supported_versions": [1]}`.
 
-**Client upgrade path:** When the receiver rejects with 400 + version info, the client logs a warning: `"[heartbeat] Server requires version N, client sends version M. Update your validator."` This surfaces in the operator's heartbeat.log without breaking anything.
+There is no forward-compatibility. When v2 is defined, the receiver will be updated to accept both `1` and `2` simultaneously. Until then, unknown versions are rejected — not stored, not guessed at.
+
+**Client upgrade path:** When the receiver rejects with 400, the client logs a warning: `"[heartbeat] Server rejected version M. Update your validator."` This surfaces in the operator's heartbeat.log without breaking anything. The client continues attempting to send on every cycle (the rejection is cheap).
 
 **Schema evolution rules:**
 - New optional fields can be added without bumping version.
 - Removing a required field or changing semantics of an existing field requires a version bump.
-- The receiver supports the current version and one previous version simultaneously.
+- When a new version is introduced, the receiver accepts both the new and previous version simultaneously. Old versions are deprecated with a release cycle, not dropped immediately.
 
 ---
 
