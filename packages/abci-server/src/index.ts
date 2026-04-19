@@ -18,6 +18,7 @@ async function main(): Promise<void> {
 	process.stdout.write("\n");
 	process.stdout.write("  ENSOUL ABCI 2.0 SERVER\n");
 	process.stdout.write("  CometBFT Application Interface\n");
+	process.stdout.write("[test-upgrade] v3 code running\n");
 	process.stdout.write("\n");
 
 	// Load protobuf definitions
