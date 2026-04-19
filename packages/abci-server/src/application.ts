@@ -258,7 +258,7 @@ interface CompletedUpgrade {
 }
 
 // Pioneer key DID (governance authority for upgrade proposals and Pioneer delegations)
-const PIONEER_KEY = "did:key:z6Mktm7VkikyjRLYERUwgbfmsqkrB2Evdh4AZBXurPXQsNQD";
+const PIONEER_KEY = "did:key:z6MkiewFKEurCmchb4HV98oD3Rjbw4yqxQGnivYJ6otzLF7X";
 
 // Protocol Treasury genesis account (source of Pioneer delegation funds)
 const PROTOCOL_TREASURY_GENESIS = "did:key:z6Mki9jwpYMBB93zxYfsmNUHThpSgKATqydN4xJA1xcxGecm";
