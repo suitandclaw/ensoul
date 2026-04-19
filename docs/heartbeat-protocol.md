@@ -74,7 +74,49 @@ are read from the local CometBFT `/status` endpoint and the local
 `version.ts` file respectively. A compromised or modified validator could
 lie about these. This is acceptable for observability (version drift
 detection is a hint, not a security boundary). The chain itself is the
-source of truth for what code a validator actually runs.
+source of truth for what code a validator actually runs. Alerts driven by
+`abci_version` or `cometbft_version` drift are advisory. They detect
+honest operator lag, not malicious behavior. Do not treat them as a
+security signal.
+
+### Canonical signing form
+
+The signed message is the JCS canonical JSON encoding (RFC 8785) of the
+payload with the `signature` field removed. Clients MUST use an RFC 8785
+compliant serializer. Different key orderings will produce different
+signatures and fail verification.
+
+Both the Linux systemd client and the macOS launchd client must use
+compatible JCS libraries. The TypeScript receiver uses the same JCS
+implementation for verification.
+
+### Timestamp validation
+
+Two rules govern the `timestamp` field:
+
+1. **Skew tolerance.** The receiver rejects heartbeats where
+   `|timestamp - receiver_now|` exceeds 300000 ms (5 minutes) with 400
+   and body `{"error": "timestamp out of range"}`.
+
+2. **Monotonicity.** The receiver rejects heartbeats where
+   `timestamp <= last_stored_timestamp[did]` with 400 and body
+   `{"error": "replayed or out-of-order timestamp"}`.
+
+### Bounds validation
+
+The receiver validates numeric and string fields before processing:
+
+| Field | Constraint | On violation |
+|---|---|---|
+| `disk_used_pct` | Integer in [0, 100] | Reject 400 |
+| `mem_used_pct` | Integer in [0, 100] | Reject 400 |
+| `peers` | Integer >= 0 | Reject 400 |
+| `height` | Integer >= 0 | Reject 400 |
+| `uptime_seconds` | Integer >= 0 | Reject 400 |
+| `restart_count` | Integer >= 0 | Reject 400 |
+| `signature` | Exactly 128 hex characters | Reject 400 |
+| `did` | Max 256 characters | Reject 400 |
+| `chain_id` | Exactly `"ensoul-1"` | Reject 400 |
 
 ### Fields sourced from the chain (NOT in the payload)
 
@@ -102,17 +144,33 @@ Typical payload: ~500 bytes JSON. With signature: ~630 bytes. Well under the 1KB
 
 ---
 
-## 2. Signing and verification
+## 2. DID admission
+
+The receiver looks up the submitted DID against on-chain state at receipt
+time. If the DID is not in the active CometBFT validator set AND not in
+the approved Pioneer application set, the receiver rejects with 403 and
+body `{"error": "unknown DID"}`.
+
+Signature verification runs AFTER the admission check to avoid wasting
+CPU on unknown DIDs. The processing order is:
+
+1. Parse JSON and validate required fields (400 on failure)
+2. Bounds validation (400 on failure)
+3. Timestamp validation (400 on failure)
+4. DID admission check (403 on failure)
+5. Signature verification (403 on failure)
+6. Per-DID rate limit check (429 on failure)
+7. Accept and process
+
+---
+
+## 3. Signing and verification
 
 ### What is signed
 
-The signing payload is the JSON-serialized heartbeat with the `signature` field removed, keys sorted alphabetically:
-
-```
-JSON.stringify(payload_without_signature, Object.keys(payload_without_signature).sort())
-```
-
-Canonical key ordering prevents non-deterministic serialization from breaking verification.
+The signed message is the JCS canonical JSON encoding (RFC 8785) of the
+heartbeat payload with the `signature` field removed. See "Canonical
+signing form" in Section 1.
 
 ### Signing domain
 
@@ -122,39 +180,36 @@ The signing payload implicitly includes `chain_id` and `did` as fields, which bi
 
 Ed25519 using the validator's on-chain identity key (the same key that signs transactions). The receiver extracts the public key from the DID (`did:key:z...` multicodec decode) and verifies against it.
 
-### Replay resistance
-
-The receiver rejects heartbeats where `abs(server_time - payload.timestamp) > 120_000` (2 minutes). This allows for clock drift between validator and receiver while preventing replay of captured heartbeats.
-
-The receiver also tracks the last-seen timestamp per DID and rejects heartbeats with `timestamp <= last_seen_timestamp` (strict monotonic increase).
-
 ### Verification pseudocode
 
 ```typescript
 function verifyHeartbeat(payload: Heartbeat): boolean {
+  // Full processing order is in Section 2. This pseudocode covers
+  // signature verification only (step 5 of Section 2).
+
   // 1. Extract pubkey from DID
   const pubkey = pubkeyFromDid(payload.did);
   if (!pubkey) return false;
 
-  // 2. Check timestamp freshness
-  if (Math.abs(Date.now() - payload.timestamp) > 120_000) return false;
+  // 2. Check timestamp freshness (5 minute skew tolerance)
+  if (Math.abs(Date.now() - payload.timestamp) > 300_000) return false;
 
   // 3. Check monotonic increase
   const lastSeen = lastTimestamps.get(payload.did);
   if (lastSeen && payload.timestamp <= lastSeen) return false;
 
-  // 4. Reconstruct signing payload
+  // 4. Reconstruct signing payload (JCS canonical form)
   const { signature, ...rest } = payload;
-  const sorted = JSON.stringify(rest, Object.keys(rest).sort());
+  const canonical = jcsSerialize(rest);
 
   // 5. Verify Ed25519
-  return ed25519.verify(hexToBytes(signature), encode(sorted), pubkey);
+  return ed25519.verify(hexToBytes(signature), encode(canonical), pubkey);
 }
 ```
 
 ---
 
-## 3. Transport and endpoint
+## 4. Transport and endpoint
 
 **Endpoint:** `POST /v1/telemetry/heartbeat`
 
@@ -168,23 +223,35 @@ X-Ensoul-Version: 1
 
 **HTTPS only.** Plaintext HTTP rejected at the load balancer.
 
-**Rate limiting:** Per-DID, not per-IP. Maximum 2 heartbeats per minute per DID. Excess returns 429 with `Retry-After: 30`. This allows the normal 1/minute cadence plus one retry without enabling flood.
-
-Rate limit is keyed on the `did` field AFTER signature verification. An unsigned or forged heartbeat is rejected at 403 before rate-limit accounting.
-
 **Response codes:**
 
 | Code | Meaning |
 |---|---|
-| 200 | Accepted. Body: `{"ok": true, "health": "healthy"}` |
-| 400 | Bad payload (missing fields, unknown version, bad JSON) |
-| 403 | Signature invalid or DID not in active validator set |
+| 200 | Accepted. Body: `{"status": "ok", "server_time": <unix_ms>}`. The `server_time` field lets clients detect clock skew. |
+| 400 | Bad payload (missing fields, unknown version, bad JSON, bounds violation, timestamp out of range) |
+| 403 | Unknown DID or signature invalid |
 | 429 | Rate limited. `Retry-After` header present. |
 | 503 | Receiver temporarily unavailable. Client should retry. |
 
 ---
 
-## 4. Server-side storage model
+## 5. Rate limiting
+
+The receiver applies per-IP rate limits BEFORE signature verification to
+prevent forged-heartbeat CPU exhaustion.
+
+**Per-IP limit:** 30 requests per minute per source IP across all
+telemetry endpoints (`/v1/telemetry/*`). Exceeded: 429 with
+`Retry-After` header.
+
+**Per-DID limit:** 2 heartbeats per minute per DID. Applied AFTER
+signature verification (only verified heartbeats count against the DID
+quota). Exceeded: 429 with `Retry-After: 30`. This allows the normal
+1/minute cadence plus one retry without enabling flood.
+
+---
+
+## 6. Server-side storage model
 
 ### Per-DID state (in-memory + JSON persistence)
 
@@ -205,17 +272,22 @@ interface ValidatorTelemetry {
 
 File: `~/.ensoul/telemetry-state.json`. Written every 60 seconds (not on every heartbeat). Loaded at API boot.
 
-### Retention
-
-Only the last heartbeat per DID is stored. No history beyond the 10-entry `heightHistory` ring buffer. Historical trend analysis is out of scope for v1.
-
 ### Index
 
-In-memory `Map<did, ValidatorTelemetry>`. At 30 validators this is trivially small. No database needed.
+In-memory `Map<did, ValidatorTelemetry>`. At current scale (20 foundation + 20 Pioneer = 40 validators) this is trivially small. No database needed.
 
 ---
 
-## 5. Health state computation
+## 7. Storage and retention
+
+Raw heartbeats retained for 7 days. After 7 days, compacted to hourly
+aggregates (min/max/avg of each numeric field per DID per hour) retained
+for 90 days. Contact registrations retained indefinitely until superseded
+or explicitly revoked.
+
+---
+
+## 8. Health state computation
 
 Computed on every incoming heartbeat AND on a 60-second background tick (to detect offline validators that stopped sending heartbeats).
 
@@ -240,6 +312,11 @@ HEALTHY:
   None of the above conditions apply.
 ```
 
+**Majority version quorum:** Version drift is only evaluated when at
+least 10 validators have reported in the last 10 minutes. Below quorum,
+version-drift conditions do not contribute to DEGRADED state. Majority
+means strict majority (more than 50 percent of reporting validators).
+
 ### State transitions and alerting
 
 State changes are logged. Alert dispatch rules:
@@ -252,16 +329,26 @@ State changes are logged. Alert dispatch rules:
 
 2. **Subsequent transitions within the same 30-minute window are
    debounced.** If the same DID transitions again within 30 minutes of
-   the last alert (e.g., flapping between unhealthy and degraded), no
-   additional alert fires. This prevents spam loops.
+   the last alert sent for this DID (e.g., flapping between unhealthy
+   and degraded), no additional alert fires. This prevents spam loops.
 
 3. **Recovery notifications always fire.** A transition back to healthy
    always sends a notification regardless of debounce state. Operators
    need positive confirmation that the problem resolved.
 
+4. **Offline reminders.** A DID that remains offline fires a reminder
+   alert every 60 minutes until it recovers. Reminder alerts use the
+   same delivery channels as the initial offline alert and are labeled
+   "REMINDER" in the message subject.
+
+**Degraded transitions are dashboard-only.** Transitions to degraded do
+NOT dispatch push alerts. They appear on the status dashboard only.
+Operators are expected to check the dashboard for degraded signals. This
+is intentional to avoid alert fatigue on lower-severity conditions.
+
 ---
 
-## 6. Operator contact registration
+## 9. Operator contact registration
 
 ### Registration payload
 
@@ -281,7 +368,7 @@ State changes are logged. Alert dispatch rules:
 
 **Endpoint:** `POST /v1/telemetry/contact`
 
-Signed with the same Ed25519 key as heartbeats. Only the DID owner can register or update their contact methods.
+Signed with the same Ed25519 key as heartbeats. Only the DID owner can register or update their contact methods. The same timestamp validation rules from Section 1 apply: skew tolerance of 300000 ms and strict monotonic increase per DID.
 
 ### Supported contact types for v1
 
@@ -310,7 +397,7 @@ Contact registration is fully optional. Validators with no registered contact st
 
 ---
 
-## 7. Client-side behavior
+## 10. Client-side behavior
 
 ### Data collection (runs every 60 seconds)
 
@@ -335,7 +422,7 @@ ABCI_VERSION=$(cat ~/ensoul/packages/node/src/version.ts | grep VERSION | ...)
 
 ### Signing
 
-The client loads the validator's Ed25519 seed from `~/.ensoul/identity.json` (or `~/.cometbft-ensoul/node/config/priv_validator_key.json`), constructs the payload, signs it, and appends the signature.
+The client loads the validator's Ed25519 seed from `~/.ensoul/identity.json` (or `~/.cometbft-ensoul/node/config/priv_validator_key.json`), constructs the payload, serializes it using JCS (RFC 8785) with the `signature` field omitted, signs the canonical bytes, and appends the hex-encoded signature.
 
 ### Posting
 
@@ -370,7 +457,7 @@ Log rotation: keep last 1000 lines (truncate on startup if larger).
 
 ---
 
-## 8. Backward compatibility and upgrade path
+## 11. Backward compatibility and upgrade path
 
 Every heartbeat and contact registration includes a `version` field.
 
@@ -378,7 +465,7 @@ Every heartbeat and contact registration includes a `version` field.
 - Version `1`: accept and process.
 - Any other value (including 0, missing, or values > 1): reject with 400 and body `{"error": "unsupported version", "supported_versions": [1]}`.
 
-There is no forward-compatibility. When v2 is defined, the receiver will be updated to accept both `1` and `2` simultaneously. Until then, unknown versions are rejected — not stored, not guessed at.
+There is no forward-compatibility. When v2 is defined, the receiver will be updated to accept both `1` and `2` simultaneously. Until then, unknown versions are rejected, not stored, not guessed at.
 
 **Client upgrade path:** When the receiver rejects with 400, the client logs a warning: `"[heartbeat] Server rejected version M. Update your validator."` This surfaces in the operator's heartbeat.log without breaking anything. The client continues attempting to send on every cycle (the rejection is cheap).
 
@@ -389,31 +476,31 @@ There is no forward-compatibility. When v2 is defined, the receiver will be upda
 
 ---
 
-## 9. Threat model
+## 12. Threat model
 
 ### Defended
 
 | Threat | Defense |
 |---|---|
 | **Impersonation** (attacker posts heartbeat as validator X) | Ed25519 signature verified against DID's public key. Attacker needs X's private key. |
-| **Replay** (captured heartbeat replayed later) | Timestamp must be within 2 minutes of server clock. Monotonic increase enforced per DID. |
+| **Replay** (captured heartbeat replayed later) | Timestamp must be within 5 minutes of server clock. Monotonic increase enforced per DID. |
 | **Cross-chain replay** (heartbeat from testnet replayed on mainnet) | `chain_id` is part of the signed payload. |
 | **Unauthorized contact registration** (attacker registers their own contact for validator X) | Contact registration is signed with X's key. |
 | **Alert flooding** (attacker triggers rapid state transitions to spam alerts) | 30-minute debounce per DID. |
+| **Forged-heartbeat CPU exhaustion** (flood of unsigned payloads to waste signature verification CPU) | Per-IP rate limit (30/min) applied before signature verification. DID admission check before signature verification. |
 
 ### Not defended (acceptable)
 
 | Threat | Why acceptable |
 |---|---|
 | **Validator lying about its own state** (reporting healthy when actually down) | The chain itself is the source of truth for block signatures. Heartbeats are hints for operators, not authoritative for consensus. A lying validator still misses blocks, which is observable on-chain. |
-| **DoS on the receiver** (flood of signed heartbeats from many DIDs) | Mitigated by per-DID rate limiting (2/min). A determined attacker with many valid DIDs could flood, but creating valid DIDs requires on-chain registration. Acceptable at our scale. |
+| **DoS on the receiver** (flood of signed heartbeats from many DIDs) | Mitigated by per-DID rate limiting (2/min) and per-IP rate limiting (30/min). A determined attacker with many valid DIDs could flood, but creating valid DIDs requires on-chain registration. Acceptable at our scale. |
 | **Passive traffic analysis** (observer learns which IPs are validators) | HTTPS encrypts payload content. The receiver IP (api.ensoul.dev) is public anyway. Source IPs are visible to network observers but not to the Ensoul team (we don't log source IPs from heartbeats). |
 
 ---
 
-## 10. What we DON'T do in v1
+## 13. What we DON'T do in v1
 
-- **Historical trend graphs.** v1 stores last-known state only. Time-series visualization is a v2 feature.
 - **Complex alerting rules.** v1 alerts on state transitions (healthy to unhealthy). Custom thresholds, escalation chains, and PagerDuty integration are v2.
 - **Multi-region receiver redundancy.** Single endpoint on api.ensoul.dev. If the API is down, heartbeats fail silently and validators continue operating.
 - **Proactive probes.** The receiver never initiates connections to validators. This is passive-push only.
@@ -434,7 +521,7 @@ There is no forward-compatibility. When v2 is defined, the receiver will be upda
 
 **Considered:** Validators submit a `heartbeat` transaction every N blocks, recorded on-chain.
 
-**Rejected because:** Adds unnecessary chain load (27 validators x 1 tx/minute = 27 tx/min = significant fraction of block space). Burns gas/fees. The chain already records block signatures, which is the authoritative liveness signal. Off-chain telemetry is appropriate for the richer metadata (peers, disk, version) that doesn't belong on-chain.
+**Rejected because:** Adds unnecessary chain load (40 validators x 1 tx/min = 40 tx/min = significant fraction of block space). Burns gas/fees. The chain already records block signatures, which is the authoritative liveness signal. Off-chain telemetry is appropriate for the richer metadata (peers, disk, version) that doesn't belong on-chain.
 
 ### Alternative 3: Prometheus metrics endpoint on each validator
 
