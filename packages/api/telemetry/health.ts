@@ -32,6 +32,8 @@ export class HealthEngine {
         alertSentAt: 0,
         consecutivePeersZero: 0,
         consecutiveCatchingUp: 0,
+        lastHeartbeatTs: payload.timestamp,
+        lastContactTs: 0,
       };
       this.store.set(did, entry);
       return; // First heartbeat: start healthy, no alert

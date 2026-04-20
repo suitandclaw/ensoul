@@ -13,17 +13,18 @@ interface CacheEntry {
 }
 
 type AbciQueryFn = (path: string) => Promise<Record<string, unknown> | null>;
+type PioneerAppsGetter = () => PioneerApp[];
 
 const CACHE_TTL_MS = 60_000;
 
 export class AdmissionChecker {
   private readonly abciQuery: AbciQueryFn;
-  private readonly pioneerApps: PioneerApp[];
+  private readonly getPioneerApps: PioneerAppsGetter;
   private readonly cache = new Map<string, CacheEntry>();
 
-  constructor(abciQuery: AbciQueryFn, pioneerApps: PioneerApp[]) {
+  constructor(abciQuery: AbciQueryFn, getPioneerApps: PioneerAppsGetter) {
     this.abciQuery = abciQuery;
-    this.pioneerApps = pioneerApps;
+    this.getPioneerApps = getPioneerApps;
   }
 
   async isAdmitted(did: string): Promise<boolean> {
@@ -59,8 +60,8 @@ export class AdmissionChecker {
       // ABCI unreachable: fall through to Pioneer check
     }
 
-    // Check approved Pioneer applications (in-memory array)
-    for (const app of this.pioneerApps) {
+    // Check approved Pioneer applications (live getter, reflects runtime approvals)
+    for (const app of this.getPioneerApps()) {
       if (app.did === did && app.status === "approved") return true;
     }
 
