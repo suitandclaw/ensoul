@@ -130,7 +130,7 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     HEAD_COMMIT_TIME=$(git log -1 --format=%ct HEAD)
     STALE_SERVICES=""
 
-    for svc in "$ABCI_SVC" "$CMT_SVC" ensoul-api ensoul-proxy ensoul-monitor ensoul-explorer ensoul-telegram-bot; do
+    for svc in "$ABCI_SVC" "$CMT_SVC" ensoul-api ensoul-proxy ensoul-heartbeat ensoul-monitor ensoul-explorer ensoul-telegram-bot; do
         [ -z "$svc" ] && continue
         if systemctl is-active "$svc" >/dev/null 2>&1; then
             SVC_START=$(systemctl show "$svc" -p ActiveEnterTimestamp --value 2>/dev/null || \
@@ -186,7 +186,7 @@ if [ "$LOCAL" = "$REMOTE" ]; then
             systemctl start "$CMT_SVC"
             sleep 5
 
-            for extra_svc in ensoul-api ensoul-proxy ensoul-monitor ensoul-explorer ensoul-telegram-bot; do
+            for extra_svc in ensoul-api ensoul-proxy ensoul-heartbeat ensoul-monitor ensoul-explorer ensoul-telegram-bot; do
                 if echo "$STALE_SERVICES" | grep -qw "$extra_svc"; then
                     echo "  Restarting $extra_svc..."
                     systemctl restart "$extra_svc" 2>/dev/null || true
@@ -353,12 +353,43 @@ if ! curl -s -m 5 http://localhost:26657/status >/dev/null 2>&1; then
 fi
 
 # Also restart API and proxy if they exist
-for extra_svc in ensoul-api ensoul-proxy; do
+for extra_svc in ensoul-api ensoul-proxy ensoul-heartbeat; do
     if systemctl is-active "$extra_svc" >/dev/null 2>&1; then
         echo "  Restarting $extra_svc..."
         systemctl restart "$extra_svc" 2>/dev/null || true
     fi
 done
+
+# Install heartbeat client if not present (new addition to the stack)
+if ! systemctl list-unit-files ensoul-heartbeat.service >/dev/null 2>&1; then
+    echo ""
+    echo "Installing heartbeat client (new)..."
+    NODE_BIN_DIR=$(dirname "$(which node 2>/dev/null || echo /usr/local/bin/node)")
+    tee /etc/systemd/system/ensoul-heartbeat.service > /dev/null << HB_EOF
+[Unit]
+Description=Ensoul Heartbeat Client
+After=ensoul-cometbft.service
+Wants=ensoul-cometbft.service
+
+[Service]
+Type=simple
+User=$OWNER
+WorkingDirectory=$ENSOUL_DIR
+Environment=PATH=$NODE_BIN_DIR:/usr/local/go/bin:$HOME_DIR/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=$HOME_DIR
+ExecStart=$NODE_BIN_DIR/npx tsx packages/heartbeat-client/src/start.ts
+Restart=always
+RestartSec=10
+StandardOutput=append:$HOME_DIR/.ensoul/heartbeat.log
+StandardError=append:$HOME_DIR/.ensoul/heartbeat.log
+
+[Install]
+WantedBy=multi-user.target
+HB_EOF
+    systemctl daemon-reload
+    systemctl enable --now ensoul-heartbeat
+    echo "  Heartbeat client installed and started."
+fi
 
 # --- VERIFY CHAIN PROGRESS ---
 

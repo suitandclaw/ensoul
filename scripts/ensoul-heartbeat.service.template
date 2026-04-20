@@ -1,0 +1,19 @@
+[Unit]
+Description=Ensoul Heartbeat Client
+After=ensoul-cometbft.service
+Wants=ensoul-cometbft.service
+
+[Service]
+Type=simple
+User=<USER>
+WorkingDirectory=<ENSOUL_DIR>
+Environment=PATH=<NODE_BIN_DIR>:/usr/local/go/bin:<HOME>/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=<HOME>
+ExecStart=<NODE_BIN_DIR>/npx tsx packages/heartbeat-client/src/start.ts
+Restart=always
+RestartSec=10
+StandardOutput=append:<HOME>/.ensoul/heartbeat.log
+StandardError=append:<HOME>/.ensoul/heartbeat.log
+
+[Install]
+WantedBy=multi-user.target
