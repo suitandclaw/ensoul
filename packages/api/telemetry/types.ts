@@ -41,6 +41,8 @@ export interface ValidatorTelemetry {
   healthChangedAt: number;
   heightHistory: number[];
   alertSentAt: number;
+  consecutivePeersZero: number;
+  consecutiveCatchingUp: number;
   contact?: ContactRegistration;
   bootResumed?: boolean;
 }
