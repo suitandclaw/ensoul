@@ -157,19 +157,20 @@ CPU on unknown DIDs. The processing order is:
 0. Per-IP rate limit (429 on failure)
 1. Parse JSON and validate required fields (400 on failure)
 2. Bounds validation (400 on failure)
-3a. Timestamp skew tolerance (400 on failure)
+3. Timestamp skew tolerance (400 on failure)
 4. DID admission check (403 on failure)
-3b. Timestamp monotonicity (400 on failure)
-5. Signature verification (403 on failure)
-6. Per-DID rate limit (429 on failure)
-7. Accept and process
+5. Timestamp monotonicity (400 on failure)
+6. Signature verification (403 on failure)
+7. Per-DID rate limit (429 on failure)
+8. Accept and process
 
-Steps 3a and 3b are split across the admission check because skew
-tolerance is stateless (compares payload timestamp against server clock)
-while monotonicity requires the per-DID last-seen timestamp, which is
-only meaningful for admitted DIDs. Running monotonicity before admission
-would either require storing timestamps for unknown DIDs (memory leak
-vector) or skipping the check for unknown DIDs (defeating its purpose).
+Steps 3 and 5 (both timestamp checks) are split across the admission
+check (step 4) because skew tolerance is stateless (compares payload
+timestamp against server clock) while monotonicity requires the per-DID
+last-seen timestamp, which is only meaningful for admitted DIDs. Running
+monotonicity before admission would either require storing timestamps
+for unknown DIDs (memory leak vector) or skipping the check for unknown
+DIDs (defeating its purpose).
 
 ---
 
