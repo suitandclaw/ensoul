@@ -105,10 +105,106 @@ LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 
 if [ "$LOCAL" = "$REMOTE" ]; then
-    echo "Already at latest ($LOCAL). No update needed."
+    echo "Code already at latest ($LOCAL)."
     echo ""
-    echo "=== COMPLETE: NO CHANGES ==="
-    exit 0
+
+    # Detect service names FIRST so we can reuse them for stale check and restart.
+    ABCI_SVC=""
+    CMT_SVC=""
+    for svc in ensoul-abci ensoul-node; do
+        if systemctl list-unit-files "$svc.service" >/dev/null 2>&1; then
+            ABCI_SVC="$svc"
+            break
+        fi
+    done
+    for svc in ensoul-cometbft cometbft; do
+        if systemctl list-unit-files "$svc.service" >/dev/null 2>&1; then
+            CMT_SVC="$svc"
+            break
+        fi
+    done
+
+    # Stale service detection: if code is current but services started
+    # before the current HEAD was committed, a previous run may have
+    # pulled code but failed to build or restart. Detect and fix.
+    HEAD_COMMIT_TIME=$(git log -1 --format=%ct HEAD)
+    STALE_SERVICES=""
+
+    for svc in "$ABCI_SVC" "$CMT_SVC" ensoul-api ensoul-proxy ensoul-monitor ensoul-explorer ensoul-telegram-bot; do
+        [ -z "$svc" ] && continue
+        if systemctl is-active "$svc" >/dev/null 2>&1; then
+            SVC_START=$(systemctl show "$svc" -p ActiveEnterTimestamp --value 2>/dev/null || \
+                        systemctl show "$svc" -p ActiveEnterTimestamp | cut -d= -f2)
+            SVC_START_EPOCH=$(date -d "$SVC_START" +%s 2>/dev/null || echo 0)
+            if [ "$SVC_START_EPOCH" -lt "$HEAD_COMMIT_TIME" ]; then
+                STALE_SERVICES="$STALE_SERVICES $svc"
+                echo "STALE: $svc started at $SVC_START (before HEAD commit at $(date -d @$HEAD_COMMIT_TIME 2>/dev/null || date -r $HEAD_COMMIT_TIME 2>/dev/null))"
+            fi
+        fi
+    done
+
+    # Also check if build artifacts exist (a previous pull may have
+    # succeeded but build failed)
+    BUILD_MISSING=false
+    if [ ! -d "packages/abci-server/dist" ]; then
+        BUILD_MISSING=true
+        echo "STALE: packages/abci-server/dist missing (build never completed)"
+    else
+        DIST_SIZE=$(du -sb packages/abci-server/dist 2>/dev/null | awk '{print $1}' || echo "0")
+        if [ "$DIST_SIZE" -lt 10000 ]; then
+            BUILD_MISSING=true
+            echo "STALE: packages/abci-server/dist suspiciously small ($DIST_SIZE bytes)"
+        fi
+    fi
+
+    if [ -z "$STALE_SERVICES" ] && [ "$BUILD_MISSING" = "false" ]; then
+        echo "Services are up-to-date. No action needed."
+        echo ""
+        echo "=== COMPLETE: NO CHANGES ==="
+        exit 0
+    fi
+
+    echo ""
+    echo "Code is current but services need attention."
+
+    # If build is missing, fall through to the full build + restart path below.
+    if [ "$BUILD_MISSING" = "true" ]; then
+        echo "Rebuilding (previous build may have failed)..."
+        # Fall through past the fi to the BUILD section
+    else
+        # Build exists but services are stale. Restart only.
+        echo "Restarting stale services..."
+
+        if [ -n "$ABCI_SVC" ] && [ -n "$CMT_SVC" ]; then
+            echo "  Stopping CometBFT ($CMT_SVC)..."
+            systemctl stop "$CMT_SVC" 2>/dev/null || true
+            sleep 2
+            echo "  Restarting ABCI ($ABCI_SVC)..."
+            systemctl restart "$ABCI_SVC"
+            sleep 3
+            echo "  Starting CometBFT ($CMT_SVC)..."
+            systemctl start "$CMT_SVC"
+            sleep 5
+
+            for extra_svc in ensoul-api ensoul-proxy ensoul-monitor ensoul-explorer ensoul-telegram-bot; do
+                if echo "$STALE_SERVICES" | grep -qw "$extra_svc"; then
+                    echo "  Restarting $extra_svc..."
+                    systemctl restart "$extra_svc" 2>/dev/null || true
+                fi
+            done
+
+            echo ""
+            echo "=== STALE SERVICES RESTARTED ==="
+            echo "  Version: $(grep VERSION packages/node/src/version.ts 2>/dev/null | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+            echo "  Git: $(git rev-parse --short HEAD)"
+            echo "  Log: $LOG"
+            echo ""
+            exit 0
+        else
+            echo "Could not detect service names. Falling through to full update."
+        fi
+    fi
+    # Fall through to build + restart for BUILD_MISSING case
 fi
 
 echo "Local:  $LOCAL"
