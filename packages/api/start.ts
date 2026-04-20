@@ -702,6 +702,18 @@ async function main(): Promise<void> {
 		telemetryRoutes(telemetryStateStore, telemetryRetentionStore, telemetryAdmission, telemetryRateLimiter, telemetryHealth),
 	);
 
+	// GET /v1/telemetry/state - public, returns current telemetry state
+	let telemetryStateCache: { data: unknown; cachedAt: number } | null = null;
+	app.get("/v1/telemetry/state", async () => {
+		const now = Date.now();
+		if (telemetryStateCache && now - telemetryStateCache.cachedAt < 10_000) {
+			return telemetryStateCache.data;
+		}
+		const entries = telemetryStateStore.all();
+		telemetryStateCache = { data: entries, cachedAt: now };
+		return entries;
+	});
+
 	telemetryStateStore.startFlushInterval();
 	const telemetryTickInterval = setInterval(() => {
 		void telemetryHealth.tick(telemetryStateStore.all());

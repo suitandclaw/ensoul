@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard - Ensoul Network</title>
+<meta name="description" content="Ensoul Network validator health, telemetry, and admin dashboard.">
+<meta name="robots" content="noindex,nofollow">
+<link rel="stylesheet" href="/css/design-system.css">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>
+.nav{position:fixed;top:0;left:0;right:0;z-index:1000;background:rgba(9,9,11,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+body{padding-top:56px;background:#09090b;color:#a1a1aa;font-size:15px}
+.container{max-width:1200px;margin:0 auto;padding:0 24px}
+a{color:#7c5bf5;text-decoration:none}
+a:hover{color:#fafafa}
+
+/* Hero */
+.dash-hero{padding:48px 0 16px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px}
+.dash-hero h1{font-family:var(--font-display);font-size:1.75rem;color:#fafafa;font-weight:800;letter-spacing:-0.02em;margin:0;display:flex;align-items:center;gap:12px}
+.live-dot{width:8px;height:8px;background:#22c55e;border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,0.5)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+.auth-area{display:flex;align-items:center;gap:8px;font-size:0.8125rem}
+.auth-area input{padding:6px 10px;background:#111113;border:1px solid rgba(255,255,255,0.06);border-radius:4px;color:#fafafa;font-family:var(--font-mono);font-size:0.8125rem;width:200px}
+.auth-area input:focus{outline:none;border-color:var(--accent)}
+.auth-area button{padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-weight:600;font-size:0.8125rem;cursor:pointer}
+.auth-area .status{color:#52525b;font-family:var(--font-mono);font-size:0.75rem}
+.auth-area .status.ok{color:#22c55e}
+
+/* Stats row */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:16px 0}
+.stat{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:10px;padding:14px;text-align:center}
+.stat .v{font-family:var(--font-display);font-size:1.5rem;color:#fafafa;font-weight:700;letter-spacing:-0.01em}
+.stat .l{font-family:var(--font-mono);color:#52525b;font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.06em;margin-top:4px}
+
+/* Status banner */
+.banner{padding:10px 16px;border-radius:8px;font-size:0.875rem;margin:12px 0}
+.banner.green{background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);color:#22c55e}
+.banner.yellow{background:rgba(234,179,8,0.06);border:1px solid rgba(234,179,8,0.2);color:#eab308}
+.banner.red{background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);color:#ef4444}
+
+/* Sections */
+.section{background:#111113;border:1px solid rgba(255,255,255,0.04);border-radius:12px;padding:20px;margin:16px 0}
+.section-title{font-family:var(--font-display);color:#fafafa;font-size:1.0625rem;font-weight:700;margin:0 0 14px;display:flex;align-items:center;gap:10px}
+.section-title .idx{font-family:var(--font-mono);color:#52525b;font-size:0.75rem;background:rgba(255,255,255,0.04);padding:2px 8px;border-radius:100px}
+
+/* Table */
+.tbl{width:100%;border-collapse:collapse;font-size:0.8125rem}
+.tbl th{text-align:left;padding:8px 10px;color:#52525b;font-weight:500;text-transform:uppercase;font-size:0.6875rem;letter-spacing:0.06em;font-family:var(--font-mono);border-bottom:1px solid rgba(255,255,255,0.06);cursor:pointer;user-select:none;white-space:nowrap}
+.tbl th:hover{color:#fafafa}
+.tbl td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.03);color:#a1a1aa;white-space:nowrap}
+.tbl tbody tr:hover{background:rgba(255,255,255,0.015)}
+.tbl code{font-family:var(--font-mono);font-size:0.75rem;background:#0c0c0e;padding:1px 5px;border-radius:3px;color:#fafafa;cursor:pointer}
+
+/* Health badges */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:100px;font-size:0.6875rem;font-weight:600;font-family:var(--font-mono);text-transform:uppercase}
+.badge.healthy{background:rgba(34,197,94,0.1);color:#22c55e}
+.badge.degraded{background:rgba(234,179,8,0.1);color:#eab308}
+.badge.unhealthy{background:rgba(239,68,68,0.1);color:#ef4444}
+.badge.offline{background:rgba(239,68,68,0.1);color:#ef4444}
+.badge.no-data{background:rgba(107,114,128,0.1);color:#9ca3af}
+.badge.stale{background:rgba(251,146,60,0.1);color:#fb923c}
+.badge.pioneer{background:rgba(251,191,36,0.12);color:#fbbf24}
+.badge.genesis{background:rgba(124,91,245,0.12);color:#9b7dff}
+.badge.standard{background:rgba(161,161,170,0.1);color:#a1a1aa}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;margin-bottom:14px;background:#0c0c0e;border:1px solid rgba(255,255,255,0.04);border-radius:8px;padding:4px}
+.tab{flex:1;background:transparent;color:#52525b;border:none;padding:8px 14px;border-radius:6px;font-size:0.8125rem;font-weight:600;cursor:pointer;transition:all 0.15s;text-align:center}
+.tab.active{background:#1a1a1d;color:#fafafa}
+
+/* Modal */
+.modal-bg{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:2000;justify-content:center;align-items:center}
+.modal-bg.open{display:flex}
+.modal{background:#111113;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:24px;max-width:500px;width:90%}
+.modal h3{color:#fafafa;margin:0 0 12px;font-size:1rem}
+.modal input,.modal select,.modal textarea{width:100%;padding:8px 10px;background:#0c0c0e;border:1px solid rgba(255,255,255,0.06);border-radius:6px;color:#fafafa;font-family:var(--font-mono);font-size:0.8125rem;margin-bottom:10px;box-sizing:border-box}
+.modal input:focus,.modal select:focus,.modal textarea:focus{outline:none;border-color:var(--accent)}
+.modal .btns{display:flex;gap:8px;margin-top:12px}
+.modal .btn{padding:8px 16px;border:none;border-radius:6px;font-weight:600;font-size:0.8125rem;cursor:pointer}
+.modal .btn.primary{background:var(--accent);color:#fff}
+.modal .btn.danger{background:#ef4444;color:#fff}
+.modal .btn.cancel{background:transparent;color:#a1a1aa;border:1px solid rgba(255,255,255,0.06)}
+.modal .msg{font-size:0.8125rem;margin-top:8px;min-height:18px}
+.modal .msg.ok{color:#22c55e}
+.modal .msg.err{color:#ef4444}
+
+/* Admin-only visibility */
+.admin-only{display:none}
+
+/* Quick action buttons */
+.qa-btns{display:flex;gap:10px;flex-wrap:wrap}
+.qa-btn{padding:10px 18px;background:#0c0c0e;border:1px solid rgba(255,255,255,0.06);border-radius:8px;color:#fafafa;font-weight:600;font-size:0.8125rem;cursor:pointer;transition:all 0.15s}
+.qa-btn:hover{border-color:var(--accent);background:#161618}
+
+/* Footer */
+.dash-footer{text-align:center;color:#52525b;font-size:0.8125rem;padding:32px 0;font-style:italic}
+
+@media(max-width:768px){
+  .dash-hero{flex-direction:column}
+  .stats{grid-template-columns:repeat(3,1fr)}
+  .tbl{font-size:0.75rem}
+  .tbl th,.tbl td{padding:6px 8px}
+}
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+<div style="max-width:1200px;margin:0 auto;padding:0 24px;height:56px;display:flex;align-items:center;gap:24px">
+  <a href="/" style="font-family:var(--font-display);font-size:1rem;font-weight:800;color:#fafafa;display:inline-flex;align-items:center;gap:8px">
+    <svg viewBox="0 0 110 110" width="20" height="20"><circle cx="55" cy="55" r="42" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="M55 28 C55 28, 38 48, 38 60 C38 73, 45 82, 55 82 C65 82, 72 73, 72 60 C72 48, 55 28, 55 28 Z" fill="var(--accent)"/><circle cx="55" cy="62" r="4" fill="white" opacity="0.9"/></svg>
+    Ensoul
+  </a>
+  <div style="display:flex;gap:20px;margin-left:auto;font-size:0.875rem">
+    <a href="/status" style="color:#fafafa;font-weight:500">Dashboard</a>
+    <a href="https://explorer.ensoul.dev" style="color:#52525b">Explorer</a>
+    <a href="/pioneer.html" style="color:#52525b">Pioneer</a>
+    <a href="/docs/quickstart.html" style="color:#52525b">Docs</a>
+  </div>
+</div>
+</nav>
+
+<div class="container">
+
+<!-- Hero -->
+<div class="dash-hero">
+  <div>
+    <h1><span class="live-dot"></span> Ensoul Network</h1>
+    <div style="color:#52525b;font-size:0.8125rem;font-family:var(--font-mono);margin-top:4px">ensoul-1 <span id="refresh-ts" style="margin-left:12px"></span></div>
+  </div>
+  <div class="auth-area" id="auth-area">
+    <span class="status" id="auth-status"></span>
+    <input type="password" id="auth-input" placeholder="Admin key" style="display:none">
+    <button id="auth-btn" onclick="toggleAuth()">Unlock</button>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat"><div class="v" id="s-height">--</div><div class="l">Block Height</div></div>
+  <div class="stat"><div class="v" id="s-vals">--</div><div class="l">Validators</div></div>
+  <div class="stat"><div class="v" id="s-bpm">--</div><div class="l">Blocks/Min</div></div>
+  <div class="stat"><div class="v" id="s-agents">--</div><div class="l">Agents</div></div>
+  <div class="stat"><div class="v" id="s-conscious">--</div><div class="l">Consciousness</div></div>
+  <div class="stat"><div class="v" id="s-peers">--</div><div class="l">Peers</div></div>
+</div>
+
+<!-- Status Banner -->
+<div id="status-banner" class="banner green">Loading...</div>
+
+<!-- Validator Grid -->
+<div class="section">
+  <h2 class="section-title"><span class="idx">01</span> Validator Grid</h2>
+  <div style="overflow-x:auto">
+  <table class="tbl" id="val-table">
+    <thead>
+      <tr>
+        <th>DID</th>
+        <th>Health</th>
+        <th>Height</th>
+        <th>Peers</th>
+        <th>Last HB</th>
+        <th>ABCI</th>
+        <th>CometBFT</th>
+        <th>Disk</th>
+        <th>Mem</th>
+        <th>Power</th>
+        <th>Tier</th>
+      </tr>
+    </thead>
+    <tbody id="val-body"></tbody>
+  </table>
+  </div>
+</div>
+
+<!-- Pioneer Management (admin only) -->
+<div class="section admin-only" id="pioneer-section">
+  <h2 class="section-title"><span class="idx">02</span> Pioneer Management</h2>
+  <div class="tabs">
+    <button class="tab active" onclick="switchPioneerTab('pending')">Pending <span id="p-pending-count"></span></button>
+    <button class="tab" onclick="switchPioneerTab('approved')">Approved <span id="p-approved-count"></span></button>
+    <button class="tab" onclick="switchPioneerTab('rejected')">Rejected <span id="p-rejected-count"></span></button>
+  </div>
+  <div id="pioneer-content" style="min-height:60px"></div>
+</div>
+
+<!-- Quick Actions (admin only) -->
+<div class="section admin-only" id="actions-section">
+  <h2 class="section-title"><span class="idx">03</span> Quick Actions</h2>
+  <div class="qa-btns">
+    <button class="qa-btn" onclick="openModal('ghost-modal')">Remove Ghost Validator</button>
+    <button class="qa-btn" onclick="openModal('approve-modal')">Approve Pioneer</button>
+    <button class="qa-btn" onclick="exportCSV()">Export Validator CSV</button>
+  </div>
+</div>
+
+<p class="dash-footer">the persistence layer for AI agents</p>
+</div>
+
+<!-- Ghost Removal Modal -->
+<div class="modal-bg" id="ghost-modal">
+<div class="modal">
+  <h3>Remove Ghost Validator</h3>
+  <p style="color:#a1a1aa;font-size:0.8125rem;margin-bottom:12px">Remove a validator from the CometBFT active set. This is irreversible.</p>
+  <label style="color:#52525b;font-size:0.75rem;font-family:var(--font-mono)">Select validator (optional, for reference only)</label>
+  <select id="ghost-select" style="width:100%;padding:8px 10px;background:#0c0c0e;border:1px solid rgba(255,255,255,0.06);border-radius:6px;color:#fafafa;font-family:var(--font-mono);font-size:0.8125rem;margin-bottom:10px">
+    <option value="">-- select --</option>
+  </select>
+  <div id="ghost-detail" style="color:#52525b;font-size:0.75rem;font-family:var(--font-mono);margin-bottom:10px;word-break:break-all"></div>
+  <label style="color:#52525b;font-size:0.75rem;font-family:var(--font-mono)">Validator Public Key (base64). Find with: curl localhost:26657/validators</label>
+  <input id="ghost-pubkey" placeholder="D9aCrEsI5X4yOmL7E8Dyim1FAVWBSMqitY47jdlu8ZE=">
+  <label style="color:#52525b;font-size:0.75rem;font-family:var(--font-mono)">Reason</label>
+  <input id="ghost-reason" placeholder="Ghost validator, private key lost">
+  <div class="msg" id="ghost-msg"></div>
+  <div class="btns">
+    <button class="btn danger" onclick="doGhostRemove()">Remove</button>
+    <button class="btn cancel" onclick="closeModal('ghost-modal')">Cancel</button>
+  </div>
+</div>
+</div>
+
+<!-- Pioneer Approve Modal -->
+<div class="modal-bg" id="approve-modal">
+<div class="modal">
+  <h3>Approve Pioneer</h3>
+  <label style="color:#52525b;font-size:0.75rem;font-family:var(--font-mono)">DID</label>
+  <input id="approve-did" placeholder="did:key:z6Mk...">
+  <div class="msg" id="approve-msg"></div>
+  <div class="btns">
+    <button class="btn primary" onclick="doPioneerApprove()">Approve</button>
+    <button class="btn cancel" onclick="closeModal('approve-modal')">Cancel</button>
+  </div>
+</div>
+</div>
+
+<!-- Pioneer Reject Modal -->
+<div class="modal-bg" id="reject-modal">
+<div class="modal">
+  <h3>Reject Pioneer</h3>
+  <p style="color:#a1a1aa;font-size:0.8125rem" id="reject-did-display"></p>
+  <label style="color:#52525b;font-size:0.75rem;font-family:var(--font-mono)">Reason</label>
+  <textarea id="reject-reason" rows="3" placeholder="Reason for rejection"></textarea>
+  <div class="msg" id="reject-msg"></div>
+  <div class="btns">
+    <button class="btn danger" onclick="doPioneerReject()">Reject</button>
+    <button class="btn cancel" onclick="closeModal('reject-modal')">Cancel</button>
+  </div>
+</div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+var API = "https://api.ensoul.dev";
+var STORAGE_KEY = "ensoul_admin_key";
+var EXPIRY_KEY = "ensoul_admin_expiry";
+var adminKey = "";
+var lastHeight = 0;
+var lastHeightTime = 0;
+var valData = [];
+var telemetryData = [];
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+function shortDid(d){ return d && d.length > 30 ? d.slice(0,16) + "..." + d.slice(-8) : (d || "--"); }
+
+// ---- Auth ----
+
+function isAdmin(){ return adminKey.length > 0; }
+
+function toggleAuth(){
+  if (isAdmin()) {
+    adminKey = "";
+    sessionStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(EXPIRY_KEY);
+    $("auth-status").textContent = "";
+    $("auth-status").className = "status";
+    $("auth-input").style.display = "none";
+    $("auth-btn").textContent = "Unlock";
+    document.querySelectorAll(".admin-only").forEach(function(el){ el.style.display = "none"; });
+    return;
+  }
+  var input = $("auth-input");
+  if (input.style.display === "none") {
+    input.style.display = "block";
+    input.focus();
+    return;
+  }
+  var key = input.value.trim();
+  if (!key) return;
+  // Test the key against a known admin endpoint
+  fetch(API + "/v1/pioneers/list?status=pending", {
+    headers: { "X-Admin-Key": key },
+    signal: AbortSignal.timeout(5000)
+  }).then(function(r){
+    if (r.status === 403) {
+      $("auth-status").textContent = "Invalid key";
+      $("auth-status").className = "status";
+      return;
+    }
+    adminKey = key;
+    sessionStorage.setItem(STORAGE_KEY, key);
+    sessionStorage.setItem(EXPIRY_KEY, String(Date.now() + 8 * 3600 * 1000));
+    $("auth-status").textContent = "Admin";
+    $("auth-status").className = "status ok";
+    $("auth-input").style.display = "none";
+    $("auth-input").value = "";
+    $("auth-btn").textContent = "Logout";
+    document.querySelectorAll(".admin-only").forEach(function(el){ el.style.display = "block"; });
+    refreshPioneers();
+  }).catch(function(){
+    $("auth-status").textContent = "Error";
+  });
+}
+
+function restoreAuth(){
+  var key = sessionStorage.getItem(STORAGE_KEY);
+  var expiry = Number(sessionStorage.getItem(EXPIRY_KEY) || "0");
+  if (key && expiry > Date.now()) {
+    adminKey = key;
+    $("auth-status").textContent = "Admin";
+    $("auth-status").className = "status ok";
+    $("auth-btn").textContent = "Logout";
+    document.querySelectorAll(".admin-only").forEach(function(el){ el.style.display = "block"; });
+  }
+}
+
+$("auth-input").addEventListener("keydown", function(e){ if (e.key === "Enter") toggleAuth(); });
+
+// ---- Fetch helpers ----
+
+function fetchJson(url, opts){
+  return fetch(url, Object.assign({ signal: AbortSignal.timeout(10000) }, opts || {}))
+    .then(function(r){ return r.json(); })
+    .catch(function(){ return null; });
+}
+
+function adminFetch(url, opts){
+  var o = Object.assign({}, opts || {});
+  o.headers = Object.assign({ "X-Admin-Key": adminKey }, o.headers || {});
+  return fetchJson(url, o);
+}
+
+// ---- Stats + Banner ----
+
+function refreshStats(){
+  fetchJson(API + "/v1/network/status").then(function(d){
+    if (!d) return;
+    var h = Number(d.blockHeight || 0);
+    $("s-height").textContent = h.toLocaleString();
+    $("s-vals").textContent = String(d.validatorCount || "--");
+    $("s-agents").textContent = String(d.agentCount || "--");
+    $("s-conscious").textContent = String(d.totalConsciousnessStored || "--");
+    $("s-peers").textContent = String(d.peers || "--");
+
+    // Blocks per minute
+    var now = Date.now();
+    if (lastHeight > 0 && lastHeightTime > 0) {
+      var elapsed = (now - lastHeightTime) / 60000;
+      if (elapsed > 0.1) {
+        var bpm = Math.round((h - lastHeight) / elapsed);
+        $("s-bpm").textContent = bpm > 0 ? String(bpm) : "--";
+      }
+    }
+    lastHeight = h;
+    lastHeightTime = now;
+
+    $("refresh-ts").textContent = "updated " + new Date().toLocaleTimeString();
+  });
+
+  // Status banner
+  var healthy = 0;
+  var degraded = [];
+  var offline = [];
+  telemetryData.forEach(function(t){
+    if (t.healthState === "healthy") healthy++;
+    else if (t.healthState === "degraded") degraded.push(shortDid(t.did));
+    else if (t.healthState === "unhealthy" || t.healthState === "offline") offline.push(shortDid(t.did));
+  });
+  var banner = $("status-banner");
+  if (offline.length > 0) {
+    banner.className = "banner red";
+    banner.textContent = offline.length + " validator(s) offline/unhealthy: " + offline.join(", ");
+  } else if (degraded.length > 0) {
+    banner.className = "banner yellow";
+    banner.textContent = degraded.length + " validator(s) degraded: " + degraded.join(", ");
+  } else if (telemetryData.length > 0) {
+    banner.className = "banner green";
+    banner.textContent = "All " + telemetryData.length + " reporting validators healthy";
+  } else {
+    banner.className = "banner yellow";
+    banner.textContent = "No heartbeat data yet";
+  }
+}
+
+// ---- Validator Grid ----
+
+function refreshGrid(){
+  Promise.all([
+    fetchJson(API + "/v1/validators"),
+    fetchJson(API + "/v1/telemetry/state")
+  ]).then(function(results){
+    var abciData = results[0];
+    var tData = results[1];
+    if (!abciData) return;
+
+    var validators = abciData.validators || abciData || [];
+    telemetryData = Array.isArray(tData) ? tData : [];
+
+    // Index telemetry by DID
+    var telemetryMap = {};
+    telemetryData.forEach(function(t){ telemetryMap[t.did] = t; });
+
+    // Merge
+    var merged = [];
+    validators.forEach(function(v){
+      var did = v.did || "";
+      var t = telemetryMap[did];
+      var hb = t ? t.lastHeartbeat : null;
+      merged.push({
+        did: did,
+        power: Number(v.power || 0),
+        tier: Number(v.power || 0) > 5000000 ? "genesis" : Number(v.power || 0) > 0 ? "pioneer" : "unknown",
+        health: t ? t.healthState : "no-data",
+        height: hb ? hb.height : null,
+        peers: hb ? hb.peers : null,
+        lastSeen: t ? t.lastSeenAt : null,
+        abciVersion: hb ? hb.abci_version : null,
+        cmtVersion: hb ? hb.cometbft_version : null,
+        disk: hb ? hb.disk_used_pct : null,
+        mem: hb ? hb.mem_used_pct : null,
+      });
+      delete telemetryMap[did];
+    });
+    // Add telemetry-only entries (validators reporting but not in ABCI state)
+    Object.keys(telemetryMap).forEach(function(did){
+      var t = telemetryMap[did];
+      var hb = t.lastHeartbeat;
+      merged.push({
+        did: did,
+        power: 0,
+        tier: "unknown",
+        health: t.healthState,
+        height: hb ? hb.height : null,
+        peers: hb ? hb.peers : null,
+        lastSeen: t.lastSeenAt,
+        abciVersion: hb ? hb.abci_version : null,
+        cmtVersion: hb ? hb.cometbft_version : null,
+        disk: hb ? hb.disk_used_pct : null,
+        mem: hb ? hb.mem_used_pct : null,
+      });
+    });
+
+    valData = merged;
+
+    // Find best height for coloring
+    var bestHeight = 0;
+    merged.forEach(function(v){ if (v.height && v.height > bestHeight) bestHeight = v.height; });
+
+    // Render
+    var html = "";
+    merged.sort(function(a, b){ return b.power - a.power; });
+    merged.forEach(function(v){
+      var hClass = v.health || "no-data";
+      var hLabel = hClass.replace("-", " ");
+      if (v.lastSeen && Date.now() - v.lastSeen > 180000 && v.health === "healthy") {
+        hClass = "stale";
+        hLabel = "stale";
+      }
+
+      var heightColor = "";
+      if (v.height !== null && bestHeight > 0) {
+        var diff = bestHeight - v.height;
+        if (diff <= 2) heightColor = "color:#22c55e";
+        else if (diff <= 10) heightColor = "color:#eab308";
+        else heightColor = "color:#ef4444";
+      }
+
+      var age = "--";
+      if (v.lastSeen) {
+        var secs = Math.floor((Date.now() - v.lastSeen) / 1000);
+        if (secs < 60) age = secs + "s";
+        else if (secs < 3600) age = Math.floor(secs / 60) + "m";
+        else age = Math.floor(secs / 3600) + "h";
+      }
+
+      var diskColor = "";
+      if (v.disk !== null) {
+        if (v.disk > 90) diskColor = "color:#ef4444";
+        else if (v.disk > 80) diskColor = "color:#eab308";
+      }
+      var memColor = "";
+      if (v.mem !== null) {
+        if (v.mem > 90) memColor = "color:#ef4444";
+        else if (v.mem > 80) memColor = "color:#eab308";
+      }
+
+      html += '<tr>';
+      html += '<td><code onclick="navigator.clipboard.writeText(\'' + esc(v.did) + '\')" title="' + esc(v.did) + '">' + esc(shortDid(v.did)) + '</code></td>';
+      html += '<td><span class="badge ' + hClass + '">' + esc(hLabel) + '</span></td>';
+      html += '<td style="' + heightColor + '">' + (v.height !== null ? v.height.toLocaleString() : "--") + '</td>';
+      html += '<td>' + (v.peers !== null ? v.peers : "--") + '</td>';
+      html += '<td>' + esc(age) + '</td>';
+      html += '<td>' + esc(v.abciVersion || "--") + '</td>';
+      html += '<td>' + esc(v.cmtVersion || "--") + '</td>';
+      html += '<td style="' + diskColor + '">' + (v.disk !== null ? v.disk + "%" : "--") + '</td>';
+      html += '<td style="' + memColor + '">' + (v.mem !== null ? v.mem + "%" : "--") + '</td>';
+      html += '<td>' + (v.power > 0 ? v.power.toLocaleString() : "--") + '</td>';
+      html += '<td><span class="badge ' + esc(v.tier) + '">' + esc(v.tier) + '</span></td>';
+      html += '</tr>';
+    });
+    $("val-body").innerHTML = html;
+  });
+}
+
+// ---- Pioneer Management ----
+
+var currentPioneerTab = "pending";
+
+window.switchPioneerTab = function(tab){
+  currentPioneerTab = tab;
+  document.querySelectorAll(".tabs .tab").forEach(function(el){ el.classList.remove("active"); });
+  document.querySelector('.tab[onclick*="' + tab + '"]').classList.add("active");
+  refreshPioneers();
+};
+
+function refreshPioneers(){
+  if (!isAdmin()) return;
+  adminFetch(API + "/v1/pioneers/list?status=" + currentPioneerTab).then(function(d){
+    if (!d || !d.applications) { $("pioneer-content").innerHTML = '<p style="color:#52525b">No data</p>'; return; }
+    var apps = d.applications;
+
+    // Update tab counts
+    adminFetch(API + "/v1/pioneers/list?status=pending").then(function(p){ if (p) $("p-pending-count").textContent = "(" + (p.count || 0) + ")"; });
+    adminFetch(API + "/v1/pioneers/list?status=approved").then(function(p){ if (p) $("p-approved-count").textContent = "(" + (p.count || 0) + ")"; });
+    adminFetch(API + "/v1/pioneers/list?status=rejected").then(function(p){ if (p) $("p-rejected-count").textContent = "(" + (p.count || 0) + ")"; });
+
+    if (apps.length === 0) {
+      $("pioneer-content").innerHTML = '<p style="color:#52525b">No ' + esc(currentPioneerTab) + ' applications</p>';
+      return;
+    }
+
+    var html = '<table class="tbl"><thead><tr><th>DID</th><th>Name</th><th>Contact</th><th>Date</th>';
+    if (currentPioneerTab === "pending") html += '<th>Actions</th>';
+    if (currentPioneerTab === "rejected") html += '<th>Reason</th>';
+    html += '</tr></thead><tbody>';
+
+    apps.forEach(function(a){
+      var date = a.appliedAt ? new Date(a.appliedAt).toLocaleDateString() : "--";
+      if (currentPioneerTab === "approved" && a.approvedAt) date = new Date(a.approvedAt).toLocaleDateString();
+      if (currentPioneerTab === "rejected" && a.rejectedAt) date = new Date(a.rejectedAt).toLocaleDateString();
+
+      html += '<tr>';
+      html += '<td><code title="' + esc(a.did) + '">' + esc(shortDid(a.did)) + '</code></td>';
+      html += '<td>' + esc(a.name || "--") + '</td>';
+      html += '<td>' + esc(a.contact || "--") + '</td>';
+      html += '<td>' + esc(date) + '</td>';
+      if (currentPioneerTab === "pending") {
+        html += '<td>';
+        html += '<button class="btn primary" style="margin-right:6px;padding:4px 10px;font-size:0.75rem" onclick="quickApprove(\'' + esc(a.did) + '\')">Approve</button>';
+        html += '<button class="btn danger" style="padding:4px 10px;font-size:0.75rem" onclick="openReject(\'' + esc(a.did) + '\')">Reject</button>';
+        html += '</td>';
+      }
+      if (currentPioneerTab === "rejected") {
+        html += '<td style="max-width:200px;white-space:normal">' + esc(a.rejectionReason || "--") + '</td>';
+      }
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    $("pioneer-content").innerHTML = html;
+  });
+}
+
+// ---- Quick Actions ----
+
+window.openModal = function(id){
+  if (id === "ghost-modal") {
+    // Populate ghost dropdown from current validator grid data
+    var sel = $("ghost-select");
+    sel.innerHTML = '<option value="">-- select for reference --</option>';
+    valData.forEach(function(v){
+      var opt = document.createElement("option");
+      opt.value = v.did;
+      opt.textContent = shortDid(v.did) + " (power=" + (v.power || 0) + ", " + (v.health || "unknown") + ")";
+      sel.appendChild(opt);
+    });
+    $("ghost-detail").textContent = "";
+    $("ghost-pubkey").value = "";
+    $("ghost-reason").value = "";
+    $("ghost-msg").textContent = "";
+  }
+  $(id).classList.add("open");
+};
+window.closeModal = function(id){ $(id).classList.remove("open"); };
+
+// Show full DID when ghost dropdown changes
+$("ghost-select").addEventListener("change", function(){
+  var did = this.value;
+  if (did) {
+    $("ghost-detail").textContent = "Full DID: " + did;
+  } else {
+    $("ghost-detail").textContent = "";
+  }
+});
+
+window.doGhostRemove = function(){
+  var pubkey = $("ghost-pubkey").value.trim();
+  var reason = $("ghost-reason").value.trim();
+  if (!pubkey || !reason) { $("ghost-msg").textContent = "Both fields required (pubkey + reason)"; $("ghost-msg").className = "msg err"; return; }
+  var selectedDid = $("ghost-select").value;
+  var label = selectedDid ? shortDid(selectedDid) : pubkey.slice(0, 20) + "...";
+  if (!confirm("Really remove validator " + label + "? This is irreversible.")) return;
+  $("ghost-msg").textContent = "Broadcasting...";
+  $("ghost-msg").className = "msg";
+  fetch(API + "/v1/admin/force-remove-validator", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Admin-Key": adminKey },
+    body: JSON.stringify({ pub_key_b64: pubkey, reason: reason }),
+    signal: AbortSignal.timeout(30000)
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d.ok) {
+      $("ghost-msg").textContent = "Removed. TX: " + (d.tx_hash || "").slice(0, 16) + "...";
+      $("ghost-msg").className = "msg ok";
+    } else {
+      $("ghost-msg").textContent = d.error || "Failed";
+      $("ghost-msg").className = "msg err";
+    }
+  }).catch(function(e){
+    $("ghost-msg").textContent = e.message;
+    $("ghost-msg").className = "msg err";
+  });
+};
+
+window.doPioneerApprove = function(){
+  var did = $("approve-did").value.trim();
+  if (!did) { $("approve-msg").textContent = "DID required"; $("approve-msg").className = "msg err"; return; }
+  $("approve-msg").textContent = "Approving...";
+  fetch(API + "/v1/pioneers/approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Admin-Key": adminKey },
+    body: JSON.stringify({ did: did }),
+    signal: AbortSignal.timeout(30000)
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d.approved || d.ok) {
+      $("approve-msg").textContent = "Approved";
+      $("approve-msg").className = "msg ok";
+      refreshPioneers();
+    } else {
+      $("approve-msg").textContent = d.error || "Failed";
+      $("approve-msg").className = "msg err";
+    }
+  }).catch(function(e){
+    $("approve-msg").textContent = e.message;
+    $("approve-msg").className = "msg err";
+  });
+};
+
+var rejectTargetDid = "";
+window.openReject = function(did){
+  rejectTargetDid = did;
+  $("reject-did-display").textContent = "Rejecting: " + shortDid(did);
+  $("reject-reason").value = "";
+  $("reject-msg").textContent = "";
+  openModal("reject-modal");
+};
+
+window.doPioneerReject = function(){
+  var reason = $("reject-reason").value.trim();
+  if (!reason) { $("reject-msg").textContent = "Reason required"; $("reject-msg").className = "msg err"; return; }
+  $("reject-msg").textContent = "Rejecting...";
+  fetch(API + "/v1/pioneers/reject", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Admin-Key": adminKey },
+    body: JSON.stringify({ did: rejectTargetDid, reason: reason }),
+    signal: AbortSignal.timeout(15000)
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d.rejected || d.ok) {
+      $("reject-msg").textContent = "Rejected";
+      $("reject-msg").className = "msg ok";
+      closeModal("reject-modal");
+      refreshPioneers();
+    } else {
+      $("reject-msg").textContent = d.error || "Failed";
+      $("reject-msg").className = "msg err";
+    }
+  }).catch(function(e){
+    $("reject-msg").textContent = e.message;
+    $("reject-msg").className = "msg err";
+  });
+};
+
+window.quickApprove = function(did){
+  if (!confirm("Approve Pioneer: " + shortDid(did) + "?")) return;
+  fetch(API + "/v1/pioneers/approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Admin-Key": adminKey },
+    body: JSON.stringify({ did: did }),
+    signal: AbortSignal.timeout(30000)
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d.approved || d.ok) { alert("Approved"); refreshPioneers(); }
+    else alert(d.error || "Failed");
+  }).catch(function(e){ alert(e.message); });
+};
+
+window.exportCSV = function(){
+  if (valData.length === 0) { alert("No data to export"); return; }
+  var header = "DID,Health,Height,Peers,LastSeen,ABCIVersion,CometBFTVersion,Disk%,Mem%,Power,Tier\n";
+  var rows = valData.map(function(v){
+    return [v.did, v.health, v.height||"", v.peers||"", v.lastSeen ? new Date(v.lastSeen).toISOString() : "", v.abciVersion||"", v.cmtVersion||"", v.disk||"", v.mem||"", v.power, v.tier].join(",");
+  }).join("\n");
+  var blob = new Blob([header + rows], { type: "text/csv" });
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "ensoul-validators-" + new Date().toISOString().slice(0,10) + ".csv";
+  a.click();
+};
+
+// ---- Init ----
+
+restoreAuth();
+refreshStats();
+refreshGrid();
+if (isAdmin()) refreshPioneers();
+
+setInterval(function(){
+  refreshStats();
+  refreshGrid();
+}, 15000);
+
+setInterval(function(){
+  if (isAdmin()) refreshPioneers();
+}, 30000);
+
+// Close modals on backdrop click
+document.querySelectorAll(".modal-bg").forEach(function(el){
+  el.addEventListener("click", function(e){
+    if (e.target === el) el.classList.remove("open");
+  });
+});
+
+})();
+</script>
+</body>
+</html>
