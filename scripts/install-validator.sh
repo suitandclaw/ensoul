@@ -1193,6 +1193,57 @@ apply_for_pioneer() {
 
 # ── Main ─────────────────────────────────────────────────────────────
 
+# ── Install Heartbeat Client service ──────────────────────────────────
+
+install_heartbeat_client() {
+    if [ "$OS" != "ubuntu" ]; then
+        log "Heartbeat client: skipping (Linux systemd only)."
+        return
+    fi
+
+    log "Installing heartbeat client service..."
+
+    local NVM_DIR_RESOLVED="${NVM_DIR:-$HOME/.nvm}"
+    local NODE_BIN
+    NODE_BIN=$(which node 2>/dev/null || echo "$NVM_DIR_RESOLVED/versions/node/$(ls "$NVM_DIR_RESOLVED/versions/node/" 2>/dev/null | tail -1)/bin/node")
+    local NODE_BIN_DIR
+    NODE_BIN_DIR=$(dirname "$NODE_BIN")
+    local USER_NAME
+    USER_NAME=$(whoami)
+
+    mkdir -p "$DATA_DIR"
+
+    sudo tee /etc/systemd/system/ensoul-heartbeat.service > /dev/null << HB_EOF
+[Unit]
+Description=Ensoul Heartbeat Client
+After=ensoul-cometbft.service
+Wants=ensoul-cometbft.service
+
+[Service]
+Type=simple
+User=$USER_NAME
+WorkingDirectory=$ENSOUL_DIR
+Environment=PATH=$NODE_BIN_DIR:/usr/local/go/bin:$HOME/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=$HOME
+ExecStart=$NODE_BIN_DIR/npx tsx packages/heartbeat-client/src/start.ts
+Restart=always
+RestartSec=10
+StandardOutput=append:$DATA_DIR/heartbeat.log
+StandardError=append:$DATA_DIR/heartbeat.log
+
+[Install]
+WantedBy=multi-user.target
+HB_EOF
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable ensoul-heartbeat
+    sudo systemctl start ensoul-heartbeat 2>/dev/null || true
+
+    log "Heartbeat client installed and started."
+}
+
+# ── Main ─────────────────────────────────────────────────────
+
 main() {
     echo ""
     echo "  Ensoul Validator Installer"
@@ -1214,6 +1265,7 @@ main() {
     setup_process_manager
     install_service
     install_cli_wrapper
+    install_heartbeat_client
     start_services
     register_validator
     wait_and_report
