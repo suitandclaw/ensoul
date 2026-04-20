@@ -271,7 +271,7 @@ function shortDid(d){ return d && d.length > 30 ? d.slice(0,16) + "..." + d.slic
 
 function isAdmin(){ return adminKey.length > 0; }
 
-function toggleAuth(){
+window.toggleAuth = function(){
   if (isAdmin()) {
     adminKey = "";
     sessionStorage.removeItem(STORAGE_KEY);
@@ -314,7 +314,7 @@ function toggleAuth(){
   }).catch(function(){
     $("auth-status").textContent = "Error";
   });
-}
+};
 
 function restoreAuth(){
   var key = sessionStorage.getItem(STORAGE_KEY);
