@@ -51,8 +51,14 @@ export class AdmissionChecker {
     // Check active CometBFT validator set via ABCI
     try {
       const result = await this.abciQuery("/validators");
-      if (result && Array.isArray(result)) {
-        for (const v of result) {
+      // ABCI returns either [...] or { validators: [...] }
+      const validators = Array.isArray(result)
+        ? result
+        : (result && Array.isArray((result as Record<string, unknown>).validators))
+          ? (result as Record<string, unknown>).validators as unknown[]
+          : null;
+      if (validators) {
+        for (const v of validators) {
           if (v && (v as Record<string, unknown>).did === did) return true;
         }
       }
