@@ -158,9 +158,39 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     fi
 
     if [ -z "$STALE_SERVICES" ] && [ "$BUILD_MISSING" = "false" ]; then
-        echo "Services are up-to-date. No action needed."
+        # Before exiting: check if heartbeat client needs installing
+        if ! systemctl list-unit-files ensoul-heartbeat.service >/dev/null 2>&1; then
+            echo "Heartbeat client not installed. Installing..."
+            NODE_BIN_DIR=$(dirname "$(which node 2>/dev/null || echo /usr/local/bin/node)")
+            tee /etc/systemd/system/ensoul-heartbeat.service > /dev/null << HB_EOF
+[Unit]
+Description=Ensoul Heartbeat Client
+After=ensoul-cometbft.service
+Wants=ensoul-cometbft.service
+
+[Service]
+Type=simple
+User=$OWNER
+WorkingDirectory=$ENSOUL_DIR
+Environment=PATH=$NODE_BIN_DIR:/usr/local/go/bin:$HOME_DIR/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=$HOME_DIR
+ExecStart=$NODE_BIN_DIR/npx tsx packages/heartbeat-client/src/start.ts
+Restart=always
+RestartSec=10
+StandardOutput=append:$HOME_DIR/.ensoul/heartbeat.log
+StandardError=append:$HOME_DIR/.ensoul/heartbeat.log
+
+[Install]
+WantedBy=multi-user.target
+HB_EOF
+            systemctl daemon-reload
+            systemctl enable --now ensoul-heartbeat
+            echo "  Heartbeat client installed and started."
+        fi
+
+        echo "Services are up-to-date."
         echo ""
-        echo "=== COMPLETE: NO CHANGES ==="
+        echo "=== COMPLETE ==="
         exit 0
     fi
 
