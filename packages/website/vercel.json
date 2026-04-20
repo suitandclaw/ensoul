@@ -12,6 +12,16 @@
       "statusCode": 302
     },
     {
+      "source": "/update.sh",
+      "destination": "https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/update-validator.sh",
+      "statusCode": 302
+    },
+    {
+      "source": "/update",
+      "destination": "https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/update-validator.sh",
+      "statusCode": 302
+    },
+    {
       "source": "/validator-dashboard",
       "destination": "/pioneer.html",
       "statusCode": 301
