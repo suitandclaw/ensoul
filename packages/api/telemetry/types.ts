@@ -43,6 +43,8 @@ export interface ValidatorTelemetry {
   alertSentAt: number;
   consecutivePeersZero: number;
   consecutiveCatchingUp: number;
+  lastHeartbeatTs: number;
+  lastContactTs: number;
   contact?: ContactRegistration;
   bootResumed?: boolean;
 }

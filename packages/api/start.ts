@@ -18,6 +18,13 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { StateStore } from "./telemetry/state-store.js";
+import { RetentionStore } from "./telemetry/retention-store.js";
+import { AdmissionChecker } from "./telemetry/admission.js";
+import { RateLimiter as TelemetryRateLimiter } from "./telemetry/rate-limit.js";
+import { StubAlertDispatcher } from "./telemetry/alerts.js";
+import { HealthEngine } from "./telemetry/health.js";
+import { telemetryRoutes } from "./telemetry/routes.js";
 
 const port = Number(process.argv.find((_, i, a) => a[i - 1] === "--port") ?? 5000);
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -677,6 +684,29 @@ async function main(): Promise<void> {
 		timeWindow: "1 minute",
 		global: true,
 	});
+
+	// ── Telemetry receiver ──────────────────────────────────────
+	const telemetryStateStore = new StateStore();
+	const telemetryRetentionStore = new RetentionStore();
+	const telemetryRateLimiter = new TelemetryRateLimiter();
+	await telemetryStateStore.loadFromDisk();
+	const telemetryAlerts = new StubAlertDispatcher(telemetryStateStore);
+	const telemetryHealth = new HealthEngine(telemetryStateStore, telemetryAlerts);
+
+	// AdmissionChecker uses a getter so runtime Pioneer approvals are
+	// visible without restart. pioneerApps is declared later in main()
+	// but the getter is only called at request time, after initialization.
+	const telemetryAdmission = new AdmissionChecker(abciQuery, () => pioneerApps);
+
+	await app.register(
+		telemetryRoutes(telemetryStateStore, telemetryRetentionStore, telemetryAdmission, telemetryRateLimiter, telemetryHealth),
+	);
+
+	telemetryStateStore.startFlushInterval();
+	const telemetryTickInterval = setInterval(() => {
+		void telemetryHealth.tick(telemetryStateStore.all());
+		telemetryRateLimiter.gc();
+	}, 60_000);
 
 	// Stricter rate limit for write endpoints (10 req/min per IP)
 	const writeRateLimit = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
@@ -3513,6 +3543,9 @@ async function main(): Promise<void> {
 
 	const shutdown = async (): Promise<void> => {
 		await log("API gateway shutting down");
+		clearInterval(telemetryTickInterval);
+		telemetryStateStore.stopFlushInterval();
+		await telemetryStateStore.flushToDisk();
 		await app.close();
 		process.exit(0);
 	};
