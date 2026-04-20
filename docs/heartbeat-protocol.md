@@ -154,13 +154,22 @@ body `{"error": "unknown DID"}`.
 Signature verification runs AFTER the admission check to avoid wasting
 CPU on unknown DIDs. The processing order is:
 
+0. Per-IP rate limit (429 on failure)
 1. Parse JSON and validate required fields (400 on failure)
 2. Bounds validation (400 on failure)
-3. Timestamp validation (400 on failure)
+3a. Timestamp skew tolerance (400 on failure)
 4. DID admission check (403 on failure)
+3b. Timestamp monotonicity (400 on failure)
 5. Signature verification (403 on failure)
-6. Per-DID rate limit check (429 on failure)
+6. Per-DID rate limit (429 on failure)
 7. Accept and process
+
+Steps 3a and 3b are split across the admission check because skew
+tolerance is stateless (compares payload timestamp against server clock)
+while monotonicity requires the per-DID last-seen timestamp, which is
+only meaningful for admitted DIDs. Running monotonicity before admission
+would either require storing timestamps for unknown DIDs (memory leak
+vector) or skipping the check for unknown DIDs (defeating its purpose).
 
 ---
 
@@ -340,6 +349,14 @@ State changes are logged. Alert dispatch rules:
    alert every 60 minutes until it recovers. Reminder alerts use the
    same delivery channels as the initial offline alert and are labeled
    "REMINDER" in the message subject.
+
+5. **Boot-time state resume.** When the API restarts and loads
+   telemetry-state.json, any DID already in unhealthy or offline state
+   is treated as a resumed state, not a new transition. The first
+   post-boot health tick does NOT fire an alert for these DIDs. Only a
+   subsequent state change (e.g., offline to healthy, or unhealthy to
+   offline) triggers an alert. This prevents alert storms on API
+   restarts.
 
 **Degraded transitions are dashboard-only.** Transitions to degraded do
 NOT dispatch push alerts. They appear on the status dashboard only.
