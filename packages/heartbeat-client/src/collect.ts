@@ -68,7 +68,7 @@ export async function collectMetrics(): Promise<Omit<HeartbeatPayload, "version"
     try {
       const content = await readFile(path, "utf-8");
       const match = content.match(/VERSION\s*=\s*"([^"]+)"/);
-      if (match) { abci_version = match[1]; break; }
+      if (match && match[1]) { abci_version = match[1]; break; }
     } catch { /* try next */ }
   }
   if (!abci_version) {
@@ -116,7 +116,7 @@ function parseDiskUsage(): number | null {
     // df -B1 / outputs: Filesystem 1B-blocks Used Available Use% Mounted
     const output = execSync("df -B1 / 2>/dev/null || df -k /", { encoding: "utf-8", timeout: 3000 });
     const lines = output.trim().split("\n");
-    if (lines.length < 2) return null;
+    if (lines.length < 2 || !lines[1]) return null;
     const parts = lines[1].split(/\s+/);
     // Find the percentage column (contains %)
     for (const part of parts) {
@@ -145,14 +145,14 @@ async function parseMemUsage(): Promise<number | null> {
 
 function extractMemValue(content: string, key: string): number | null {
   const match = content.match(new RegExp(`^${key}:\\s+(\\d+)`, "m"));
-  if (!match) return null;
+  if (!match || !match[1]) return null;
   return parseInt(match[1], 10); // kB
 }
 
 async function parseUptime(): Promise<number | null> {
   try {
     const content = await readFile("/proc/uptime", "utf-8");
-    const seconds = parseFloat(content.split(" ")[0]);
+    const seconds = parseFloat(content.split(" ")[0] ?? "");
     if (Number.isNaN(seconds)) return null;
     return Math.floor(seconds);
   } catch {
