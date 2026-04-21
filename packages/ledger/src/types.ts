@@ -18,7 +18,11 @@ export type TransactionType =
 	| "consensus_join"
 	| "consensus_leave"
 	| "consensus_force_remove"
-	| "pioneer_delegate";
+	| "pioneer_delegate"
+	| "governance_propose"
+	| "governance_sign"
+	| "governance_execute"
+	| "governance_cancel";
 
 /**
  * A transaction on the Ensoul chain.

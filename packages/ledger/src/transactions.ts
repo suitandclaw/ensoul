@@ -259,9 +259,13 @@ export function validateTransaction(
 		}
 		case "pioneer_delegate": {
 			// Privileged: handled entirely by the ABCI layer (like software_upgrade).
-			// The ledger only validates that the transaction exists.
-			// Signature check, treasury debit, and delegation registry update
-			// are all in the ABCI FinalizeBlock handler.
+			break;
+		}
+		case "governance_propose":
+		case "governance_sign":
+		case "governance_execute":
+		case "governance_cancel": {
+			// Governance multisig: all validation and state handled by ABCI.
 			break;
 		}
 		case "slash": {
@@ -379,11 +383,17 @@ export function applyTransaction(
 		}
 		case "pioneer_delegate": {
 			// Privileged governance action. All state changes handled by ABCI.
-			// The ledger layer is a no-op for this type.
 			break;
 		}
 		case "consensus_force_remove" as string: {
 			// Privileged governance action. ABCI handles the ValidatorUpdate.
+			break;
+		}
+		case "governance_propose":
+		case "governance_sign":
+		case "governance_execute":
+		case "governance_cancel": {
+			// Governance multisig: all state handled by ABCI.
 			break;
 		}
 		case "slash": {
