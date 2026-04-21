@@ -281,6 +281,12 @@ const GOVERNANCE_LEAVE_HEIGHT = 345_000;
 // chain reaches this height. ~15,000 blocks ahead of current tip (364,330).
 const FORCE_REMOVE_ACTIVATION_HEIGHT = 380_000;
 
+// Pioneer consensus backfill height. At this exact height, a one-shot
+// migration runs that adds all pioneer-delegated validators to the
+// consensus set. From this height onward, new pioneer_delegate txs
+// also call joinConsensus on success.
+const PIONEER_CONSENSUS_BACKFILL_HEIGHT = 410_000;
+
 // Nonce fix activation height. Before this height, FinalizeBlock applies a
 // double nonce increment (applyTransaction increments once, then FinalizeBlock
 // again). At and after this height, only applyTransaction increments.
@@ -1195,6 +1201,10 @@ async function handleFinalizeBlock(
 							state.working.delegateTokens(PIONEER_KEY, amount);
 							// Register in the delegation registry with lock
 							state.delegations.delegate(PIONEER_KEY, validatorDid, amount, lockedUntil, "pioneer");
+							// Register in consensus set so ABCI state matches CometBFT
+							if (height >= PIONEER_CONSENSUS_BACKFILL_HEIGHT) {
+								state.working.joinConsensus(validatorDid);
+							}
 							log(`Pioneer delegation: treasury -> ${validatorDid.slice(0, 25)}... amount=${amount / DECIMALS} ENSL locked until ${new Date(lockedUntil).toISOString().slice(0, 10)}`);
 						} else {
 							log(`Pioneer delegation FAILED: treasury balance ${treasuryBalance / DECIMALS} < ${amount / DECIMALS} required`);
@@ -1302,6 +1312,23 @@ async function handleFinalizeBlock(
 			}
 
 			state.totalEmitted += emitted;
+		}
+	}
+
+	// One-shot migration: backfill Pioneer-delegated validators into consensusSet.
+	// Previously pioneer_delegate did not call joinConsensus, leaving validators
+	// voting in CometBFT but not tracked in ABCI state.
+	if (height === PIONEER_CONSENSUS_BACKFILL_HEIGHT) {
+		const pioneerDelegations = state.delegations.serialize()
+			.filter(d => d.category === "pioneer");
+		const backfilled: string[] = [];
+		for (const d of pioneerDelegations) {
+			state.working.joinConsensus(d.validator);
+			backfilled.push(d.validator);
+		}
+		log(`Pioneer consensus backfill: added ${backfilled.length} validators at height ${height}`);
+		for (const did of backfilled) {
+			log(`  + ${did.slice(0, 30)}...`);
 		}
 	}
 
