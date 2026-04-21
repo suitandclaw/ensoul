@@ -1235,6 +1235,33 @@ async function main(): Promise<void> {
 		return result;
 	});
 
+	// ── Governance Multisig (Phase 1: read-only endpoints) ──────
+
+	app.get("/v1/governance/signers", async () => {
+		const govData = await abciQuery("/governance");
+		if (govData && typeof govData === "object") {
+			return {
+				signers: (govData as Record<string, unknown>)["signers"] ?? [],
+				threshold: (govData as Record<string, unknown>)["threshold"] ?? 0,
+				operatorKey: (govData as Record<string, unknown>)["operatorKey"] ?? "",
+				active: Array.isArray((govData as Record<string, unknown>)["signers"]) && ((govData as Record<string, unknown>)["signers"] as string[]).length > 0,
+			};
+		}
+		return { signers: [], threshold: 0, operatorKey: "", active: false };
+	});
+
+	app.get("/v1/governance/proposals", async (req) => {
+		const status = String((req.query as Record<string, string>)["status"] ?? "");
+		const govData = await abciQuery("/governance_proposals" + (status ? "?status=" + status : ""));
+		return govData ?? { proposals: [] };
+	});
+
+	app.get<{ Params: { id: string } }>("/v1/governance/proposal/:id", async (req) => {
+		const govData = await abciQuery("/governance_proposal/" + req.params.id);
+		if (!govData) return { error: "proposal not found" };
+		return govData;
+	});
+
 	// ── Pioneer Applications ─────────────────────────────────────
 
 	// ── Pioneer Application State ───────────────────────────────

@@ -39,6 +39,9 @@ export { createDefaultGenesis, validateGenesis, buildGenesisTransactions } from 
 export { DelegationRegistry, MIN_DELEGATION, COMMISSION_RATE, STORAGE_CREDIT_THRESHOLD, PIONEER_LOCK_DURATION_MS } from "./delegations.js";
 export type { DelegationCategory } from "./delegations.js";
 
+export { GovernanceState } from "./governance.js";
+export type { GovernanceProposal, GovernancePayload, GovernancePayloadType } from "./governance.js";
+
 // L1 protections (lessons learned from Solana, Ethereum, Sui, Polygon)
 export {
 	enforcePerIdentityLimit,
