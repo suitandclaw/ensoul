@@ -1113,6 +1113,110 @@ async function main(): Promise<void> {
 		return { validators: [], error: "ABCI unreachable" };
 	});
 
+	// GET /v1/dashboard/validators-full
+	// Merges CometBFT consensus set + ABCI state + registered-validators monikers.
+	// Ghosts (in CometBFT but not ABCI) get status "ghost".
+	let dashboardValsCache: { data: unknown; cachedAt: number } | null = null;
+	app.get("/v1/dashboard/validators-full", async () => {
+		const now = Date.now();
+		if (dashboardValsCache && now - dashboardValsCache.cachedAt < 10_000) {
+			return dashboardValsCache.data;
+		}
+
+		// 1. CometBFT consensus set
+		const cmtResult = await cometRpc("validators", { per_page: "100" });
+		const cmtVals = (cmtResult?.["validators"] as Array<{
+			address: string;
+			pub_key: { type: string; value: string };
+			voting_power: string;
+		}>) ?? [];
+
+		// 2. ABCI validators (DIDs + staked + power)
+		const abciResult = await abciQuery("/validators");
+		const abciVals: Array<Record<string, unknown>> =
+			Array.isArray(abciResult) ? abciResult
+			: (abciResult && Array.isArray((abciResult as Record<string, unknown>).validators))
+				? (abciResult as Record<string, unknown>).validators as Array<Record<string, unknown>>
+				: [];
+
+		// Index ABCI by DID for quick lookup
+		const abciByDid = new Map<string, Record<string, unknown>>();
+		for (const v of abciVals) {
+			if (v.did) abciByDid.set(String(v.did), v);
+		}
+
+		// 3. Registered-validators for monikers (index by pubkey hex)
+		const regByPubkey = new Map<string, RegisteredValidator>();
+		const regByDid = new Map<string, RegisteredValidator>();
+		for (const [, rv] of registeredValidators) {
+			if (rv.publicKey) regByPubkey.set(rv.publicKey.toLowerCase(), rv);
+			regByDid.set(rv.did, rv);
+		}
+
+		// 4. Derive DID from CometBFT pubkey for matching
+		// CometBFT pubkeys are base64; registered-validators have hex pubkeys.
+		const merged: Array<Record<string, unknown>> = [];
+		const matchedAbciDids = new Set<string>();
+
+		for (const cv of cmtVals) {
+			const pubB64 = cv.pub_key?.value ?? "";
+			const pubHex = Buffer.from(pubB64, "base64").toString("hex").toLowerCase();
+			const addr = (cv.address ?? "").toUpperCase();
+			const power = Number(cv.voting_power ?? 0);
+
+			// Try to find in registered-validators by pubkey
+			const reg = regByPubkey.get(pubHex);
+			const did = reg?.did ?? null;
+			const moniker = reg?.name ?? null;
+			const tier = reg?.tier ?? null;
+
+			// Try to find in ABCI validators
+			let abciEntry: Record<string, unknown> | null = null;
+			if (did) {
+				abciEntry = abciByDid.get(did) ?? null;
+				if (abciEntry) matchedAbciDids.add(did);
+			}
+
+			const status = abciEntry ? "active" : "ghost";
+
+			merged.push({
+				cometbft_address: addr,
+				pub_key_b64: pubB64,
+				voting_power: power,
+				did: did,
+				moniker: moniker,
+				tier: tier ?? (power > 5000000 ? "genesis" : power > 0 ? "pioneer" : "unknown"),
+				staked: abciEntry ? String(abciEntry.stakedBalance ?? "0") : "0",
+				delegated: abciEntry ? String(abciEntry.delegatedToThis ?? "0") : "0",
+				power: abciEntry ? Number(abciEntry.power ?? power) : power,
+				status: status,
+			});
+		}
+
+		// 5. ABCI validators not in CometBFT (tombstoned)
+		for (const [did, av] of abciByDid) {
+			if (!matchedAbciDids.has(did)) {
+				const reg = regByDid.get(did);
+				merged.push({
+					cometbft_address: null,
+					pub_key_b64: null,
+					voting_power: 0,
+					did: did,
+					moniker: reg?.name ?? null,
+					tier: reg?.tier ?? "unknown",
+					staked: String(av.stakedBalance ?? "0"),
+					delegated: String(av.delegatedToThis ?? "0"),
+					power: Number(av.power ?? 0),
+					status: "tombstoned",
+				});
+			}
+		}
+
+		const result = { validators: merged };
+		dashboardValsCache = { data: result, cachedAt: now };
+		return result;
+	});
+
 	// ── Pioneer Applications ─────────────────────────────────────
 
 	// ── Pioneer Application State ───────────────────────────────
