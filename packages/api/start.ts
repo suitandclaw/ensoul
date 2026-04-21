@@ -2011,9 +2011,21 @@ async function main(): Promise<void> {
 			return reply.status(400).send({ error: "Required: did" });
 		}
 
-		const app_entry = pioneerApps.find((a) => a.did === did);
+		let app_entry = pioneerApps.find((a: PioneerApp) => a.did === did);
 		if (!app_entry) {
-			return reply.status(404).send({ error: "No Pioneer application found for this DID" });
+			// Create stub entry for audit trail (orphan DIDs that received
+			// delegation without the normal application flow)
+			app_entry = {
+				did,
+				name: `orphan-${did.slice(-8)}`,
+				contact: "orphan-revoke",
+				ip: "",
+				appliedAt: new Date().toISOString(),
+				status: "pending" as const,
+			} as PioneerApp;
+			pioneerApps.push(app_entry);
+			await savePioneerApps();
+			await log(`Pioneer REVOKE: created stub application for orphan ${did.slice(0, 30)}...`);
 		}
 		if (app_entry.status === "revoked") {
 			return { status: "already_revoked", did };

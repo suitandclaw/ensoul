@@ -94,16 +94,18 @@ export class DelegationRegistry {
 	 * Rejects if the delegation is locked (Pioneer/foundation lock).
 	 * Pass nowMs for deterministic testing; defaults to Date.now().
 	 */
-	undelegate(delegator: string, validator: string, amount: bigint, nowMs?: number): void {
+	undelegate(delegator: string, validator: string, amount: bigint, nowMs?: number, bypassLock = false): void {
 		// Check lock before allowing undelegate
-		const lock = this.getLock(delegator, validator);
-		if (lock && lock.lockedUntil > 0) {
-			const now = nowMs ?? Date.now();
-			if (lock.lockedUntil > now) {
-				const unlockDate = new Date(lock.lockedUntil).toISOString().slice(0, 10);
-				throw new Error(
-					`Delegation locked until ${unlockDate}. ${lock.category === "pioneer" ? "Pioneer" : "Foundation"} delegations are locked for 24 months. Block rewards remain claimable.`,
-				);
+		if (!bypassLock) {
+			const lock = this.getLock(delegator, validator);
+			if (lock && lock.lockedUntil > 0) {
+				const now = nowMs ?? Date.now();
+				if (lock.lockedUntil > now) {
+					const unlockDate = new Date(lock.lockedUntil).toISOString().slice(0, 10);
+					throw new Error(
+						`Delegation locked until ${unlockDate}. ${lock.category === "pioneer" ? "Pioneer" : "Foundation"} delegations are locked for 24 months. Block rewards remain claimable.`,
+					);
+				}
 			}
 		}
 
