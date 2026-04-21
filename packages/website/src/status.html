@@ -157,7 +157,8 @@ a:hover{color:#fafafa}
   <table class="tbl" id="val-table">
     <thead>
       <tr>
-        <th>DID</th>
+        <th>Moniker</th>
+        <th>DID / Address</th>
         <th>Health</th>
         <th>Height</th>
         <th>Peers</th>
@@ -167,7 +168,7 @@ a:hover{color:#fafafa}
         <th>Disk</th>
         <th>Mem</th>
         <th>Power</th>
-        <th>Tier</th>
+        <th>Status</th>
       </tr>
     </thead>
     <tbody id="val-body"></tbody>
@@ -400,53 +401,38 @@ function refreshStats(){
 
 function refreshGrid(){
   Promise.all([
-    fetchJson(API + "/v1/validators"),
+    fetchJson(API + "/v1/dashboard/validators-full"),
     fetchJson(API + "/v1/telemetry/state")
   ]).then(function(results){
-    var abciData = results[0];
+    var fullData = results[0];
     var tData = results[1];
-    if (!abciData) return;
+    if (!fullData) return;
 
-    var validators = abciData.validators || abciData || [];
+    var validators = fullData.validators || [];
     telemetryData = Array.isArray(tData) ? tData : [];
 
     // Index telemetry by DID
     var telemetryMap = {};
     telemetryData.forEach(function(t){ telemetryMap[t.did] = t; });
 
-    // Merge
+    // Merge with heartbeat data
     var merged = [];
     validators.forEach(function(v){
       var did = v.did || "";
-      var t = telemetryMap[did];
+      var t = did ? telemetryMap[did] : null;
       var hb = t ? t.lastHeartbeat : null;
       merged.push({
         did: did,
-        power: Number(v.power || 0),
-        tier: Number(v.power || 0) > 5000000 ? "genesis" : Number(v.power || 0) > 0 ? "pioneer" : "unknown",
+        cometbft_address: v.cometbft_address || "",
+        pub_key_b64: v.pub_key_b64 || "",
+        moniker: v.moniker || "",
+        power: Number(v.power || v.voting_power || 0),
+        tier: v.tier || "unknown",
+        status: v.status || "active",
         health: t ? t.healthState : "no-data",
         height: hb ? hb.height : null,
         peers: hb ? hb.peers : null,
         lastSeen: t ? t.lastSeenAt : null,
-        abciVersion: hb ? hb.abci_version : null,
-        cmtVersion: hb ? hb.cometbft_version : null,
-        disk: hb ? hb.disk_used_pct : null,
-        mem: hb ? hb.mem_used_pct : null,
-      });
-      delete telemetryMap[did];
-    });
-    // Add telemetry-only entries (validators reporting but not in ABCI state)
-    Object.keys(telemetryMap).forEach(function(did){
-      var t = telemetryMap[did];
-      var hb = t.lastHeartbeat;
-      merged.push({
-        did: did,
-        power: 0,
-        tier: "unknown",
-        health: t.healthState,
-        height: hb ? hb.height : null,
-        peers: hb ? hb.peers : null,
-        lastSeen: t.lastSeenAt,
         abciVersion: hb ? hb.abci_version : null,
         cmtVersion: hb ? hb.cometbft_version : null,
         disk: hb ? hb.disk_used_pct : null,
@@ -498,8 +484,18 @@ function refreshGrid(){
         else if (v.mem > 80) memColor = "color:#eab308";
       }
 
-      html += '<tr>';
-      html += '<td><code onclick="navigator.clipboard.writeText(\'' + esc(v.did) + '\')" title="' + esc(v.did) + '">' + esc(shortDid(v.did)) + '</code></td>';
+      // Identity column: show DID if available, CometBFT address for ghosts
+      var idLabel = v.did ? shortDid(v.did) : v.cometbft_address ? v.cometbft_address.slice(0, 12) + "..." : "--";
+      var idFull = v.did || v.cometbft_address || "";
+      var idTitle = v.did ? v.did : "CometBFT: " + (v.cometbft_address || "");
+
+      // Status badge
+      var statusClass = v.status === "ghost" ? "unhealthy" : v.status === "tombstoned" ? "no-data" : v.tier;
+      var statusLabel = v.status === "ghost" ? "GHOST" : v.status === "tombstoned" ? "TOMBSTONED" : v.tier;
+
+      html += '<tr' + (v.status === "ghost" ? ' style="background:rgba(239,68,68,0.03)"' : '') + '>';
+      html += '<td>' + esc(v.moniker || "--") + '</td>';
+      html += '<td><code onclick="navigator.clipboard.writeText(\'' + esc(idFull) + '\')" title="' + esc(idTitle) + '">' + esc(idLabel) + '</code></td>';
       html += '<td><span class="badge ' + hClass + '">' + esc(hLabel) + '</span></td>';
       html += '<td style="' + heightColor + '">' + (v.height !== null ? v.height.toLocaleString() : "--") + '</td>';
       html += '<td>' + (v.peers !== null ? v.peers : "--") + '</td>';
@@ -509,7 +505,7 @@ function refreshGrid(){
       html += '<td style="' + diskColor + '">' + (v.disk !== null ? v.disk + "%" : "--") + '</td>';
       html += '<td style="' + memColor + '">' + (v.mem !== null ? v.mem + "%" : "--") + '</td>';
       html += '<td>' + (v.power > 0 ? v.power.toLocaleString() : "--") + '</td>';
-      html += '<td><span class="badge ' + esc(v.tier) + '">' + esc(v.tier) + '</span></td>';
+      html += '<td><span class="badge ' + esc(statusClass) + '">' + esc(statusLabel) + '</span></td>';
       html += '</tr>';
     });
     $("val-body").innerHTML = html;
@@ -578,15 +574,20 @@ function refreshPioneers(){
 
 window.openModal = function(id){
   if (id === "ghost-modal") {
-    // Populate ghost dropdown from current validator grid data
+    // Populate ghost dropdown with only ghost validators
     var sel = $("ghost-select");
-    sel.innerHTML = '<option value="">-- select for reference --</option>';
-    valData.forEach(function(v){
+    sel.innerHTML = '<option value="">-- select ghost validator --</option>';
+    var ghosts = valData.filter(function(v){ return v.status === "ghost"; });
+    ghosts.forEach(function(v){
       var opt = document.createElement("option");
-      opt.value = v.did;
-      opt.textContent = shortDid(v.did) + " (power=" + (v.power || 0) + ", " + (v.health || "unknown") + ")";
+      opt.value = v.pub_key_b64 || "";
+      opt.textContent = (v.cometbft_address || "unknown").slice(0, 16) + "... (power=" + (v.power || 0) + ")";
+      opt.setAttribute("data-addr", v.cometbft_address || "");
       sel.appendChild(opt);
     });
+    if (ghosts.length === 0) {
+      sel.innerHTML = '<option value="">No ghost validators detected</option>';
+    }
     $("ghost-detail").textContent = "";
     $("ghost-pubkey").value = "";
     $("ghost-reason").value = "";
@@ -596,12 +597,16 @@ window.openModal = function(id){
 };
 window.closeModal = function(id){ $(id).classList.remove("open"); };
 
-// Show full DID when ghost dropdown changes
+// Auto-fill pubkey when ghost dropdown changes
 $("ghost-select").addEventListener("change", function(){
-  var did = this.value;
-  if (did) {
-    $("ghost-detail").textContent = "Full DID: " + did;
+  var pubkey = this.value;
+  if (pubkey) {
+    $("ghost-pubkey").value = pubkey;
+    var opt = this.options[this.selectedIndex];
+    var addr = opt.getAttribute("data-addr") || "";
+    $("ghost-detail").textContent = "CometBFT address: " + addr + "\nPublic key (base64): " + pubkey;
   } else {
+    $("ghost-pubkey").value = "";
     $("ghost-detail").textContent = "";
   }
 });
