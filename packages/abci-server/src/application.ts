@@ -287,6 +287,11 @@ const FORCE_REMOVE_ACTIVATION_HEIGHT = 380_000;
 // also call joinConsensus on success.
 const PIONEER_CONSENSUS_BACKFILL_HEIGHT = 410_000;
 
+// Governance lock bypass height. From this height onward, the governance
+// key (PIONEER_KEY) can undelegate Pioneer delegations even if they are
+// still within their 24-month lock period. Every bypass is audit-logged.
+const GOVERNANCE_LOCK_BYPASS_HEIGHT = 403_334;
+
 // Nonce fix activation height. Before this height, FinalizeBlock applies a
 // double nonce increment (applyTransaction increments once, then FinalizeBlock
 // again). At and after this height, only applyTransaction increments.
@@ -1136,9 +1141,16 @@ async function handleFinalizeBlock(
 		// Height-gated at 151000 for deterministic replay of older blocks.
 		if (height >= 151000 && tx.type === "undelegate" as TransactionType) {
 			if (state.delegations.isLocked(tx.from, tx.to, blockTimeMs)) {
-				const lock = state.delegations.getLock(tx.from, tx.to);
-				txResults.push({ code: 40, log: `delegation locked until ${new Date(lock?.lockedUntil ?? 0).toISOString().slice(0, 10)}` });
-				continue;
+				// Governance bypass: PIONEER_KEY can undelegate locked Pioneer
+				// delegations to correct mistakes without waiting for lock expiry.
+				if (height >= GOVERNANCE_LOCK_BYPASS_HEIGHT && tx.from === PIONEER_KEY) {
+					log(`GOVERNANCE LOCK BYPASS: undelegate from=${tx.from.slice(0, 30)} to=${tx.to.slice(0, 30)} amount=${tx.amount / DECIMALS} ENSL`);
+					// Fall through to normal undelegate processing
+				} else {
+					const lock = state.delegations.getLock(tx.from, tx.to);
+					txResults.push({ code: 40, log: `delegation locked until ${new Date(lock?.lockedUntil ?? 0).toISOString().slice(0, 10)}` });
+					continue;
+				}
 			}
 		}
 
@@ -1236,8 +1248,9 @@ async function handleFinalizeBlock(
 		// Height-gated at 151000 for deterministic replay.
 		if (height >= 151000 && tx.type === "undelegate" as TransactionType) {
 			try {
-				state.delegations.undelegate(tx.from, tx.to, tx.amount);
-				log(`Undelegate: ${tx.from.slice(0, 20)}... removed ${tx.amount / DECIMALS} ENSL from ${tx.to.slice(0, 20)}...`);
+				const bypassLock = height >= GOVERNANCE_LOCK_BYPASS_HEIGHT && tx.from === PIONEER_KEY;
+				state.delegations.undelegate(tx.from, tx.to, tx.amount, blockTimeMs, bypassLock);
+				log(`Undelegate: ${tx.from.slice(0, 20)}... removed ${tx.amount / DECIMALS} ENSL from ${tx.to.slice(0, 20)}...${bypassLock ? " (GOVERNANCE BYPASS)" : ""}`);
 			} catch (err) {
 				log(`Undelegate registry update failed: ${err instanceof Error ? err.message : String(err)}`);
 			}
