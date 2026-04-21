@@ -226,6 +226,13 @@ importers:
       canonicalize:
         specifier: 3.0.0
         version: 3.0.0
+    devDependencies:
+      '@types/node':
+        specifier: ^25.0.0
+        version: 25.5.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
 
   packages/identity:
     dependencies:
