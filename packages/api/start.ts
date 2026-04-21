@@ -659,6 +659,20 @@ function incrementDailyBonus(): void {
 
 // ── Server ───────────────────────────────────────────────────────────
 
+const B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+function didKeyFromPubkey(pubkeyBytes: Uint8Array): string {
+	const mc = new Uint8Array(34);
+	mc[0] = 0xed; mc[1] = 0x01;
+	mc.set(pubkeyBytes, 2);
+	let num = 0n;
+	for (const byte of mc) num = num * 256n + BigInt(byte);
+	let encoded = "";
+	while (num > 0n) { encoded = B58_ALPHABET[Number(num % 58n)] + encoded; num = num / 58n; }
+	for (const byte of mc) { if (byte === 0) encoded = "1" + encoded; else break; }
+	return `did:key:z${encoded}`;
+}
+
 async function main(): Promise<void> {
 	await mkdir(LOG_DIR, { recursive: true });
 	await loadGenesisDids();
@@ -1160,22 +1174,26 @@ async function main(): Promise<void> {
 
 		for (const cv of cmtVals) {
 			const pubB64 = cv.pub_key?.value ?? "";
-			const pubHex = Buffer.from(pubB64, "base64").toString("hex").toLowerCase();
+			const pubBytes = Buffer.from(pubB64, "base64");
+			const pubHex = pubBytes.toString("hex").toLowerCase();
 			const addr = (cv.address ?? "").toUpperCase();
 			const power = Number(cv.voting_power ?? 0);
 
-			// Try to find in registered-validators by pubkey
-			const reg = regByPubkey.get(pubHex);
-			const did = reg?.did ?? null;
+			// Derive DID from CometBFT pubkey (mathematical, no lookup needed)
+			const derivedDid = pubBytes.length === 32 ? didKeyFromPubkey(pubBytes) : null;
+
+			// Match against ABCI validators by derived DID
+			let abciEntry: Record<string, unknown> | null = null;
+			if (derivedDid) {
+				abciEntry = abciByDid.get(derivedDid) ?? null;
+				if (abciEntry) matchedAbciDids.add(derivedDid);
+			}
+
+			// Moniker from registered-validators (by pubkey or DID)
+			const reg = regByPubkey.get(pubHex) ?? (derivedDid ? regByDid.get(derivedDid) : undefined);
+			const did = derivedDid;
 			const moniker = reg?.name ?? null;
 			const tier = reg?.tier ?? null;
-
-			// Try to find in ABCI validators
-			let abciEntry: Record<string, unknown> | null = null;
-			if (did) {
-				abciEntry = abciByDid.get(did) ?? null;
-				if (abciEntry) matchedAbciDids.add(did);
-			}
 
 			const status = abciEntry ? "active" : "ghost";
 
