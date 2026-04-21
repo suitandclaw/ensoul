@@ -1471,9 +1471,11 @@ async function main(): Promise<void> {
 			const daysRemaining = entry.lockedUntil ? Math.max(0, Math.ceil((entry.lockedUntil - Date.now()) / 86400000)) : 0;
 			result["lockDaysRemaining"] = daysRemaining;
 			result["nextSteps"] = [
-				"Run on your validator:",
+				"Your validator is active. Your 1M ENSL delegation provides voting power automatically.",
+				"No further action required.",
+				"",
+				"Optional: to self-stake your 100 ENSL bootstrap balance, run:",
 				"  ensoul-node wallet stake 100",
-				"  ensoul-node wallet consensus-join",
 			];
 		} else if (entry.status === "rejected") {
 			result["rejectedAt"] = entry.rejectedAt;
@@ -1557,22 +1559,20 @@ async function main(): Promise<void> {
 				body: [
 					`Pioneer ${app_entry.name} approved.`,
 					`DID: ${did}`,
-					`100 ENSL sent for self-stake, 1M ENSL delegated (locked 24 months).`,
-					`Automatic upgrades included. No manual updates required.`,
-					``,
-					`Tell the Pioneer to run on their validator:`,
-					`  npx tsx packages/node/src/cli/main.ts wallet stake 100`,
-					`  npx tsx packages/node/src/cli/main.ts wallet consensus-join`,
+					`100 ENSL bootstrap sent, 1M ENSL delegated (locked 24 months).`,
+					`Validator active immediately via pioneer_delegate (no operator action required).`,
+					`Automatic upgrades included.`,
 				].join("\n"),
 			}).catch(() => {});
 		}
 
 		const nextSteps = [
-			"Run on your validator to activate:",
+			"Pioneer approved. Validator active immediately via pioneer_delegate.",
+			"Your 1M ENSL delegation provides voting power automatically.",
+			"",
+			"Optional: the 100 ENSL bootstrap can be self-staked with:",
 			"  ensoul-node wallet stake 100",
-			"  ensoul-node wallet consensus-join",
-			"This stakes your 100 ENSL and joins the active set.",
-			"Your 1M delegation increases voting power automatically.",
+			"This is optional and does not affect voting power.",
 		].join("\n");
 
 		return {
