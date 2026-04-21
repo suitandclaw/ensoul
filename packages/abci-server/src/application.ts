@@ -20,8 +20,10 @@ import {
 	computeBlockReward,
 	EMISSION_V2_HEIGHT,
 	DelegationRegistry,
+	GovernanceState,
 } from "@ensoul/ledger";
 import type { GenesisConfig, GenesisAllocation, Transaction, TransactionType } from "@ensoul/ledger";
+import type { GovernancePayload } from "@ensoul/ledger";
 import { createHash } from "node:crypto";
 
 // -- Constants --
@@ -364,6 +366,8 @@ interface EnsoulState {
 	consciousness: Map<string, OnChainConsciousness>;
 	/** Running count of all successfully processed transactions. */
 	totalTransactions: number;
+	/** Governance multisig state (Phase 1: dormant until signers registered). */
+	governance: GovernanceState;
 	/** Temporary buffer for accumulating snapshot chunks during state sync. */
 	_snapshotBuffer?: Buffer;
 }
@@ -389,6 +393,7 @@ export function createApplication(dataDir = "/tmp/ensoul-abci"): {
 		agents: new Map(),
 		consciousness: new Map(),
 		totalTransactions: 0,
+		governance: new GovernanceState(),
 	};
 
 	async function handler(
@@ -545,6 +550,12 @@ async function handleInitChain(
 				state.delegations = delegationRegistry;
 				state.totalEmitted = BigInt(imported["totalEmitted"] as string ?? "0");
 				state.totalTransactions = (imported["totalTransactions"] as number) ?? 0;
+
+				// Restore governance state
+				const govData = imported["governance"] as Record<string, unknown> | undefined;
+				if (govData) {
+					state.governance = GovernanceState.deserialize(govData);
+				}
 
 				// Restore genesis config
 				const gen = imported["genesis"] as Record<string, unknown> | null;
@@ -876,6 +887,9 @@ async function handleFinalizeBlock(
 
 	// Clone committed state to build working state
 	state.working = state.committed.clone();
+
+	// Governance rate limit: track proposers within this block
+	const governanceProposersThisBlock = new Set<string>();
 
 	// Execute each transaction
 	const txResults: Array<{ code: number; log: string }> = [];
@@ -1327,6 +1341,109 @@ async function handleFinalizeBlock(
 			state.totalEmitted += emitted;
 		}
 	}
+
+	// ── Governance multisig tx processing ─────────────────────────
+	// Phase 1: dormant until signers registered. All governance_* txs fail
+	// validation if state.governance.isActive() is false.
+	for (const txBytes of rawTxs) {
+		const tx = decodeTx(txBytes as Buffer);
+		if (!tx) continue;
+
+		if (tx.type === "governance_propose" as TransactionType) {
+			if (!state.governance.isActive()) {
+				log(`governance_propose rejected: no signers registered`);
+				continue;
+			}
+			if (governanceProposersThisBlock.has(tx.from)) {
+				log(`governance_propose rejected: rate limit (1 per signer per block)`);
+				continue;
+			}
+			try {
+				const data = tx.data instanceof Uint8Array
+					? JSON.parse(new TextDecoder().decode(tx.data)) as { payload: GovernancePayload; nonce: string; expiresAt?: number }
+					: tx.data as unknown as { payload: GovernancePayload; nonce: string; expiresAt?: number };
+				const proposal = state.governance.createProposal(
+					tx.from, data.payload, data.nonce, blockTimeMs, data.expiresAt,
+				);
+				// Proposer's signature counts toward threshold (Safe pattern)
+				// Use the tx signature itself as the proposer's governance signature
+				const sigHex = Buffer.from(tx.signature).toString("hex");
+				state.governance.addSignature(proposal.id, tx.from, sigHex, blockTimeMs);
+				governanceProposersThisBlock.add(tx.from);
+				log(`GOVERNANCE PROPOSE: id=${proposal.id} type=${data.payload.type} by=${tx.from.slice(0, 30)}`);
+			} catch (err) {
+				log(`governance_propose error: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		}
+
+		if (tx.type === "governance_sign" as TransactionType) {
+			if (!state.governance.isActive()) continue;
+			try {
+				const data = tx.data instanceof Uint8Array
+					? JSON.parse(new TextDecoder().decode(tx.data)) as { proposalId: string; signature: string }
+					: tx.data as unknown as { proposalId: string; signature: string };
+				state.governance.addSignature(data.proposalId, tx.from, data.signature, blockTimeMs);
+				const p = state.governance.getProposal(data.proposalId);
+				log(`GOVERNANCE SIGN: id=${data.proposalId} signer=${tx.from.slice(0, 30)} (${p?.signatures.size ?? 0}/${state.governance.getThreshold()})`);
+			} catch (err) {
+				log(`governance_sign error: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		}
+
+		if (tx.type === "governance_execute" as TransactionType) {
+			if (!state.governance.isActive()) continue;
+			try {
+				const data = tx.data instanceof Uint8Array
+					? JSON.parse(new TextDecoder().decode(tx.data)) as { proposalId: string }
+					: tx.data as unknown as { proposalId: string };
+				const check = state.governance.canExecute(data.proposalId, blockTimeMs);
+				if (!check.ok) {
+					log(`governance_execute rejected: ${check.reason}`);
+					continue;
+				}
+				const proposal = state.governance.getProposal(data.proposalId)!;
+				const payloadType = proposal.payload.type;
+
+				// Phase 1: only set_signers and operator_key_rotate are executable
+				if (payloadType === "set_signers") {
+					const p = proposal.payload as { type: "set_signers"; newSigners: string[]; newThreshold: number };
+					state.governance.setSigners(p.newSigners, p.newThreshold);
+					log(`GOVERNANCE EXECUTE set_signers: ${p.newSigners.length} signers, threshold=${p.newThreshold}`);
+				} else if (payloadType === "operator_key_rotate") {
+					const p = proposal.payload as { type: "operator_key_rotate"; newOperatorKey: string };
+					state.governance.setOperatorKey(p.newOperatorKey);
+					log(`GOVERNANCE EXECUTE operator_key_rotate: new key=${p.newOperatorKey.slice(0, 30)}`);
+				} else {
+					// Phase 3 deferred: treasury_transfer, software_upgrade,
+					// consensus_force_remove, pioneer_revoke,
+					// governance_lock_bypass_undelegate
+					log(`governance_execute rejected: payload type "${payloadType}" not yet enabled (Phase 3)`);
+					continue;
+				}
+
+				state.governance.markExecuted(data.proposalId, tx.from, blockTimeMs);
+				log(`GOVERNANCE EXECUTE: id=${data.proposalId} type=${payloadType} by=${tx.from.slice(0, 30)}`);
+			} catch (err) {
+				log(`governance_execute error: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		}
+
+		if (tx.type === "governance_cancel" as TransactionType) {
+			if (!state.governance.isActive()) continue;
+			try {
+				const data = tx.data instanceof Uint8Array
+					? JSON.parse(new TextDecoder().decode(tx.data)) as { proposalId: string }
+					: tx.data as unknown as { proposalId: string };
+				state.governance.markCancelled(data.proposalId, tx.from);
+				log(`GOVERNANCE CANCEL: id=${data.proposalId} by=${tx.from.slice(0, 30)}`);
+			} catch (err) {
+				log(`governance_cancel error: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		}
+	}
+
+	// Expire stale governance proposals
+	state.governance.expireStale(blockTimeMs);
 
 	// One-shot migration: backfill Pioneer-delegated validators into consensusSet.
 	// Previously pioneer_delegate did not call joinConsensus, leaving validators
@@ -1805,6 +1922,32 @@ function handleQuery(
 			};
 			break;
 		}
+		case "governance": {
+			value = {
+				signers: state.governance.getSigners(),
+				threshold: state.governance.getThreshold(),
+				operatorKey: state.governance.getOperatorKey(),
+			};
+			break;
+		}
+		case "governance_proposals": {
+			const statusFilter = queryParams.get("status") ?? "";
+			const proposals = state.governance.listProposals(statusFilter || undefined).map(p => ({
+				...p,
+				signatures: Object.fromEntries(p.signatures),
+			}));
+			value = { proposals };
+			break;
+		}
+		case "governance_proposal": {
+			const proposal = state.governance.getProposal(param);
+			if (proposal) {
+				value = { ...proposal, signatures: Object.fromEntries(proposal.signatures) };
+			} else {
+				value = { error: "proposal not found" };
+			}
+			break;
+		}
 		default:
 			return {
 				query: {
@@ -2023,6 +2166,7 @@ function serializeFullState(state: EnsoulState): Buffer {
 		upgradeHistory: state.upgradeHistory,
 		delegations: state.delegations.serialize(),
 		totalTransactions: state.totalTransactions,
+		governance: state.governance.serialize(),
 		genesis: state.genesis ? {
 			emissionPerBlock: state.genesis.emissionPerBlock.toString(),
 			networkRewardsPool: state.genesis.networkRewardsPool.toString(),
@@ -2246,6 +2390,8 @@ async function handleApplySnapshotChunk(
 		state.upgradePlan = snapshot.upgradePlan;
 		state.upgradeHistory = snapshot.upgradeHistory ?? [];
 		state.totalTransactions = (snapshot as Record<string, unknown>)["totalTransactions"] as number ?? 0;
+		const govSnap = (snapshot as Record<string, unknown>)["governance"] as Record<string, unknown> | undefined;
+		if (govSnap) state.governance = GovernanceState.deserialize(govSnap);
 		if (snapshot.delegations && snapshot.delegations.length > 0) {
 			state.delegations = DelegationRegistry.deserialize(snapshot.delegations);
 		}
