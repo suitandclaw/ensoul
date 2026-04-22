@@ -68,6 +68,20 @@ function base58btcDecode(str: string): Uint8Array {
  * Extract the raw 32-byte Ed25519 public key from a did:key DID.
  * Returns null for non-did:key DIDs (protocol accounts).
  */
+// Deterministic JSON for governance signature messages (sorted keys, all depths).
+function governanceCanonicalJSON(obj: unknown): string {
+	if (obj === null || obj === undefined) return "null";
+	if (typeof obj === "string") return JSON.stringify(obj);
+	if (typeof obj === "number" || typeof obj === "boolean") return String(obj);
+	if (Array.isArray(obj)) return "[" + obj.map(governanceCanonicalJSON).join(",") + "]";
+	if (typeof obj === "object") {
+		const keys = Object.keys(obj as Record<string, unknown>).sort();
+		const pairs = keys.map(k => JSON.stringify(k) + ":" + governanceCanonicalJSON((obj as Record<string, unknown>)[k]));
+		return "{" + pairs.join(",") + "}";
+	}
+	return String(obj);
+}
+
 function pubkeyFromDid(did: string): Uint8Array | null {
 	if (!did.startsWith("did:key:z")) return null;
 	const decoded = base58btcDecode(did.slice("did:key:z".length));
@@ -1345,6 +1359,20 @@ async function handleFinalizeBlock(
 	// ── Governance multisig tx processing ─────────────────────────
 	// Phase 1: dormant until signers registered. All governance_* txs fail
 	// validation if state.governance.isActive() is false.
+
+	// Governance signature verification helper.
+	// Message = sha256(canonicalJSON(payload) + nonce)
+	// Signer pubkey extracted from DID via pubkeyFromDid.
+	const edVerify = await loadEd25519();
+	function verifyGovernanceSig(signerDid: string, sigHex: string, payload: GovernancePayload, nonce: string): boolean {
+		const pubkey = pubkeyFromDid(signerDid);
+		if (!pubkey) return false;
+		const sigBytes = Buffer.from(sigHex, "hex");
+		if (sigBytes.length !== 64) return false;
+		const canonical = governanceCanonicalJSON(payload);
+		const message = createHash("sha256").update(canonical + nonce).digest();
+		return edVerify(sigBytes, message, pubkey);
+	}
 	for (const txBytes of rawTxs) {
 		const tx = decodeTx(txBytes as Buffer);
 		if (!tx) continue;
@@ -1360,15 +1388,22 @@ async function handleFinalizeBlock(
 			}
 			try {
 				const data = tx.data instanceof Uint8Array
-					? JSON.parse(new TextDecoder().decode(tx.data)) as { payload: GovernancePayload; nonce: string; expiresAt?: number }
-					: tx.data as unknown as { payload: GovernancePayload; nonce: string; expiresAt?: number };
+					? JSON.parse(new TextDecoder().decode(tx.data)) as { payload: GovernancePayload; nonce: string; expiresAt?: number; signature: string }
+					: tx.data as unknown as { payload: GovernancePayload; nonce: string; expiresAt?: number; signature: string };
+				if (!data.signature || typeof data.signature !== "string") {
+					log(`governance_propose rejected: missing governance signature in data`);
+					continue;
+				}
+				// Verify proposer's governance signature over sha256(canonical(payload) + nonce)
+				if (!verifyGovernanceSig(tx.from, data.signature, data.payload, data.nonce)) {
+					log(`governance_propose rejected: invalid governance signature from ${tx.from.slice(0, 30)}`);
+					continue;
+				}
 				const proposal = state.governance.createProposal(
 					tx.from, data.payload, data.nonce, blockTimeMs, data.expiresAt,
 				);
-				// Proposer's signature counts toward threshold (Safe pattern)
-				// Use the tx signature itself as the proposer's governance signature
-				const sigHex = Buffer.from(tx.signature).toString("hex");
-				state.governance.addSignature(proposal.id, tx.from, sigHex, blockTimeMs);
+				// Proposer's verified signature counts toward threshold (Safe pattern)
+				state.governance.addSignature(proposal.id, tx.from, data.signature, blockTimeMs);
 				governanceProposersThisBlock.add(tx.from);
 				log(`GOVERNANCE PROPOSE: id=${proposal.id} type=${data.payload.type} by=${tx.from.slice(0, 30)}`);
 			} catch (err) {
@@ -1382,9 +1417,23 @@ async function handleFinalizeBlock(
 				const data = tx.data instanceof Uint8Array
 					? JSON.parse(new TextDecoder().decode(tx.data)) as { proposalId: string; signature: string }
 					: tx.data as unknown as { proposalId: string; signature: string };
+				if (!data.signature || typeof data.signature !== "string") {
+					log(`governance_sign rejected: missing signature`);
+					continue;
+				}
+				// Look up proposal to get payload + nonce for verification
+				const proposal = state.governance.getProposal(data.proposalId);
+				if (!proposal) {
+					log(`governance_sign rejected: proposal ${data.proposalId} not found`);
+					continue;
+				}
+				// Verify Ed25519 signature over sha256(canonical(payload) + nonce)
+				if (!verifyGovernanceSig(tx.from, data.signature, proposal.payload, proposal.nonce)) {
+					log(`governance_sign rejected: invalid signature from ${tx.from.slice(0, 30)}`);
+					continue;
+				}
 				state.governance.addSignature(data.proposalId, tx.from, data.signature, blockTimeMs);
-				const p = state.governance.getProposal(data.proposalId);
-				log(`GOVERNANCE SIGN: id=${data.proposalId} signer=${tx.from.slice(0, 30)} (${p?.signatures.size ?? 0}/${state.governance.getThreshold()})`);
+				log(`GOVERNANCE SIGN: id=${data.proposalId} signer=${tx.from.slice(0, 30)} (${proposal.signatures.size}/${state.governance.getThreshold()})`);
 			} catch (err) {
 				log(`governance_sign error: ${err instanceof Error ? err.message : String(err)}`);
 			}
