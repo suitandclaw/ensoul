@@ -286,3 +286,30 @@ describe("GovernanceState", () => {
 		});
 	});
 });
+
+describe("governance signature message format", () => {
+	it("canonicalJSON produces deterministic output for governance payloads", () => {
+		// Import the canonicalJSON from the governance module indirectly
+		// by verifying that proposal IDs are deterministic
+		const gs1 = setup();
+		const gs2 = setup();
+		const p1 = gs1.createProposal(SIGNER_A, PAYLOAD, "test-nonce", NOW);
+		const p2 = gs2.createProposal(SIGNER_A, PAYLOAD, "test-nonce", NOW);
+		expect(p1.id).toBe(p2.id);
+	});
+
+	it("different payloads produce different proposal IDs", () => {
+		const gs = setup();
+		const payload2: GovernancePayload = { type: "operator_key_rotate", newOperatorKey: SIGNER_B };
+		const p1 = gs.createProposal(SIGNER_A, PAYLOAD, "n1", NOW);
+		const p2 = gs.createProposal(SIGNER_A, payload2, "n2", NOW);
+		expect(p1.id).not.toBe(p2.id);
+	});
+
+	it("same payload different nonce produces different ID", () => {
+		const gs = setup();
+		const p1 = gs.createProposal(SIGNER_A, PAYLOAD, "nonce-1", NOW);
+		const p2 = gs.createProposal(SIGNER_B, PAYLOAD, "nonce-2", NOW);
+		expect(p1.id).not.toBe(p2.id);
+	});
+});

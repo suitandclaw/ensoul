@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { parseArgs, printHelp, expandHome } from "./args.js";
 import { isWalletCommand, parseWalletArgs, runWalletCommand } from "./wallet.js";
+import { isGovernanceCommand, parseGovernanceArgs, runGovernanceCommand } from "./governance.js";
 import { EnsoulNodeRunner } from "./node-runner.js";
 import { PeerNetwork, parsePeerAddresses } from "../chain/peer-network.js";
 import { runGenesisCommand, loadGenesisBlock } from "./genesis-cmd.js";
@@ -82,6 +83,13 @@ async function main(): Promise<void> {
 	if (isWalletCommand(process.argv.slice(2))) {
 		const walletCmd = parseWalletArgs(process.argv.slice(2));
 		await runWalletCommand(walletCmd);
+		return;
+	}
+
+	// Governance commands: propose, sign, execute, cancel, list, show
+	if (isGovernanceCommand(process.argv.slice(2))) {
+		const govCmd = parseGovernanceArgs(process.argv.slice(2));
+		await runGovernanceCommand(govCmd);
 		return;
 	}
 
