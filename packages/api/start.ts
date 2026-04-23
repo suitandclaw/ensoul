@@ -36,6 +36,19 @@ const LOG_FILE = join(LOG_DIR, "api.log");
 // CometBFT RPC endpoint. Defaults to Ashburn (cloud, always available).
 const CMT_RPC = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
 
+// Pioneer key: loaded from file at startup (never from env var or hardcoded).
+// Used to authenticate admin requests to /v1/validators/register-pioneer.
+const PIONEER_KEY_FILE = join(LOG_DIR, "pioneer-key.txt");
+let LOADED_PIONEER_KEY = "";
+try {
+	LOADED_PIONEER_KEY = readFileSync(PIONEER_KEY_FILE, "utf-8").trim();
+	if (LOADED_PIONEER_KEY) {
+		process.stdout.write(`[api] Pioneer key loaded from ${PIONEER_KEY_FILE}\n`);
+	}
+} catch {
+	process.stdout.write(`[api] WARNING: Pioneer key file not found at ${PIONEER_KEY_FILE}\n`);
+}
+
 // ── Types ────────────────────────────────────────────────────────────
 
 interface StoreRequest {
@@ -2919,10 +2932,9 @@ async function main(): Promise<void> {
 			return reply.status(400).send({ error: "did, publicKey, and name are required" });
 		}
 
-		// Require ENSOUL_PIONEER_KEY header
-		const pioneerKey = process.env["ENSOUL_PIONEER_KEY"] ?? "";
+		// Require pioneer key header (loaded from file at startup)
 		const provided = req.headers["x-ensoul-pioneer-key"] as string ?? "";
-		if (!pioneerKey || provided !== pioneerKey) {
+		if (!LOADED_PIONEER_KEY || provided !== LOADED_PIONEER_KEY) {
 			return reply.status(403).send({ error: "Invalid or missing pioneer key" });
 		}
 

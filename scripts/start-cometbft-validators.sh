@@ -280,7 +280,6 @@ if [ "$MACHINE" = "mbp" ]; then
 		cd "$REPO_DIR"
 		ONBOARDING_KEY_PATH="genesis-keys/onboarding.json" \
 		TREASURY_KEY_PATH="genesis-keys/treasury.json" \
-		ENSOUL_PIONEER_KEY="REDACTED_PIONEER_KEY" \
 		npx tsx packages/api/start.ts --port 5050 \
 			> "$LOG_DIR/api.log" 2>&1 &
 		log "  API restarted (pid $!)"
