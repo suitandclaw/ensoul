@@ -22,13 +22,9 @@ import { appendFileSync } from "node:fs";
 const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const LOG_PATH = join(homedir(), ".ensoul", "self-heal.log");
 
-// Critical fields that MUST be present in the ABCI service file.
-// If any are missing, the service file is regenerated.
-const CRITICAL_FIELDS = [
-	"ExecStopPost",
-	"TimeoutStopSec",
-	"KillMode",
-] as const;
+// Critical fields per service. Only ABCI needs ExecStopPost.
+const ABCI_CRITICAL_FIELDS = ["ExecStopPost", "TimeoutStopSec", "KillMode"];
+const COMMON_CRITICAL_FIELDS = ["TimeoutStopSec", "KillMode"];
 
 interface Environment {
 	user: string;
@@ -85,12 +81,25 @@ function execSafe(cmd: string): string | null {
 	}
 }
 
+function readLiveField(liveServicePath: string, field: string): string | null {
+	if (!existsSync(liveServicePath)) return null;
+	const content = readFileSync(liveServicePath, "utf8");
+	const match = content.match(new RegExp(`^${field}=(.+)$`, "m"));
+	return match ? match[1] : null;
+}
+
 function renderTemplate(templatePath: string, env: Environment, liveServicePath: string): string {
 	let content = readFileSync(templatePath, "utf8");
 
-	// Replace template variables
-	content = content.replace(/\{\{USER\}\}/g, env.user);
-	content = content.replace(/\{\{HOME\}\}/g, env.home);
+	// Preserve User and HOME from the live service file.
+	// The healer runs inside ABCI (as root), but other services may
+	// run as a different user (e.g. ensoul). Trust the live file.
+	const liveUser = readLiveField(liveServicePath, "User") ?? env.user;
+	const liveHome = readLiveField(liveServicePath, "Environment=HOME")
+		?? (liveUser === "root" ? "/root" : `/home/${liveUser}`);
+
+	content = content.replace(/\{\{USER\}\}/g, liveUser);
+	content = content.replace(/\{\{HOME\}\}/g, liveHome);
 	content = content.replace(/\{\{REPO_PATH\}\}/g, env.repoPath);
 	content = content.replace(/\{\{DAEMON_HOME\}\}/g, env.daemonHome);
 	content = content.replace(/\{\{DATA_DIR\}\}/g, env.dataDir);
@@ -131,6 +140,7 @@ interface ServiceCheck {
 	name: string;
 	templateFile: string;
 	liveFile: string;
+	criticalFields: string[];
 }
 
 function getServiceChecks(repoPath: string): ServiceCheck[] {
@@ -139,23 +149,26 @@ function getServiceChecks(repoPath: string): ServiceCheck[] {
 			name: "ensoul-abci",
 			templateFile: join(repoPath, "scripts/templates/ensoul-abci.service"),
 			liveFile: "/etc/systemd/system/ensoul-abci.service",
+			criticalFields: ABCI_CRITICAL_FIELDS,
 		},
 		{
 			name: "ensoul-cometbft",
 			templateFile: join(repoPath, "scripts/templates/ensoul-cometbft.service"),
 			liveFile: "/etc/systemd/system/ensoul-cometbft.service",
+			criticalFields: COMMON_CRITICAL_FIELDS,
 		},
 		{
 			name: "ensoul-heartbeat",
 			templateFile: join(repoPath, "scripts/templates/ensoul-heartbeat.service"),
 			liveFile: "/etc/systemd/system/ensoul-heartbeat.service",
+			criticalFields: COMMON_CRITICAL_FIELDS,
 		},
 	];
 }
 
-function checkCriticalFields(liveContent: string): string[] {
+function checkCriticalFields(liveContent: string, fields: string[]): string[] {
 	const missing: string[] = [];
-	for (const field of CRITICAL_FIELDS) {
+	for (const field of fields) {
 		if (!liveContent.includes(field)) {
 			missing.push(field);
 		}
@@ -175,7 +188,7 @@ function healService(check: ServiceCheck, env: Environment): boolean {
 	}
 
 	const liveContent = readFileSync(check.liveFile, "utf8");
-	const missing = checkCriticalFields(liveContent);
+	const missing = checkCriticalFields(liveContent, check.criticalFields);
 
 	if (missing.length === 0) {
 		return false; // Healthy
