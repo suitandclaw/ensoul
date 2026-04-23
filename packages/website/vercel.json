@@ -22,6 +22,16 @@
       "statusCode": 302
     },
     {
+      "source": "/repair.sh",
+      "destination": "https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/repair-validator.sh",
+      "statusCode": 302
+    },
+    {
+      "source": "/repair",
+      "destination": "https://raw.githubusercontent.com/suitandclaw/ensoul/main/scripts/repair-validator.sh",
+      "statusCode": 302
+    },
+    {
       "source": "/validator-dashboard",
       "destination": "/pioneer.html",
       "statusCode": 301
