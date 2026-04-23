@@ -2,18 +2,26 @@
 // Auto-detects location across standard install paths.
 
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Identity } from "./types.js";
 
-const IDENTITY_PATHS = [
-  "/root/.ensoul/identity.json",
-  "/root/.ensoul/validator-0/identity.json",
-  "/home/ensoul/.ensoul/identity.json",
-  "/home/ensoul/.ensoul/validator-0/identity.json",
-];
+function getIdentityPaths(): string[] {
+  const home = homedir();
+  const paths = [
+    join(home, ".ensoul", "identity.json"),
+    join(home, ".ensoul", "validator-0", "identity.json"),
+  ];
+  // Also check standard Linux paths if home is not /root or /home/ensoul
+  if (home !== "/root") paths.push("/root/.ensoul/identity.json", "/root/.ensoul/validator-0/identity.json");
+  if (!home.startsWith("/home/ensoul")) paths.push("/home/ensoul/.ensoul/identity.json", "/home/ensoul/.ensoul/validator-0/identity.json");
+  return paths;
+}
 
 export function loadIdentity(): { did: string; privKey: Uint8Array } {
   let lastError: Error | null = null;
 
+  const IDENTITY_PATHS = getIdentityPaths();
   for (const path of IDENTITY_PATHS) {
     try {
       const raw = readFileSync(path, "utf-8");
