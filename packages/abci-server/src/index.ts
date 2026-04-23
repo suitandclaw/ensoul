@@ -11,6 +11,7 @@
 
 import { loadProto, startTSPServer } from "./tsp.js";
 import { createApplication } from "./application.js";
+import { startHealer, stopHealer } from "./self-heal.js";
 
 async function main(): Promise<void> {
 	const port = Number(process.argv.find((_, i, a) => a[i - 1] === "--port") ?? 26658);
@@ -32,6 +33,9 @@ async function main(): Promise<void> {
 	const app = createApplication(dataDir);
 	process.stdout.write(`[abci] Application created (state: ${dataDir})\n`);
 
+	// Start self-heal watchdog (checks service files hourly, Linux only)
+	startHealer();
+
 	// Start TSP server
 	const server = startTSPServer(port, app.handler);
 	process.stdout.write(`[abci] Waiting for CometBFT on port ${port}...\n`);
@@ -39,6 +43,7 @@ async function main(): Promise<void> {
 	// Handle shutdown
 	const shutdown = (): void => {
 		process.stdout.write("\n[abci] Shutting down...\n");
+		stopHealer();
 		server.close();
 		process.exit(0);
 	};

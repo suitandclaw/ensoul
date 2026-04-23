@@ -243,38 +243,64 @@ cd "$ENSOUL_DIR"
 git fetch origin main
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
+NEEDS_BUILD=false
 
 if [ "$LOCAL" != "$REMOTE" ]; then
+    NEEDS_BUILD=true
+    echo "  Code update needed: $(git rev-parse --short HEAD) -> $(git rev-parse --short origin/main)"
+
+    # Stop services BEFORE building to free memory on small VPS.
+    # A 2GB VPS cannot run validator services + turbo build concurrently.
+    echo "  Stopping services for build..."
+    systemctl stop "$CMT_SVC" 2>/dev/null || true
+    systemctl stop "$ABCI_SVC" 2>/dev/null || true
+    systemctl stop ensoul-heartbeat 2>/dev/null || true
+    sleep 2
+
     git stash --include-untracked 2>/dev/null || true
     git reset --hard origin/main
     echo "  Pulled to $(git rev-parse --short HEAD)"
 
+    # Limit turbo concurrency to prevent OOM on low-memory machines
+    export TURBO_CONCURRENCY=2
+
     if [ "$OWNER" != "root" ]; then
-        sudo -u "$OWNER" pnpm install --frozen-lockfile 2>&1 | tail -3
-        sudo -u "$OWNER" pnpm build 2>&1 | tail -3
+        sudo -u "$OWNER" TURBO_CONCURRENCY=2 pnpm install --frozen-lockfile 2>&1 | tail -3
+        sudo -u "$OWNER" TURBO_CONCURRENCY=2 pnpm build 2>&1 | tail -5
     else
         pnpm install --frozen-lockfile 2>&1 | tail -3
-        pnpm build 2>&1 | tail -3
+        pnpm build 2>&1 | tail -5
     fi
 
     DIST="packages/abci-server/dist"
     if [ ! -d "$DIST" ]; then
         echo "  ERROR: build failed (no dist directory)"
+        echo "  Attempting to restart services despite build failure..."
+        systemctl start "$ABCI_SVC" 2>/dev/null || true
+        sleep 3
+        systemctl start "$CMT_SVC" 2>/dev/null || true
+        systemctl start ensoul-heartbeat 2>/dev/null || true
         exit 1
     fi
     echo "  Build complete"
 else
-    echo "  Already at latest ($LOCAL)"
+    echo "  Already at latest ($(git rev-parse --short HEAD))"
 fi
 
 echo ""
 echo "--- Step 6: Restart services (Rule 19 order) ---"
 
-systemctl stop "$CMT_SVC" 2>/dev/null || true
-sleep 2
-systemctl restart "$ABCI_SVC"
-sleep 3
+if [ "$NEEDS_BUILD" = true ]; then
+    # Services were stopped in Step 5. Start them fresh.
+    systemctl start "$ABCI_SVC"
+else
+    # Services still running. Rule 19: stop CometBFT first, then restart ABCI.
+    systemctl stop "$CMT_SVC" 2>/dev/null || true
+    sleep 2
+    systemctl restart "$ABCI_SVC"
+fi
 
+sleep 3
 if ! ss -tlnp 2>/dev/null | grep -q ':26658' && ! lsof -iTCP:26658 -sTCP:LISTEN -t >/dev/null 2>&1; then
     sleep 5
 fi

@@ -1,0 +1,24 @@
+[Unit]
+Description=Ensoul CometBFT (via Cosmovisor)
+After=ensoul-abci.service
+Requires=ensoul-abci.service
+
+[Service]
+Type=simple
+User={{USER}}
+Environment=DAEMON_NAME=cometbft
+Environment=DAEMON_HOME={{DAEMON_HOME}}
+Environment=DAEMON_DATA_BACKUP_DIR={{DAEMON_HOME}}/backups
+Environment=DAEMON_ALLOW_DOWNLOAD_BINARIES=false
+Environment=DAEMON_RESTART_AFTER_UPGRADE=true
+Environment=PATH=/usr/local/go/bin:{{HOME}}/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME={{HOME}}
+ExecStart={{HOME}}/go/bin/cosmovisor run start --proxy_app=tcp://127.0.0.1:26658 --home {{DAEMON_HOME}}
+Restart=always
+RestartSec=5
+StandardOutput=append:{{DATA_DIR}}/cometbft.log
+StandardError=append:{{DATA_DIR}}/cometbft.log
+{{ENV_VARS}}
+
+[Install]
+WantedBy=multi-user.target

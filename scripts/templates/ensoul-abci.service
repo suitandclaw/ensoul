@@ -1,0 +1,24 @@
+[Unit]
+Description=Ensoul ABCI Server
+After=network.target
+
+[Service]
+TimeoutStopSec=30
+KillMode=mixed
+Type=simple
+User={{USER}}
+WorkingDirectory={{REPO_PATH}}
+Environment=PATH={{NODE_BIN_DIR}}:/usr/local/go/bin:{{HOME}}/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME={{HOME}}
+Environment=ENSOUL_REPO={{REPO_PATH}}
+Environment=DAEMON_HOME={{DAEMON_HOME}}
+ExecStart={{NODE_BIN_DIR}}/npx tsx packages/abci-server/src/index.ts --port 26658
+ExecStopPost={{REPO_PATH}}/scripts/auto-upgrade.sh
+Restart=always
+RestartSec=5
+StandardOutput=append:{{DATA_DIR}}/abci-server.log
+StandardError=append:{{DATA_DIR}}/abci-server.log
+{{ENV_VARS}}
+
+[Install]
+WantedBy=multi-user.target
