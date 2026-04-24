@@ -34,7 +34,7 @@ peer-to-peer node network. Token: $ENSL. Domain: ensoul.dev
 14. NEVER kill cloudflared or any process matching 'cloudflared'. The tunnel serves all public URLs. If it dies, explorer.ensoul.dev, status.ensoul.dev, api.ensoul.dev, and ensoul.dev all go dark. On Minis, the tunnel serves v1/v2/v3.ensoul.dev.
 15. NEVER touch SSH configuration on any machine. NEVER run systemctl restart ssh, systemctl reload ssh, systemctl start ssh, kill -HUP on sshd, or any command that affects the SSH daemon. NEVER edit sshd_config. NEVER enable UFW. SSH hardening is done manually by JD, never by Claude Code. This rule has zero exceptions.
 16. Every code fix must be verified against the BUILT output, not just source. After any TypeScript change: (a) Run pnpm build for the affected package if it has a dist/ directory (compiled packages: abci-server, ledger, node, explorer, identity, and others). (b) Grep the dist/ directory to confirm the change is present. (c) Restart the affected process. (d) Verify the process is running the new code by checking logs for a startup timestamp. Packages that run via tsx directly (monitor, telegram-bot, api, research-agents) have no build step but still require process restart and log verification. Never report a fix as complete until all steps are done.
-17. The monitor (packages/monitor/start.ts) runs on the Ashburn VPS (178.156.199.91) ONLY. Never start the monitor on MBP, Minis, or other cloud validators. Only one monitor instance should exist across the entire network. Multiple instances cause duplicate alerts. The Minis run CometBFT validators and the start script, nothing else. The Ashburn VPS runs ABCI, CometBFT, Telegram bot, explorer, API, and monitor.
+17. Infrastructure services (API, explorer, monitor, Telegram bot, compat proxy) run on the dedicated API VPS (187.127.249.128, Hostinger). Ashburn (178.156.199.91) runs ONLY validator services: ABCI, CometBFT, heartbeat. Never start infrastructure services on Ashburn, MBP, Minis, or cloud validators. Only one monitor instance should exist across the entire network. Multiple instances cause duplicate alerts.
 18. Every ABCI change must be tested on the local single-node testnet BEFORE any production deployment. Produce 100 blocks, verify appHash consistency, verify no crashes. No exceptions.
 19. ABCI upgrades must NEVER restart ABCI while CometBFT is connected. The correct order is always: stop CometBFT first, stop ABCI, start ABCI, wait 3 seconds, start CometBFT. On systemd validators, use systemctl stop/start in order. Never pkill while systemd is managing the service. If consensus WAL becomes corrupted, delete ~/.cometbft-ensoul/node/data/cs.wal/ and restart CometBFT.
 20. After any CometBFT restart, verify the validator has peers and is participating in consensus before moving to the next validator: curl localhost:26657/net_info must show peers > 0, curl localhost:26657/consensus_state must show advancing rounds. Do NOT proceed to the next validator until confirmed.
@@ -75,11 +75,21 @@ These procedures are MANDATORY. Read them before executing any related task.
 
 ### SOP 3b: Automatic Protocol Upgrades
 - For consensus-breaking changes, use the on-chain upgrade system instead of manual rolling updates.
-- Flow: (1) Push code changes to a git tag (e.g., v1.5.0). (2) Submit the upgrade via API: POST /v1/admin/upgrade with name, height (target block), and tag. (3) At the target height, every ABCI halts, writes upgrade-info.json, and exits. (4) scripts/auto-upgrade.sh runs via ExecStopPost, checks out the tag, rebuilds, and places the CometBFT binary for Cosmovisor. (5) systemd restarts ABCI, Cosmovisor restarts CometBFT with the upgrade binary.
-- The upgrade info field format: {"tag": "v1.5.0"} (auto-upgrade.sh reads this).
+- Flow: (1) Push code changes to main. (2) Cut a release: `./scripts/release.sh X.Y.Z`. (3) Submit the upgrade via API: POST /v1/admin/upgrade with name, height (target block), and tag. (4) At the target height, every ABCI halts, writes upgrade-info.json, and exits. (5) scripts/auto-upgrade.sh runs via ExecStopPost, checks out the tag, rebuilds, and places the CometBFT binary for Cosmovisor. (6) systemd restarts ABCI, Cosmovisor restarts CometBFT with the upgrade binary.
+- The upgrade info field format: {"tag": "vX.Y.Z"} (auto-upgrade.sh reads this).
 - To cancel a scheduled upgrade before the target height: POST /v1/admin/cancel-upgrade with name.
 - Validators that are offline during the upgrade will apply it on next restart (upgrade-info.json persists).
 - ALWAYS test upgrades on a local testnet first (SOP 3 still applies for testing).
+
+### SOP 3c: Release Process
+- Version bumps are explicit, never automatic. Run `./scripts/release.sh <version>` to cut a release.
+- The script bumps version.ts, commits, creates an annotated tag, pushes both, and verifies.
+- NEVER tag manually with `git tag`. NEVER rely on pre-push hooks to bump versions.
+- NEVER use `git commit --amend` to sneak in version bumps. Explicit commits only.
+- If a tag references code where version.ts does not contain the matching version string, that is a bug.
+- The old .githooks/pre-push auto-bump hook is disabled. Do not re-enable it.
+- After cutting a release, verify on canary (Ashburn) before broadcasting SOFTWARE_UPGRADE:
+  `ssh vps1 'cd /root/ensoul && git fetch origin --tags && git rev-parse vX.Y.Z^{commit}'`
 
 ### SOP 4: Validator Key Management
 - ALWAYS restore existing keys from ~/ensoul-key-vault/ instead of generating new ones.
@@ -94,17 +104,17 @@ These procedures are MANDATORY. Read them before executing any related task.
 - The ABCI entry point is packages/abci-server/src/index.ts (NOT start.ts).
 - CometBFT must be started via cosmovisor, not the raw cometbft binary.
 
-### SOP 6: Telegram Bot Deployment
-- The Telegram bot runs on the VPS (178.156.199.91), NOT on MBP.
-- Every code change that affects the bot MUST be deployed to the VPS.
+### SOP 6: Infrastructure Service Deployment
+- Infrastructure services (API, explorer, monitor, Telegram bot, compat proxy) run on the API VPS (187.127.249.128, SSH alias: api-vps).
+- Every code change that affects these services MUST be deployed to the API VPS.
 - After pushing to git:
-  1. SSH into VPS: ssh -p 2222 ensoul@178.156.199.91
-  2. Pull latest: cd ~/ensoul && sudo git fetch origin && sudo git reset --hard origin/main
-  3. Kill the bot: sudo pkill -f 'telegram-bot/start'
-  4. Restart the bot: sudo nohup npx tsx packages/telegram-bot/start.ts > /tmp/telegram-bot.log 2>&1 &
-  5. Verify the fix is active: grep for the relevant change in the deployed code
-- This step is MANDATORY for every bot-related code change. If you skip it, the VPS runs stale code.
-- The bot shares code with packages/shared/validator-health.ts. If that file changes, the bot must also be redeployed.
+  1. SSH into API VPS: ssh api-vps
+  2. Pull latest: cd /home/ensoul/ensoul && git fetch origin && git reset --hard origin/main
+  3. Rebuild: TURBO_CONCURRENCY=2 pnpm build
+  4. Restart affected service: systemctl restart ensoul-api (or ensoul-explorer, ensoul-monitor, ensoul-telegram-bot, ensoul-proxy)
+  5. Verify: systemctl is-active <service> and check logs
+- This step is MANDATORY for every infrastructure code change. If you skip it, the API VPS runs stale code.
+- CometBFT RPC is accessed via CMT_RPC env var (Ashburn public IP or Tailscale IP).
 
 ## Operational Rules
 - The chain is the database. Agent registrations, consciousness stores, and all state live on-chain, replicated by CometBFT consensus.
