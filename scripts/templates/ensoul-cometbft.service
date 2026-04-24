@@ -8,7 +8,6 @@ Type=simple
 User={{USER}}
 Environment=DAEMON_NAME=cometbft
 Environment=DAEMON_HOME={{DAEMON_HOME}}
-Environment=DAEMON_DATA_BACKUP_DIR={{DAEMON_HOME}}/backups
 Environment=DAEMON_ALLOW_DOWNLOAD_BINARIES=false
 Environment=DAEMON_RESTART_AFTER_UPGRADE=true
 Environment=PATH=/usr/local/go/bin:{{HOME}}/go/bin:/usr/local/bin:/usr/bin:/bin
