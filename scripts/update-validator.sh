@@ -99,7 +99,9 @@ cd "$ENSOUL_DIR"
 
 echo ""
 echo "Fetching latest code..."
-git fetch origin main
+BEFORE_HEAD=$(git rev-parse HEAD)
+echo "Current HEAD: $(git rev-parse --short HEAD)"
+git fetch origin --prune --tags
 
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
@@ -241,11 +243,11 @@ echo "Local:  $LOCAL"
 echo "Remote: $REMOTE"
 echo ""
 
-# Stash any local changes (shouldn't be any on a standard install)
-git stash --include-untracked 2>/dev/null || true
-
+# Force local state to match origin exactly. Handles divergent histories
+# from git-filter-repo rewrites, force pushes, or local modifications.
 git reset --hard origin/main
-echo "Code pulled. New HEAD: $(git rev-parse --short HEAD)"
+git clean -fd 2>/dev/null || true
+echo "Updated from $(git rev-parse --short $BEFORE_HEAD) to $(git rev-parse --short HEAD)"
 echo "New version:"
 grep VERSION packages/node/src/version.ts 2>/dev/null || echo "  (unknown)"
 

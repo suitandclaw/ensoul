@@ -138,12 +138,14 @@ cd "$REPO_DIR" || fail "Cannot cd to $REPO_DIR"
 
 # ── Step 1: Fetch tags from origin ──────────────────────────────────
 
+BEFORE_HEAD=$(git rev-parse HEAD)
+log "Current HEAD: $(git rev-parse --short HEAD)"
 log "Fetching tags from origin..."
 fetch_attempt=0
-while ! git fetch origin --tags 2>> "$LOG_FILE"; do
+while ! git fetch origin --prune --tags 2>> "$LOG_FILE"; do
     fetch_attempt=$((fetch_attempt + 1))
     if [ "$fetch_attempt" -ge 2 ]; then
-        fail "git fetch origin --tags failed after 2 attempts. Network issue or remote unreachable."
+        fail "git fetch origin --prune --tags failed after 2 attempts. Network issue or remote unreachable."
     fi
     log "git fetch failed, retrying in 10s..."
     sleep 10
@@ -172,6 +174,7 @@ log "Resetting to $GIT_TAG ($EXPECTED_COMMIT)..."
 if ! git reset --hard "$GIT_TAG" 2>> "$LOG_FILE"; then
     fail "git reset --hard $GIT_TAG failed."
 fi
+git clean -fd 2>/dev/null || true
 
 # ── Step 3: Verify the reset landed on the right commit ─────────────
 
@@ -179,7 +182,7 @@ ACTUAL_COMMIT=$(git rev-parse HEAD)
 if [ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]; then
     fail "Post-reset HEAD ($ACTUAL_COMMIT) does not match expected ($EXPECTED_COMMIT). Git state is inconsistent."
 fi
-log "Verified: HEAD is at $GIT_TAG ($(git rev-parse --short HEAD))"
+log "Updated from $(git rev-parse --short $BEFORE_HEAD) to $(git rev-parse --short HEAD) ($GIT_TAG)"
 
 # ── Step 4: Rebuild ─────────────────────────────────────────────────
 

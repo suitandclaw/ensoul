@@ -233,14 +233,16 @@ if [ -f "$ENSOUL_DIR/scripts/auto-upgrade.sh" ]; then
     chmod +x "$ENSOUL_DIR/scripts/auto-upgrade.sh"
     echo "  auto-upgrade.sh present and executable"
 else
-    echo "  WARNING: auto-upgrade.sh not found (will be created by git pull)"
+    echo "  WARNING: auto-upgrade.sh not found (will be created by code update)"
 fi
 
 echo ""
 echo "--- Step 5: Pull latest code and build ---"
 
 cd "$ENSOUL_DIR"
-git fetch origin main
+BEFORE_HEAD=$(git rev-parse HEAD)
+echo "  Current HEAD: $(git rev-parse --short HEAD)"
+git fetch origin --prune --tags
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 NEEDS_BUILD=false
@@ -257,9 +259,11 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     systemctl stop ensoul-heartbeat 2>/dev/null || true
     sleep 2
 
-    git stash --include-untracked 2>/dev/null || true
+    # Force local state to match origin. Handles divergent histories
+    # from git-filter-repo rewrites or force pushes.
     git reset --hard origin/main
-    echo "  Pulled to $(git rev-parse --short HEAD)"
+    git clean -fd 2>/dev/null || true
+    echo "  Updated from $(git rev-parse --short $BEFORE_HEAD) to $(git rev-parse --short HEAD)"
 
     # Limit turbo concurrency to prevent OOM on low-memory machines
     export TURBO_CONCURRENCY=2
