@@ -8,6 +8,31 @@ import type { Heartbeat, HealthState, ValidatorTelemetry } from "./types.js";
 import type { StateStore } from "./state-store.js";
 import type { AlertDispatcher } from "./alerts.js";
 
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+function base58btcEncode(bytes: Uint8Array): string {
+  let leadingZeros = 0;
+  while (leadingZeros < bytes.length && bytes[leadingZeros] === 0) leadingZeros++;
+  let n = 0n;
+  for (const b of bytes) n = (n << 8n) | BigInt(b);
+  let out = "";
+  while (n > 0n) {
+    const r = Number(n % 58n);
+    n /= 58n;
+    out = BASE58_ALPHABET[r] + out;
+  }
+  return "1".repeat(leadingZeros) + out;
+}
+
+function ed25519PubkeyToDid(pubkey: Uint8Array): string {
+  // multicodec ed25519-pub prefix (0xed 0x01) + raw 32-byte pubkey, base58btc-encoded with 'z' multibase prefix.
+  const mc = new Uint8Array(2 + pubkey.length);
+  mc[0] = 0xed;
+  mc[1] = 0x01;
+  mc.set(pubkey, 2);
+  return "did:key:z" + base58btcEncode(mc);
+}
+
 export class HealthEngine {
   private readonly store: StateStore;
   private readonly dispatcher: AlertDispatcher;
@@ -76,8 +101,45 @@ export class HealthEngine {
     this.store.set(did, entry);
   }
 
+  private async fetchActiveConsensusDids(): Promise<Set<string> | null> {
+    const rpcUrl = process.env["CMT_RPC"] ?? "http://178.156.199.91:26657";
+    try {
+      const res = await fetch(`${rpcUrl}/validators?per_page=100`, {
+        signal: AbortSignal.timeout(TELEMETRY_CONFIG.RETENTION_RPC_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`upstream ${res.status}`);
+      const wrapper = await res.json() as { result?: { validators?: Array<{ pub_key?: { value?: string } }> } };
+      const validators = wrapper.result?.validators ?? [];
+      const dids = new Set<string>();
+      for (const v of validators) {
+        const pkB64 = v.pub_key?.value;
+        if (!pkB64) continue;
+        const pk = new Uint8Array(Buffer.from(pkB64, "base64"));
+        if (pk.length !== 32) continue;
+        dids.add(ed25519PubkeyToDid(pk));
+      }
+      return dids;
+    } catch (err) {
+      console.error("[telemetry] retention: failed to fetch consensus set; skipping eviction this tick:", err);
+      return null;
+    }
+  }
+
   async tick(allReporters: ValidatorTelemetry[]): Promise<void> {
     const now = Date.now();
+
+    // Retention pass: drop entries that are stale AND no longer in active consensus.
+    // Skipped entirely if the consensus fetch fails — never evict on incomplete information.
+    const activeDids = await this.fetchActiveConsensusDids();
+    if (activeDids) {
+      for (const entry of this.store.all()) {
+        if (now - entry.lastSeenAt > TELEMETRY_CONFIG.RETENTION_AGE_MS && !activeDids.has(entry.did)) {
+          this.store.delete(entry.did);
+          const ageH = Math.floor((now - entry.lastSeenAt) / 3_600_000);
+          console.log(`[telemetry] retention: evicted ${entry.did} (lastSeen=${ageH}h ago, not in consensus)`);
+        }
+      }
+    }
 
     for (const entry of this.store.all()) {
       const wasBootResumed = entry.bootResumed === true;
