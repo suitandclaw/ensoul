@@ -4,6 +4,8 @@
 
 import { readFile } from "node:fs/promises";
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import type { HeartbeatPayload } from "./types.js";
 
 const RPC = "http://localhost:26657";
@@ -58,22 +60,15 @@ export async function collectMetrics(): Promise<Omit<HeartbeatPayload, "version"
     // Non-fatal: report peers=0
   }
 
-  // ABCI version: read from the repo's version.ts (fail hard if missing)
-  let abci_version: string | null = null;
-  for (const path of [
-    "packages/node/src/version.ts",
-    "../node/src/version.ts",
-    "../../packages/node/src/version.ts",
-  ]) {
-    try {
-      const content = await readFile(path, "utf-8");
-      const match = content.match(/VERSION\s*=\s*"([^"]+)"/);
-      if (match && match[1]) { abci_version = match[1]; break; }
-    } catch { /* try next */ }
+  // ABCI version: read from the repo's version.ts (fail hard if missing).
+  // Resolve from import.meta.url so the read survives cwd changes (deploy-renames).
+  const versionPath = resolve(fileURLToPath(import.meta.url), "../../../node/src/version.ts");
+  const versionContent = await readFile(versionPath, "utf-8");
+  const versionMatch = versionContent.match(/VERSION\s*=\s*"([^"]+)"/);
+  if (!versionMatch || !versionMatch[1]) {
+    throw new Error("Could not read ABCI version from " + versionPath);
   }
-  if (!abci_version) {
-    throw new Error("Could not read ABCI version from packages/node/src/version.ts");
-  }
+  const abci_version = versionMatch[1];
 
   const result: Omit<HeartbeatPayload, "version" | "did" | "timestamp" | "signature"> = {
     chain_id,
