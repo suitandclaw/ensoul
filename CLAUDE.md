@@ -90,6 +90,12 @@ These procedures are MANDATORY. Read them before executing any related task.
 - The old .githooks/pre-push auto-bump hook is disabled. Do not re-enable it.
 - After cutting a release, verify on canary (Ashburn) before broadcasting SOFTWARE_UPGRADE:
   `ssh vps1 'cd /root/ensoul && git fetch origin --tags && git rev-parse vX.Y.Z^{commit}'`
+- Known issue: `pnpm build` dirties `packages/github-action/dist/index.js` due to ncc rebuild non-determinism. `release.sh`'s clean-tree check will refuse to run after a build verification. Fix options: (a) ncc deterministic flags, (b) exclude github-action from build verification, (c) release.sh whitelist for build artifacts. Workaround until fixed: `git checkout -- packages/github-action/dist/` after `pnpm build`, before running `release.sh`.
+- SOP gap: API VPS layout differs from validators. API VPS (187.127.249.128): repo at `/home/ensoul/ensoul/`, runs as `ensoul` user. Validators: repo at `/root/ensoul/`, run as root. Update commands must use `sudo -u ensoul` on the API VPS for git/pnpm, and keep `systemctl` as root.
+- SOP gap: API uses `tsx` at runtime, not `dist/`. Verification of code-in-flight must use `git rev-parse HEAD` plus service `ActiveEnterTimestamp`, NOT grep against `dist/`.
+- SOP gap: cloud validator tooling not uniformly installed. Some Pioneer installs got nvm+node+npx but missed pnpm. Pre-check `which pnpm` before any deploy. Install via `corepack enable && corepack prepare pnpm@latest --activate` if missing.
+- Additional: deploy commands using `&&` chain should explicitly fail when any step's exit code is non-zero. Wrap deploy steps in `set -e` or use ssh `... || exit 1` on critical commands. The uswest1 case showed the `&&` chain didn't break as expected on missing pnpm.
+- SOP gap: Mac deploys must export `PATH=/opt/homebrew/bin:$PATH` explicitly. macOS non-interactive ssh PATH excludes `/opt/homebrew/bin` even though Homebrew installs there by default. Mirror the Linux nvm PATH-export pattern.
 
 ### SOP 4: Validator Key Management
 - ALWAYS restore existing keys from ~/ensoul-key-vault/ instead of generating new ones.
