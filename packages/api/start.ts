@@ -960,13 +960,36 @@ async function main(): Promise<void> {
 
 	// ── Genesis file for new validators ──────────────────────────
 
+	let genesisCache: { body: string; expiresAt: number } | null = null;
+	const GENESIS_CACHE_MS = 5 * 60 * 1000;
+
 	app.get("/genesis", async (_req, reply) => {
 		try {
 			const genesisPath = join(homedir(), ".cometbft-ensoul", "node", "config", "genesis.json");
 			const raw = await readFile(genesisPath, "utf-8");
 			return reply.type("application/json").send(raw);
 		} catch {
-			return reply.status(404).send({ error: "Genesis file not found" });
+			// Fall through to CMT_RPC fallback.
+		}
+
+		if (genesisCache && genesisCache.expiresAt > Date.now()) {
+			return reply.type("application/json").send(genesisCache.body);
+		}
+
+		try {
+			const res = await fetch(`${CMT_RPC}/genesis`, { signal: AbortSignal.timeout(5000) });
+			if (!res.ok) throw new Error(`upstream ${res.status}`);
+			const wrapper = await res.json() as { result?: { genesis?: unknown } };
+			const genesis = wrapper.result?.genesis;
+			if (!genesis) throw new Error("missing result.genesis");
+			const body = JSON.stringify(genesis);
+			genesisCache = { body, expiresAt: Date.now() + GENESIS_CACHE_MS };
+			return reply.type("application/json").send(body);
+		} catch (err) {
+			return reply.status(503).send({
+				error: "Genesis file unavailable: local file missing and CMT_RPC fallback failed",
+				detail: err instanceof Error ? err.message : String(err),
+			});
 		}
 	});
 
